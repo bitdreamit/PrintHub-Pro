@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PrintHub Pro - Options</title>
+<style>
+  :root { --blue:#1d4ed8; --ink:#0f172a; --mut:#64748b; --line:#e2e8f0;
+          --bg:#f5f8fc; --ok:#16a34a; --bad:#dc2626; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font:14px/1.55 "Segoe UI",system-ui,sans-serif; color:var(--ink);
+         background:var(--bg); padding-bottom:60px; }
+  header { background:linear-gradient(135deg,#1e3a8a,#1d4ed8); color:#fff;
+           padding:22px 32px; display:flex; align-items:center; gap:12px; }
+  header .logo { width:36px; height:36px; border-radius:9px; background:#fff;
+                 color:var(--blue); font-weight:800; font-size:20px;
+                 display:flex; align-items:center; justify-content:center; }
+  header h1 { font-size:19px; font-weight:650; }
+  header p { font-size:12px; opacity:.85; }
+  main { max-width:860px; margin:24px auto; padding:0 20px; }
+  section { background:#fff; border:1px solid var(--line); border-radius:12px;
+            padding:20px 22px; margin-bottom:16px; }
+  h2 { font-size:15px; margin-bottom:4px; }
+  .sub { color:var(--mut); font-size:12px; margin-bottom:14px; }
+  .row { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  label { font-weight:600; font-size:13px; min-width:150px; }
+  input[type=text], input[type=password], select {
+    flex:1; min-width:260px; padding:8px 10px; border:1px solid var(--line);
+    border-radius:8px; font:13px "Segoe UI",system-ui,sans-serif; }
+  input:focus, select:focus { outline:2px solid #bfdbfe; border-color:var(--blue); }
+  button { border:1px solid var(--line); background:#fff; border-radius:8px;
+           padding:8px 14px; font:600 13px "Segoe UI",system-ui,sans-serif;
+           cursor:pointer; }
+  button.primary { background:var(--blue); border-color:var(--blue); color:#fff; }
+  button.primary:hover { background:#1e40af; }
+  button:hover { border-color:var(--blue); color:var(--blue); }
+  button.danger:hover { border-color:var(--bad); color:var(--bad); }
+  button.mini { padding:4px 10px; font-size:12px; }
+  .toggle { display:flex; align-items:flex-start; gap:10px; padding:8px 0; }
+  .toggle input { margin-top:3px; }
+  .toggle div p { color:var(--mut); font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { text-align:left; color:var(--mut); font-size:11px; text-transform:uppercase;
+       letter-spacing:.06em; padding:7px 8px; border-bottom:1px solid var(--line); }
+  td { padding:7px 8px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+  td input[type=text] { min-width:0; width:100%; padding:6px 8px; }
+  td select { min-width:0; width:100%; padding:6px 8px; }
+  .st { font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:9px; }
+  .st.printed, .st.queued { background:#dcfce7; color:#166534; }
+  .st.printing { background:#dbeafe; color:#1e40af; }
+  .st.failed, .st.canceled { background:#fee2e2; color:#991b1b; }
+  #saveMsg { display:inline-block; margin-left:10px; font-size:12px; font-weight:600; }
+  .note { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af;
+          border-radius:8px; padding:10px 12px; font-size:12.5px; margin-top:10px; }
+  pre { background:#0f172a; color:#e2e8f0; border-radius:8px; padding:14px;
+        font:12px/1.6 Consolas,monospace; overflow-x:auto; margin-top:10px; }
+  pre b { color:#93c5fd; font-weight:600; }
+  .mono { font-family:Consolas,monospace; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">P</div>
+  <div>
+    <h1>PrintHub Pro</h1>
+    <p>Print from any web page to any printer &middot; silent &middot; 100% local &middot; MIT open source</p>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>Connection</h2>
+    <p class="sub">Link the extension to the PrintHub Pro hub running on this computer.</p>
+    <div class="row">
+      <label>Hub URL</label>
+      <input type="text" id="hubUrl" placeholder="http://127.0.0.1:9235">
+    </div>
+    <div class="row">
+      <label>Token</label>
+      <input type="password" id="token" placeholder="PrintHub-2024">
+      <button class="primary" id="bTestHub">Connect</button>
+      <span id="hubState" class="mono"></span>
+    </div>
+    <div class="note">Start the hub with <b>python printhub.py serve</b>.
+      Default token: <span class="mono">PrintHub-2024</span>. Change it with the
+      <span class="mono">PRINTHUB_TOKEN</span> environment variable.</div>
+  </section>
+
+  <section>
+    <h2>Printing</h2>
+    <p class="sub">Where jobs go when no routing rule matches.</p>
+    <div class="row">
+      <label>Default printer</label>
+      <select id="defaultPrinter"><option value="">OS default printer</option></select>
+      <button class="mini" id="bReloadPrinters">Reload list</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Auto-print &amp; routing rules</h2>
+    <p class="sub">First matching rule wins. Patterns are globs: <span class="mono">*://www.htncr.org/lab/medical_reports/*</span>.
+      <b>Auto</b> = print automatically when the URL is opened.</p>
+    <table id="rulesTable">
+      <thead><tr>
+        <th style="width:44%">URL pattern</th><th style="width:22%">Printer</th>
+        <th style="width:14%">Action</th><th style="width:8%">Auto</th><th></th>
+      </tr></thead>
+      <tbody id="rulesBody"></tbody>
+    </table>
+    <div class="row" style="margin-top:12px">
+      <button id="bAddRule">+ Add rule</button>
+      <span id="saveMsg"></span>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label>Reprint a PDF link</label>
+      <input type="text" id="pdfUrl" placeholder="https://www.htncr.org/lab/medical_reports/pdf-test/.../605310">
+      <button id="bPrintPdf">Print it</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Behavior</h2>
+    <div class="toggle">
+      <input type="checkbox" id="autoPrintAllPdfs">
+      <div><b>Print every PDF opened in the browser (simple mode)</b>
+        <p>ANY PDF you open - any site, any URL - is printed silently and its tab closes. No print view, no dialog, no rules needed. Turn off to auto-print only URLs matching your rules below.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="hookPrint">
+      <div><b>Intercept window.print()</b>
+        <p>Web apps (Odoo, POS, dashboards) that call window.print() are printed silently through the hub instead of opening the dialog. Also intercepts Ctrl+P / Cmd+P.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="closeAfterPrint">
+      <div><b>Close tab after auto-print</b>
+        <p>When a rule auto-prints an opened URL, the tab is closed right after the job is queued - zero browser view, the paper just comes out.</p></div>
+    </div>
+    <div class="toggle">
+      <select id="failFallback">
+        <option value="tab">Open the URL in a new tab</option>
+        <option value="none">Stay silent (no tab)</option>
+      </select>
+      <div><b>When a page print call fails</b>
+        <p>Controls the automatic fallback of printPdfLink() / printPdf() on web pages: if the hub cannot print a PDF (hub off, printer error, not a PDF), either open the URL in a normal tab so the browser prints it the default way, or stay completely silent - nothing opens, the failure is only logged in the job history. A per-call opts.fallback (true/false) in page JS overrides this setting.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="contextMenu">
+      <div><b>Right-click menu</b>
+        <p>Add "PrintHub Pro" to the context menu (print page / selection / linked PDF / screenshot).</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="badge">
+      <div><b>Toolbar badge</b>
+        <p>Green OK / red ! on the extension icon after every job.</p></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="bSave">Save settings</button>
+      <button id="bTestPage">Send test page</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Job history <span class="sub" style="display:inline">(last 100)</span></h2>
+    <p class="sub">Served by the hub from SQLite. Survives restarts.</p>
+    <table>
+      <thead><tr><th>#</th><th>Time</th><th>Title</th><th>Printer</th>
+        <th>Kind</th><th>Status</th><th style="width:130px"></th></tr></thead>
+      <tbody id="jobsBody"></tbody>
+    </table>
+    <div class="row" style="margin-top:10px">
+      <button class="mini" id="bReloadJobs">Refresh</button>
+      <button class="mini danger" id="bClearHist">Clear extension copy</button>
+    </div>
+  </section>
+
+  <section id="api">
+    <h2>Developer API - <span class="mono">window.printhub</span></h2>
+    <p class="sub">Available on every page (when the hook is enabled). All methods return Promises.</p>
+<pre>
+&lt;script&gt;
+  <b>await</b> window.printhub.status();            <i>// hub health</i>
+  <b>await</b> window.printhub.printers();          <i>// [{name, is_default}]</i>
+  <b>await</b> window.printhub.printPage({title});  <i>// print current page</i>
+  <b>await</b> window.printhub.printPdf(url, {title, printer});
+  <b>await</b> window.printhub.print({
+    title: 'Receipt 12', printer: '', copies: 1,
+    text: '|center|HELLO|',        <i>// or:</i>
+    html: '&lt;h1&gt;Invoice&lt;/h1&gt;',      <i>// or:</i>
+    pdfBase64: 'JVBERi0...',       <i>// or:</i>
+    pdfUrl: 'https://.../report.pdf'
+  });
+&lt;/script&gt;
+</pre>
+    <div class="note">Direct HTTP also works from any language:
+      <span class="mono">POST http://127.0.0.1:9235/print</span> with header
+      <span class="mono">X-PrintHub-Token</span> - see docs/API.md in the package.</div>
+  </section>
+</main>
+
+<script src="options.js"></script>
+</body>
+</html>

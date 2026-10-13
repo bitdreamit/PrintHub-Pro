@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# ============================================================
+#  PrintHub Pro - ONE-COMMAND Unix setup  (v1.2.0)
+#  Linux + macOS. Zero questions, no sudo needed for the
+#  auto-run itself:
+#    1. stops any OLD hub still holding port 9235
+#    2. checks python3 + CUPS lp
+#    3. starts the hub now and health-checks it
+#    4. registers AUTO-RUN at every login:
+#         Linux + systemd -> systemd --user service
+#         macOS           -> LaunchAgent
+#         other desktop   -> XDG autostart
+#  Undo = bash install/uninstall-unix.sh
+# ============================================================
+set -u
+
+echo ""
+echo "  =============================================="
+echo "   PrintHub Pro  -  one-click setup + auto-run"
+echo "  =============================================="
+echo ""
+
+BASE="$(cd "$(dirname "$0")/.." && pwd)"
+HUB="$BASE/hub/printhub.py"
+PORT=9235
+OS="$(uname -s)"
+
+# ---- 1) python3 -------------------------------------------------------
+if command -v python3 >/dev/null 2>&1; then
+    echo "[OK] Python 3: $(python3 --version 2>&1)"
+else
+    echo "[!] python3 not found."
+    echo "    Debian/Ubuntu :  sudo apt install python3"
+    echo "    Fedora        :  sudo dnf install python3"
+    echo "    macOS         :  brew install python3"
+    exit 1
+fi
+
+# ---- 2) printing backend (CUPS lp) ------------------------------------
+if [ "$OS" = "Darwin" ]; then
+    echo "[OK] macOS - lp is built in"
+elif command -v lp >/dev/null 2>&1; then
+    echo "[OK] CUPS lp found: $(command -v lp)"
+else
+    echo "[..] lp not found - installing cups-client (one sudo) ..."
+    if command -v apt >/dev/null 2>&1; then
+        sudo apt install -y cups-client || true
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y cups || true
+    elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --noconfirm cups || true
+    fi
+    command -v lp >/dev/null 2>&1 \
+        && echo "[OK] CUPS lp installed" \
+        || echo "[!] lp still missing - PDF printing will fail until cups-client is installed"
+fi
+
+# ---- 3) stop any OLD hub holding the port -----------------------------
+if command -v lsof >/dev/null 2>&1; then
+    OLD="$(lsof -ti tcp:$PORT -sTCP:LISTEN 2>/dev/null || true)"
+    if [ -n "$OLD" ]; then
+        kill -9 $OLD 2>/dev/null || true
+        echo "[OK] Old hub on port $PORT stopped"
+    else
+        echo "[OK] Port $PORT was already free"
+    fi
+else
+    echo "[..] lsof not available - skipped old-hub cleanup"
+fi
+
+# ---- 4) start the hub now ---------------------------------------------
+mkdir -p "$HOME/.printhub"
+( cd "$BASE/hub" && nohup python3 printhub.py serve >> "$HOME/.printhub/hub.out" 2>&1 & )
+UP=0
+for _ in 1 2 3 4 5 6 7 8; do
+    sleep 1
+    if curl -s "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -q version; then UP=1; break; fi
+done
+if [ "$UP" = "1" ]; then
+    echo "[OK] Hub is running:  http://127.0.0.1:$PORT"
+else
+    echo "[!] Health check failed - see ~/.printhub/hub.out"
+fi
+
+# ---- 5) AUTO-RUN at every login (no questions asked) -------------------
+SYSTEMD_UNIT="$HOME/.config/systemd/user/printhub.service"
+PLIST="$HOME/Library/LaunchAgents/com.bitdream.it.printhub.plist"
+XDG_AUTOSTART="$HOME/.config/autostart/printhub.desktop"
+PYBIN="$(command -v python3)"
+
+if [ "$OS" = "Darwin" ]; then
+    # macOS: LaunchAgent - starts at login, restarts if it crashes
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cat > "$PLIST" <<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.bitdream.it.printhub</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$PYBIN</string>
+        <string>$HUB</string>
+        <string>serve</string>
+    </array>
+    <key>WorkingDirectory</key><string>$BASE/hub</string>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>$HOME/.printhub/hub.out</string>
+    <key>StandardErrorPath</key><string>$HOME/.printhub/hub.out</string>
+</dict>
+</plist>
+XML
+    launchctl unload "$PLIST" 2>/dev/null || true
+    launchctl load "$PLIST"
+    echo "[OK] macOS auto-run installed (LaunchAgent com.bitdream.it.printhub)"
+    echo "     control:  launchctl list | grep printhub"
+
+elif command -v systemctl >/dev/null 2>&1 && [ -n "${XDG_RUNTIME_DIR:-}" ] \
+     && systemctl --user is-system-running >/dev/null 2>&1; then
+    # Linux with a user systemd: NO sudo required at all
+    mkdir -p "$HOME/.config/systemd/user"
+    cat > "$SYSTEMD_UNIT" <<UNIT
+[Unit]
+Description=PrintHub Pro - local print hub
+
+[Service]
+ExecStart=$PYBIN $HUB serve
+WorkingDirectory=$BASE/hub
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+UNIT
+    systemctl --user daemon-reload
+    systemctl --user enable --now printhub 2>/dev/null || systemctl --user restart printhub
+    echo "[OK] Linux auto-run installed (systemd --user service)"
+    echo "     control:  systemctl --user status|stop|restart printhub"
+    # optional: run even before first login / after logout (one root command)
+    if ! loginctl show-user "$USER" 2>/dev/null | grep -q "Linger=yes"; then
+        if sudo -n loginctl enable-linger "$USER" 2>/dev/null; then
+            echo "[OK] Linger enabled - hub survives logout and runs before login"
+        else
+            echo "[..] Optional: run 'sudo loginctl enable-linger $USER' once"
+            echo "     to keep the hub alive even when you log out."
+        fi
+    fi
+
+else
+    # last resort: XDG autostart (any desktop Linux, no sudo)
+    mkdir -p "$HOME/.config/autostart"
+    WRAPPER="$HOME/.printhub/start-hub.sh"
+    cat > "$WRAPPER" <<SH
+#!/bin/sh
+exec "$PYBIN" "$HUB" serve
+SH
+    chmod +x "$WRAPPER"
+    cat > "$XDG_AUTOSTART" <<DESK
+[Desktop Entry]
+Type=Application
+Name=PrintHub Pro
+Comment=Silent print bridge - http://127.0.0.1:9235
+Exec="$WRAPPER"
+Terminal=false
+X-GNOME-Autostart-enabled=true
+DESK
+    echo "[OK] Auto-run installed (XDG autostart - starts with your desktop)"
+fi
+
+echo ""
+echo "  Setup finished - automatic from now on:"
+echo "    hub   : http://127.0.0.1:$PORT      logs: ~/.printhub/hub.out"
+echo "    Chrome: chrome://extensions > Developer mode > Load unpacked"
+echo "            select the extension/ folder, then press Connect"
+echo "    uninstall:  bash install/uninstall-unix.sh"
+echo ""

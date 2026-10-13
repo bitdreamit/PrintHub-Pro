@@ -1,0 +1,17 @@
+Package: printhub-pro
+Version: 1.4.0
+Section: utils
+Priority: optional
+Architecture: all
+Depends: python3
+Recommends: cups-client, curl
+Suggests: chromium | google-chrome-stable | microsoft-edge
+Maintainer: Bitdream IT <bitdreamit@localhost>
+Installed-Size: 300
+Description: PrintHub Pro - silent print bridge for browsers and Laravel
+ Local HTTP hub (127.0.0.1:9235) that silently prints PDFs and web
+ pages to the default printer via Chrome headless or CUPS lp.
+ Ships a systemd user service (auto-run at login, no root needed)
+ plus an XDG autostart fallback for non-systemd desktops.
+ Includes a Chrome extension in the companion ZIP (PrintHub-Pro-
+ Extension) for browser integration.

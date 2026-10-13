@@ -1,0 +1,10 @@
+#!/bin/sh
+# PrintHub Pro - session starter (used by XDG autostart).
+# Starts the hub only when it is not already answering on :9235,
+# so it is safe even when the systemd user service is also enabled.
+if command -v curl >/dev/null 2>&1; then
+    if curl -s --max-time 2 http://127.0.0.1:9235/health 2>/dev/null | grep -q '"ok"'; then
+        exit 0
+    fi
+fi
+exec /usr/bin/python3 /opt/printhub/hub/printhub.py serve

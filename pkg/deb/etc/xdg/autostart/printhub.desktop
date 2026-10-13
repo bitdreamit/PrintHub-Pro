@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=PrintHub Pro
+Comment=Silent print bridge - http://127.0.0.1:9235
+Exec=/usr/bin/printhub-start
+Terminal=false
+X-GNOME-Autostart-enabled=true

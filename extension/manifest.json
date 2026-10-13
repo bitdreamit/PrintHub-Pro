@@ -1,0 +1,62 @@
+{
+  "manifest_version": 3,
+  "name": "PrintHub Pro — Print from Any Web Page",
+  "short_name": "PrintHub Pro",
+  "version": "1.4.0",
+  "description": "Print any web page, PDF, selection or screenshot to ANY printer via your local PrintHub Pro hub. Silent, no print dialog, 100% local.",
+  "author": "Bitdream IT",
+  "homepage_url": "https://github.com/bitdreamit/printhub-pro",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "PrintHub Pro",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "notifications"
+  ],
+  "storage": {
+    "managed_schema": "managed.json"
+  },
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/relay.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "commands": {
+    "print-current-tab": {
+      "suggested_key": { "default": "Alt+P" },
+      "description": "Print the current tab with PrintHub Pro"
+    }
+  }
+}

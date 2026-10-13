@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "properties": {
+    "hubUrl": {
+      "type": "string",
+      "description": "PrintHub Pro hub base URL, e.g. http://127.0.0.1:9235"
+    },
+    "token": {
+      "type": "string",
+      "description": "Hub API token (must match PRINTHUB_TOKEN of the hub)"
+    },
+    "defaultPrinter": {
+      "type": "string",
+      "description": "Default printer name. Empty = OS default printer. Use __file__ for save-as-PDF."
+    },
+    "hookPrint": {
+      "type": "boolean",
+      "description": "Intercept window.print() calls and route them to the hub"
+    },
+    "autoPrintAllPdfs": {
+      "type": "boolean",
+      "default": true,
+      "description": "Simple mode: any PDF opened in the browser is printed silently and its tab closes, no rules needed."
+    },
+    "failFallback": {
+      "type": "string",
+      "enum": [
+        "tab",
+        "none"
+      ],
+      "default": "tab",
+      "description": "What happens when a page's silent print call (printPdfLink / printPdf) fails: 'tab' opens the URL in a new tab (browser fallback), 'none' stays completely silent."
+    },
+    "closeAfterPrint": {
+      "type": "boolean",
+      "description": "Close the tab automatically after a rule auto-prints its URL (no browser view)"
+    },
+    "rules": {
+      "type": "array",
+      "description": "URL routing rules. First matching rule wins.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          },
+          "printer": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "pdf",
+              "page"
+            ]
+          },
+          "auto": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

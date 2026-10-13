@@ -1,0 +1,17 @@
+#!/bin/sh
+# stop the hub on remove/purge - best-effort only
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl stop printhub 2>/dev/null || true
+    fi
+    TARGET="${SUDO_USER:-$LOGNAME}"
+    if [ -n "$TARGET" ] && [ "$TARGET" != "root" ] && command -v systemctl >/dev/null 2>&1; then
+        TUID="$(id -u "$TARGET" 2>/dev/null || true)"
+        if [ -n "$TUID" ] && [ -d "/run/user/$TUID" ]; then
+            sudo -u "$TARGET" XDG_RUNTIME_DIR="/run/user/$TUID" \
+                systemctl --user disable --now printhub 2>/dev/null || true
+        fi
+    fi
+    pkill -f "printhub.py serve" 2>/dev/null || true
+fi
+exit 0

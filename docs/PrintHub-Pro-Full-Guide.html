@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PrintHub Pro&nbsp;— Full Setup &amp; Usage Manual</title>
+
+<style>
+@page { size: 720px 1020px; margin: 0; }
+:root{
+  --navy:#14304d; --primary:#1a365d; --mid:#2a5298; --soft:#4a7ac7;
+  --pale:#dce6f5; --tint:#e9f0fa; --bg:#f5f8fc; --ink:#22303f; --mut:#64748b;
+  --accent:#1d4ed8; --ok:#15803d; --warn:#b45309; --line:#dbe4f0;
+}
+html,body{ margin:0; padding:0; width:720px; background:var(--bg); color:var(--ink);
+  font-family:'Noto Sans SC','DejaVu Sans',sans-serif; line-break:strict; word-break:normal; overflow-wrap:break-word; }
+@media screen{
+  html{ height:auto; display:flex; justify-content:center; background:#0c1f33; }
+  body{ transform-origin:top center; margin:20px auto; box-shadow:0 10px 50px rgba(0,0,0,.5); }
+}
+p,td,li{ line-break:strict; text-align:justify; }
+
+/* ============ COVER (fixed page) ============ */
+.frontpage{ width:720px; height:1020px; box-sizing:border-box; break-after:page;
+  position:relative; overflow:hidden; display:flex; flex-direction:column;
+  justify-content:center; padding:0 64px; color:#fff;
+  background:linear-gradient(150deg,#0f2740 0%, #14304d 45%, #1a3c63 100%); }
+.frontpage .deco{ position:absolute; border-radius:50%; background:#fff; }
+.frontpage .d1{ width:330px; height:330px; right:44px; top:64px; opacity:.04; }
+.frontpage .d2{ width:230px; height:230px; left:34px; bottom:92px; opacity:.05; }
+.frontpage .d3{ width:120px; height:120px; right:96px; bottom:200px; opacity:.06; }
+.frontpage .kick{ font-size:15px; font-weight:600; letter-spacing:5px; opacity:.6;
+  text-transform:uppercase; margin-bottom:22px; }
+.frontpage .hero{ font-size:66px; font-weight:900; line-height:1.04; letter-spacing:-1.5px; }
+.frontpage .hero .accent{ color:#7ea8e0; }
+.frontpage .rule{ width:76px; height:6px; background:#4a7ac7; border-radius:3px; margin:30px 0 26px; }
+.frontpage .sum{ font-size:16.5px; line-height:1.65; opacity:.85; max-width:520px; text-align:left; }
+.frontpage .meta{ display:flex; flex-wrap:wrap; gap:10px; margin-top:38px; max-width:100%; }
+.frontpage .chip{ border:1px solid rgba(255,255,255,.28); border-radius:999px;
+  padding:7px 16px; font-size:12.5px; font-weight:600; letter-spacing:.6px; opacity:.9; }
+.frontpage .foot{ position:absolute; left:64px; right:64px; bottom:44px; display:flex;
+  justify-content:space-between; font-size:12px; letter-spacing:2.5px; opacity:.55;
+  text-transform:uppercase; }
+
+/* ============ FLOWING CONTENT ============ */
+.main-content{ background:var(--bg); padding:54px 58px 46px; }
+.chap{ break-after:avoid; break-inside:avoid; margin-top:26px; }
+.chap:first-child{ margin-top:0; }
+.chap .tag{ display:inline-block; background:var(--mid); color:#fff; font-size:11px;
+  font-weight:700; letter-spacing:2.5px; padding:5px 13px; border-radius:999px;
+  text-transform:uppercase; }
+.chap h2{ font-size:27px; font-weight:800; color:var(--primary); margin:12px 0 4px;
+  letter-spacing:-.4px; break-after:avoid; }
+.chap .lead{ font-size:14.5px; line-height:1.62; color:var(--mut); margin:2px 0 0; text-align:left; }
+.chap .divider{ width:56px; height:6px; background:var(--soft); border-radius:3px; margin:14px 0 17px; }
+h3{ font-size:16.5px; font-weight:700; color:var(--mid); margin:18px 0 8px;
+  break-after:avoid; }
+.body-text{ font-size:14px; line-height:1.62; margin:0 0 11px; color:var(--ink); }
+.body-text b{ color:var(--primary); }
+
+/* step cards */
+.step{ display:flex; gap:14px; background:#fff; border:1px solid var(--line);
+  border-left:4px solid var(--accent); border-radius:10px; padding:13px 16px;
+  margin-bottom:12px; break-inside:avoid; }
+.step .num{ flex:none; width:30px; height:30px; border-radius:50%; background:var(--accent);
+  color:#fff; font-size:14px; font-weight:800; display:flex; align-items:center;
+  justify-content:center; margin-top:2px; }
+.step .st{ font-size:14px; line-height:1.58; }
+.step .st b{ color:var(--primary); }
+.step .st code, .inline-code, td code{
+  font-family:'Noto Sans SC','DejaVu Sans',sans-serif; font-weight:600; font-size:12.5px; color:var(--mid);
+  background:var(--tint); border:1px solid var(--pale); border-radius:5px; padding:1px 6px; }
+
+/* plain info card */
+.card{ background:#fff; border:1px solid var(--line); border-radius:10px;
+  padding:14px 17px; margin-bottom:12px; break-inside:avoid; }
+.card .ct{ font-size:13px; font-weight:800; color:var(--primary); letter-spacing:.8px;
+  text-transform:uppercase; margin-bottom:7px; }
+.card p{ font-size:13.5px; line-height:1.6; margin:0 0 6px; }
+.card p:last-child{ margin-bottom:0; }
+
+/* two-column card grid */
+.grid2{ display:flex; flex-wrap:wrap; gap:12px; max-width:100%; margin-bottom:12px; }
+.grid2 .card{ flex:1 1 46%; min-width:280px; max-width:100%; margin-bottom:0; }
+
+/* callouts */
+.tip{ background:var(--tint); border-left:4px solid var(--accent); border-radius:0 8px 8px 0;
+  padding:11px 15px; font-size:13.5px; line-height:1.58; margin:0 0 12px; break-inside:avoid; }
+.warn{ background:#fdf3e7; border-left:4px solid var(--warn); border-radius:0 8px 8px 0;
+  padding:11px 15px; font-size:13.5px; line-height:1.58; margin:0 0 12px; break-inside:avoid; }
+.okc{ background:#eef7f0; border-left:4px solid var(--ok); border-radius:0 8px 8px 0;
+  padding:11px 15px; font-size:13.5px; line-height:1.58; margin:0 0 12px; break-inside:avoid; }
+.tip b,.warn b,.okc b{ color:var(--primary); }
+
+/* flow diagram */
+.flow{ background:#fff; border:1px solid var(--line); border-radius:12px;
+  padding:20px 18px 14px; margin:0 0 12px; break-inside:avoid; max-width:100%; }
+.flow-row{ display:flex; flex-wrap:wrap; gap:0; align-items:stretch;
+  justify-content:center; max-width:100%; }
+.fnode{ flex:1 1 130px; min-width:118px; max-width:100%; background:var(--tint);
+  border:1.5px solid var(--soft); border-radius:10px; padding:11px 9px; text-align:center; }
+.fnode .fi{ width:34px; height:34px; border-radius:9px; background:var(--mid); color:#fff;
+  font-weight:800; font-size:15px; display:flex; align-items:center; justify-content:center;
+  margin:0 auto 7px; }
+.fnode .fn{ font-size:12.5px; font-weight:800; color:var(--primary); line-height:1.25; }
+.fnode .fd{ font-size:10.5px; color:var(--mut); margin-top:4px; line-height:1.35; }
+.fnode + .fnode{ margin-left:34px; position:relative; }
+.fnode + .fnode::before{ content:'\2192'; position:absolute; left:-26px; top:50%;
+  transform:translateY(-50%); color:var(--soft); font-size:19px; font-weight:700; }
+.flow .cap{ text-align:center; font-size:11.5px; color:var(--mut); margin-top:12px; }
+
+/* tables */
+table{ width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line);
+  border-radius:10px; overflow:hidden; font-size:12.8px; margin:0 0 12px; }
+thead{ display:table-header-group; }
+th{ background:var(--mid); color:#fff; text-align:left; font-weight:700;
+  padding:9px 12px; font-size:12.3px; letter-spacing:.4px; }
+td{ padding:8px 12px; border-top:1px solid var(--line); vertical-align:top;
+  overflow-wrap:break-word; text-align:left; line-height:1.5; }
+tbody tr:nth-child(odd){ background:var(--tint); }
+tbody tr{ break-inside:avoid; }
+td code{ white-space:nowrap; }
+
+/* fix cards (troubleshooting) */
+.fix{ background:#fff; border:1px solid var(--line); border-radius:10px;
+  padding:13px 16px; margin-bottom:12px; break-inside:avoid; }
+.fix .fx{ font-size:14px; font-weight:800; color:var(--primary); margin-bottom:6px; }
+.fix .fx .q{ color:var(--warn); }
+.fix p{ font-size:13.4px; line-height:1.58; margin:0 0 6px; }
+.fix p:last-child{ margin-bottom:0; }
+
+ul.clean{ margin:0 0 12px; padding-left:20px; }
+ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:avoid; }
+
+/* ============ ENDING (fixed page) ============ */
+.ending{ width:720px; height:1020px; box-sizing:border-box; break-before:page;
+  position:relative; overflow:hidden; display:flex; flex-direction:column;
+  justify-content:center; align-items:center; text-align:center; color:#fff;
+  background:linear-gradient(150deg,#0f2740 0%, #14304d 50%, #1a3c63 100%); padding:0 70px; }
+.ending .deco{ position:absolute; border-radius:50%; background:#fff; }
+.ending .d1{ width:300px; height:300px; left:56px; top:80px; opacity:.04; }
+.ending .d2{ width:210px; height:210px; right:64px; bottom:70px; opacity:.05; }
+.ending .brand{ font-size:52px; font-weight:900; letter-spacing:-1px; }
+.ending .sub{ font-size:15px; opacity:.8; margin-top:14px; line-height:1.6; max-width:460px; }
+.ending .stats{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:36px; }
+.ending .stat{ border:1px solid rgba(255,255,255,.25); border-radius:12px;
+  padding:14px 22px; min-width:130px; }
+.ending .sv{ font-size:21px; font-weight:800; color:#7ea8e0; }
+.ending .sl{ font-size:10.5px; letter-spacing:1.8px; opacity:.65; text-transform:uppercase; margin-top:4px; }
+.ending .bye{ margin-top:44px; font-size:12px; letter-spacing:3px; opacity:.5; text-transform:uppercase; }
+</style>
+</head>
+<body>
+
+<!-- ================= COVER ================= -->
+<div class="frontpage">
+  <div class="deco d1"></div><div class="deco d2"></div><div class="deco d3"></div>
+  <div class="kick">Full Setup &amp; Usage Manual</div>
+  <div class="hero">PrintHub<br><span class="accent">Pro</span></div>
+  <div class="rule"></div>
+  <div class="sum">The complete step-by-step handbook: install the print hub on Windows,
+    Linux or macOS, connect the Chrome extension, print any PDF or web page silently,
+    and fix every common problem. Everything stays on your computer&nbsp;— no cloud, no accounts.</div>
+  <div class="meta">
+    <span class="chip">VERSION 1.4.0</span>
+    <span class="chip">WINDOWS</span>
+    <span class="chip">LINUX</span>
+    <span class="chip">MACOS</span>
+    <span class="chip">CHROME / EDGE / BRAVE</span>
+  </div>
+  <div class="foot"><span>Bitdream IT</span><span>100% Local Printing</span></div>
+</div>
+
+<!-- ================= FLOWING CONTENT ================= -->
+<div class="main-content">
+
+  <!-- CHAPTER 1 -->
+  <div class="chap">
+    <span class="tag">Chapter 1</span>
+    <h2>What is PrintHub Pro</h2>
+    <p class="lead">Three small parts that work together to print without any dialog box.</p>
+    <div class="divider"></div>
+  </div>
+  <p class="body-text">PrintHub Pro is a local printing bridge. When a PDF or a web page should
+    go to paper, it sends the job straight to your printer&nbsp;— no print dialog, no extra clicks,
+    no browser print preview. It runs entirely on your own computer, so no document ever leaves
+    your network. You install it once, and after that printing happens quietly in the background
+    every time.</p>
+  <p class="body-text">The system has three parts. The <b>Chrome extension</b> watches your
+    browser: it catches PDF links, right-click prints, and button clicks. The <b>print hub</b> is
+    a small background program that receives print jobs from the extension and talks to Windows,
+    Linux or macOS. The <b>printer engine</b> is the software that actually pushes paper:
+    SumatraPDF on Windows (silent PDF printing), or the built-in CUPS system on Linux and macOS.</p>
+
+  <div class="flow">
+    <div class="flow-row">
+      <div class="fnode"><div class="fi">W</div><div class="fn">Website / PDF</div>
+        <div class="fd">Lab report URL or any PDF you open</div></div>
+      <div class="fnode"><div class="fi">C</div><div class="fn">Chrome Extension</div>
+        <div class="fd">Catches the job inside the browser</div></div>
+      <div class="fnode"><div class="fi">H</div><div class="fn">Print Hub :9235</div>
+        <div class="fd">Local background service, token protected</div></div>
+      <div class="fnode"><div class="fi">P</div><div class="fn">Printer</div>
+        <div class="fd">Silent output, default or chosen printer</div></div>
+    </div>
+    <div class="cap">How a print job travels: browser → local hub → paper. Nothing goes online.</div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><div class="ct">100% Local</div>
+      <p>The hub binds to <code>127.0.0.1:9235</code> only. Jobs, history and settings stay in
+      a folder under your user profile. No cloud service, no account, no telemetry.</p></div>
+    <div class="card"><div class="ct">Token Protected</div>
+      <p>Every request must carry the token <code>PrintHub-2024</code>. Other programs or
+      websites cannot send jobs to your printer without it.</p></div>
+    <div class="card"><div class="ct">Auto-Run at Startup</div>
+      <p>After one-time installation the hub starts by itself at every logon&nbsp;— a scheduled task
+      on Windows, a systemd user service on Linux, a LaunchAgent on macOS.</p></div>
+    <div class="card"><div class="ct">History &amp; Reprint</div>
+      <p>The last 100 jobs are stored with status and timing. Any job can be reprinted with one
+      click from the popup or the Options page.</p></div>
+  </div>
+
+  <!-- CHAPTER 2 -->
+  <div class="chap">
+    <span class="tag">Chapter 2</span>
+    <h2>Install the Hub&nbsp;— Windows</h2>
+    <p class="lead">One-time setup. After it finishes, the hub starts at every logon by itself.</p>
+    <div class="divider"></div>
+  </div>
+  <p class="body-text">There are two ways to install the hub on Windows. <b>Way A</b> is the
+    Setup EXE&nbsp;— a normal installer window. <b>Way B</b> is the one-click BAT file&nbsp;— no window,
+    just a black console that does everything. Both use the <b>Python runtime bundled inside
+    the package</b>, so you never need to install Python yourself. Both register the same
+    auto-run task called <code>PrintHub Pro</code>.</p>
+
+  <h3>Way A&nbsp;— Setup EXE (recommended)</h3>
+  <div class="step"><div class="num">1</div><div class="st"><b>Unzip the package first.</b>
+    Right-click the downloaded ZIP → <b>Extract All</b>. Do not run the EXE from inside the
+    ZIP window&nbsp;— it must be a real folder on disk, for example
+    <code>D:\printer\PrintHub-Pro-1.4.0</code>.</div></div>
+  <div class="step"><div class="num">2</div><div class="st"><b>Remove the Windows block.</b>
+    Windows marks downloaded files as "from the internet" and may show
+    <i>"Windows cannot access the specified device, path, or file"</i>. Right-click the file
+    <code>installer\PrintHub-Pro-Setup-1.4.0.exe</code> → <b>Properties</b> → tick
+    <b>Unblock</b> → OK. Or run the PowerShell line below once&nbsp;— it unblocks the whole folder:
+    <div class="inline-code" style="display:block; margin-top:7px; padding:8px 11px;">Get-ChildItem 'D:\printer\PrintHub-Pro-1.4.0' -Recurse -File | Unblock-File</div></div></div>
+  <div class="step"><div class="num">3</div><div class="st"><b>Double-click the Setup EXE.</b>
+    If a blue <i>Windows protected your PC</i> screen appears, click
+    <b>More info → Run anyway</b>. This warning appears once because the installer is not
+    digitally signed.</div></div>
+  <div class="step"><div class="num">4</div><div class="st"><b>Follow the wizard.</b>
+    Next → accept the license → Install. It copies everything to
+    <code>%LOCALAPPDATA%\PrintHubPro</code>, registers auto-run at logon, and starts the hub.
+    No admin rights and no Python setup are needed. Click <b>Finish</b>&nbsp;— the hub is live.</div></div>
+
+  <h3>Way B&nbsp;— one-click BAT (no wizard)</h3>
+  <div class="step"><div class="num">1</div><div class="st"><b>Unzip the package</b> (same as above).</div></div>
+  <div class="step"><div class="num">2</div><div class="st"><b>Double-click</b>
+    <code>install\install-windows.bat</code>. It removes the internet block from all files,
+    stops any old hub, uses the bundled Python runtime, installs SumatraPDF if
+    <code>winget</code> is available, registers auto-run, starts the hub and health-checks it.
+    No questions, no admin rights.</div></div>
+  <div class="step"><div class="num">3</div><div class="st"><b>Wait for the green line</b>
+    <i>"Hub is running&nbsp;— health check passed"</i>. The window can be closed afterwards.</div></div>
+
+  <div class="warn"><b>SumatraPDF is required for silent PDF printing on Windows.</b> The BAT
+    installer installs it automatically. The Setup EXE only checks it&nbsp;— if it is missing,
+    install it yourself (see Chapter 8, fix #3), then run the installer once more.</div>
+
+  <h3>How to remove it</h3>
+  <div class="card"><div class="ct">Uninstall on Windows</div>
+    <p>Setup EXE install: <b>Windows Settings → Apps → Installed apps → PrintHub Pro → Uninstall</b>
+    (or Start Menu → PrintHub Pro → Uninstall). This also deletes the auto-run task.</p>
+    <p>BAT install: run <code>install\UNINSTALL-WINDOWS.bat</code>. Print history in
+    <code>%USERPROFILE%\.printhub</code> is kept either way.</p></div>
+
+  <!-- CHAPTER 3 -->
+  <div class="chap">
+    <span class="tag">Chapter 3</span>
+    <h2>Install the Hub&nbsp;— Linux &amp; macOS</h2>
+    <p class="lead">Native packages and one command in the terminal.</p>
+    <div class="divider"></div>
+  </div>
+  <p class="body-text">On Debian, Ubuntu or Mint, use the native <b>.deb package</b>. It installs
+    to <code>/opt/printhub</code>, adds a <b>systemd user service</b> that starts at login and
+    restarts on crash, plus an XDG autostart fallback, and a <code>printhub</code> command line
+    tool. On macOS or any other Linux, use the universal shell installer instead&nbsp;— it needs no
+    root (sudo) for the core setup.</p>
+
+  <div class="step"><div class="num">1</div><div class="st"><b>Debian / Ubuntu / Mint —</b>
+    open a terminal in the package folder and run:
+    <div class="inline-code" style="display:block; margin-top:7px; padding:8px 11px;">sudo apt install ./printhub-pro_1.4.0_all.deb</div>
+    The service starts immediately and at every login.</div></div>
+  <div class="step"><div class="num">2</div><div class="st"><b>macOS / other Linux —</b> run:
+    <div class="inline-code" style="display:block; margin-top:7px; padding:8px 11px;">bash install/install-unix.sh</div>
+    It registers a LaunchAgent (macOS) or a systemd --user unit (Linux) automatically.</div></div>
+  <div class="step"><div class="num">3</div><div class="st"><b>Verify —</b> open
+    <code>http://127.0.0.1:9235/health</code> in a browser, or run <code>printhub doctor</code>
+    for a full self-check of printers and browser detection.</div></div>
+  <div class="card"><div class="ct">Uninstall on Linux</div>
+    <p>Remove the package with <code>sudo apt remove printhub-pro</code>, or run
+    <code>bash install/uninstall-unix.sh</code> for the script install. Both stop the hub and
+    remove the auto-run registration; print data in <code>~/.printhub</code> is kept.</p></div>
+
+  <!-- CHAPTER 4 -->
+  <div class="chap">
+    <span class="tag">Chapter 4</span>
+    <h2>Install the Chrome Extension</h2>
+    <p class="lead">Five minutes in Chrome, Edge or Brave. No store needed.</p>
+    <div class="divider"></div>
+  </div>
+  <p class="body-text">The extension is the part that lives inside your browser. It is loaded
+    in "developer mode" directly from the folder&nbsp;— this is normal for private extensions and
+    takes one minute. Do these steps once per browser.</p>
+  <div class="step"><div class="num">1</div><div class="st"><b>Open the extensions page.</b>
+    Type <code>chrome://extensions</code> in the address bar and press Enter
+    (in Edge: <code>edge://extensions</code>).</div></div>
+  <div class="step"><div class="num">2</div><div class="st"><b>Turn on Developer mode.</b>
+    The switch is at the top-right corner of the extensions page.</div></div>
+  <div class="step"><div class="num">3</div><div class="st"><b>Click Load unpacked</b> and select
+    the <code>extension</code> folder from the package. A "PrintHub Pro" card appears.</div></div>
+  <div class="step"><div class="num">4</div><div class="st"><b>Pin the icon.</b> Click the
+    puzzle-piece icon in the toolbar → push the pin next to <b>PrintHub Pro</b>. The icon stays
+    in the toolbar for daily use.</div></div>
+  <div class="step"><div class="num">5</div><div class="st"><b>Connect.</b> Click the PrintHub
+    icon → press the <b>Connect</b> button. The status line turns green and shows
+    <b>Connected</b> with the hub version. The default token <code>PrintHub-2024</code> matches
+    the hub out of the box&nbsp;— nothing to type.</div></div>
+  <div class="tip"><b>Note:</b> Chrome may show a "Disable developer mode extensions" bubble at
+    startup. Keep clicking <i>Keep</i>&nbsp;— the extension is yours and safe. If you ever reload the
+    extension, press Connect again.</div>
+
+  <!-- CHAPTER 5 -->
+  <div class="chap">
+    <span class="tag">Chapter 5</span>
+    <h2>First Test Print</h2>
+    <p class="lead">Two checks that prove everything works: hub health and a real test page.</p>
+    <div class="divider"></div>
+  </div>
+  <p class="body-text">Before daily use, confirm that the whole chain works. The hub offers a
+    health page in any browser, and the extension popup can print a built-in test page with one
+    click. If both succeed, your setup is complete&nbsp;— real PDFs will behave the same way.</p>
+  <div class="step"><div class="num">1</div><div class="st"><b>Check the hub.</b> Open
+    <code>http://127.0.0.1:9235/health</code> in the browser. You should see a short line with
+    <code>"ok": true</code> and the version. If the page does not open, the hub is not running —
+    see Chapter 8, fix #5.</div></div>
+  <div class="step"><div class="num">2</div><div class="st"><b>Make sure a printer is default.</b>
+    Windows: <b>Settings → Bluetooth &amp; devices → Printers &amp; scanners</b> → click your
+    printer → <b>Set as default</b>. Also switch <b>off</b> "Let Windows manage my default
+    printer", because it can silently change the printer back.</div></div>
+  <div class="step"><div class="num">3</div><div class="st"><b>Print the test page.</b> Click the
+    PrintHub icon in the toolbar → press <b>Test page</b>. Paper should come out within a few
+    seconds. The popup shows the job in <b>Recent jobs</b> with a green "printed" state.</div></div>
+  <div class="okc"><b>Success?</b> You are done with setup. From now on, printing just happens —
+    open any PDF or use the right-click menu. Problems? Go straight to Chapter 8.</div>
+
+  <h3>What the health page tells you</h3>
+  <table>
+    <thead><tr><th style="width:31%">Field</th><th>Healthy value</th><th>If it is wrong</th></tr></thead>
+    <tbody>
+      <tr><td><code>"ok"</code></td><td><code>true</code>&nbsp;— hub is alive</td><td>Hub not running: restart with the installer or BAT file</td></tr>
+      <tr><td><code>"version"</code></td><td><code>1.4.0</code></td><td>Old version&nbsp;— reinstall with the new package</td></tr>
+      <tr><td><code>"default_printer"</code></td><td>Your printer name</td><td><code>null</code>&nbsp;— set a default printer (fix #4)</td></tr>
+      <tr><td><code>"sumatra_found"</code></td><td><code>true</code> on Windows</td><td><code>false</code>&nbsp;— install SumatraPDF (fix #3)</td></tr>
+      <tr><td><code>"paused"</code></td><td><code>false</code></td><td><code>true</code>&nbsp;— press Pause/Resume in the popup</td></tr>
+      <tr><td><code>"jobs_today"</code></td><td>Counts up as you print</td><td>0 after printing&nbsp;— the job failed, see the log (fix #6)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- CHAPTER 6 -->
+  <div class="chap">
+    <span class="tag">Chapter 6</span>
+    <h2>Daily Printing</h2>
+    <p class="lead">After setup, printing is automatic. These are the everyday actions.</p>
+    <div class="divider"></div>
+  </div>
+  <p class="body-text">There is no "print dialog" in PrintHub Pro&nbsp;— that is the point. You keep
+    working in the browser, and paper comes out. Use whichever method fits the moment; all of
+    them end in the same silent print job on the default printer.</p>
+
+  <div class="grid2">
+    <div class="card"><div class="ct">Open any PDF&nbsp;— it prints</div>
+      <p>With <b>SIMPLE MODE</b> on (default), every PDF you open in the browser prints silently
+      and its viewer tab closes itself. Perfect for lab reports and downloaded invoices.</p></div>
+    <div class="card"><div class="ct">Right-click any page</div>
+      <p>Right-click anywhere → <b>PrintHub Pro → Print this page</b>. The page is rendered to
+      paper exactly as you see it, without any dialog.</p></div>
+    <div class="card"><div class="ct">Popup buttons</div>
+      <p>Toolbar icon → <b>Print this page</b>, <b>Save as PDF</b> (file instead of paper),
+      <b>Print screenshot</b> (exact visual snapshot), <b>Test page</b>, and
+      <b>Pause</b> to hold all jobs temporarily.</p></div>
+    <div class="card"><div class="ct">Reprint from history</div>
+      <p>Popup → <b>Recent jobs</b>, or Options → <b>Job history (last 100)</b>. Click
+      <b>Reprint</b> on any line&nbsp;— useful when paper jammed or the printer was offline.</p></div>
+  </div>
+
+  <h3>Automatic printing with routing rules</h3>
+  <p class="body-text">Rules print URLs <b>without even opening them in a tab</b>. When the
+    browser loads a URL that matches a rule, the extension sends it straight to the hub. Your
+    package already ships with one example rule for
+    <code>*://www.htncr.org/lab/medical_reports/*</code>&nbsp;— every medical report link on that
+    site prints automatically the moment it is opened. Add more rules in
+    <b>Options → Auto-print &amp; routing rules</b> using patterns like:</p>
+  <ul class="clean">
+    <li><code>*://www.example.com/invoices/pdf/*</code>&nbsp;— every PDF link under /invoices/pdf/</li>
+    <li><code>*://portal.hospital.org/report/*print=1*</code>&nbsp;— pages marked print=1</li>
+    <li><code>&lt;all_urls&gt;</code>&nbsp;— careful: matches everything</li>
+  </ul>
+  <div class="tip"><b>Duplicate protection:</b> the same URL is not printed twice within 60
+    seconds, so opening a report twice does not waste two sheets of paper.</div>
+
+  <!-- CHAPTER 7 -->
+  <div class="chap">
+    <span class="tag">Chapter 7</span>
+    <h2>Settings That Matter</h2>
+    <p class="lead">A quick tour of the Options page. Defaults are fine for most users.</p>
+    <div class="divider"></div>
+  </div>
+  <p class="body-text">Open the Options page from the popup (<b>Options</b> button) or from
+    <code>chrome://extensions → PrintHub Pro → Details → Extension options</code>. Everything
+    saves instantly&nbsp;— there is no Save button to hunt for. The table below lists the sections in
+    the same order as the page, with the settings that matter most in daily use.</p>
+  <table>
+    <thead><tr><th style="width:30%">Options section</th><th>What to set</th></tr></thead>
+    <tbody>
+      <tr><td><b>Connection</b></td>
+        <td>Hub URL <code>http://127.0.0.1:9235</code> and token <code>PrintHub-2024</code>.
+        Only change the token if you changed it on the hub too.</td></tr>
+      <tr><td><b>Printing</b></td>
+        <td>Leave the printer box empty to use the Windows default printer, or type an exact
+        printer name to always use one specific device.</td></tr>
+      <tr><td><b>Auto-print &amp; routing rules</b></td>
+        <td>URL patterns that print automatically when loaded. One pattern per line; first
+        matching rule wins.</td></tr>
+      <tr><td><b>Behavior</b></td>
+        <td><b>Print every PDF opened in the browser (simple mode)</b>&nbsp;— keep ON for the
+        zero-click promise. "Open the URL in a new tab" vs "stay silent" controls what happens
+        with failed or non-PDF links. Auto-close tabs keeps the browser clean.</td></tr>
+      <tr><td><b>Job history (last 100)</b></td>
+        <td>Every job with time, printer, status and a <b>Reprint</b> button. History lives on
+        your disk, not in the cloud.</td></tr>
+      <tr><td><b>Developer API</b></td>
+        <td>Lets other pages or your own tools call <code>window.printhub.print()</code>
+        directly. Safe to ignore if you only use the browser.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- CHAPTER 8 -->
+  <div class="chap">
+    <span class="tag">Chapter 8</span>
+    <h2>Troubleshooting</h2>
+    <p class="lead">The six problems that cover almost every report&nbsp;— and their fixes.</p>
+    <div class="divider"></div>
+  </div>
+
+  <div class="fix"><div class="fx">#1 <span class="q">"Windows cannot access the specified
+    device, path, or file"</span> when running the Setup EXE</div>
+    <p>This is the download block, not a broken file. Right-click the EXE → <b>Properties</b> →
+    tick <b>Unblock</b> → OK. Or unblock the whole folder once in PowerShell:</p>
+    <p><code>Get-ChildItem 'D:\printer\PrintHub-Pro-1.4.0' -Recurse -File | Unblock-File</code></p>
+    <p>If it still fails after unblocking, your antivirus is quarantining it&nbsp;— check
+    <b>Windows Security → Protection history</b> and allow the file. The BAT installer is never
+    blocked this way, so you can always use it instead.</p></div>
+
+  <div class="fix"><div class="fx">#2 <span class="q">"Python 3 was not found on this PC"</span></div>
+    <p>This message belongs to version 1.3.0 or older. Version 1.4.0 <b>carries its own Python
+    runtime inside the installer</b>&nbsp;— the message can no longer appear. Download
+    <code>PrintHub-Pro-Setup-1.4.0.exe</code> (9.5 MB) and install it. No Python install from
+    python.org is ever needed.</p></div>
+
+  <div class="fix"><div class="fx">#3 <span class="q">Nothing prints&nbsp;— no paper, no error</span></div>
+    <p>On Windows, silent PDF printing needs <b>SumatraPDF</b>. Open
+    <code>http://127.0.0.1:9235/health</code>&nbsp;— if <code>"sumatra_found"</code> is
+    <code>false</code>, install it: run
+    <code>winget install --id SumatraPDF.SumatraPDF -e --silent</code> in PowerShell, or download
+    it from <code>sumatrapdfreader.org</code>. Then run <code>install-windows.bat</code> once
+    more so the hub restarts and detects it.</p>
+    <p>Also check <code>"default_printer"</code>&nbsp;— if it is <code>null</code>, see fix #4. If
+    both are fine, the cause is in the log: open fix #6.</p></div>
+
+  <div class="fix"><div class="fx">#4 <span class="q">No default printer / prints to the wrong printer</span></div>
+    <p>Windows: <b>Settings → Bluetooth &amp; devices → Printers &amp; scanners</b> → select the
+    printer → <b>Set as default</b>. Turn <b>off</b> "Let Windows manage my default printer" —
+    it can switch the default silently. To force one printer for every job, type its exact name
+    in <b>Options → Printing</b>.</p></div>
+
+  <div class="fix"><div class="fx">#5 <span class="q">Extension shows "Not connected" / hub missing after reboot</span></div>
+    <p>Check <code>http://127.0.0.1:9235/health</code> in the browser. If it does not open, the
+    hub is stopped: run <code>install\install-windows.bat</code> again&nbsp;— it restarts the hub and
+    repairs the auto-run task. Then press <b>Connect</b> in the popup. If health works but the
+    popup stays red, the token in <b>Options → Connection</b> must match the hub
+    (<code>PrintHub-2024</code> by default).</p></div>
+
+  <div class="fix"><div class="fx">#6 <span class="q">Deep diagnosis&nbsp;— read the log / other PCs cannot reach the hub</span></div>
+    <p>The hub writes every start and every print attempt to
+    <code>%USERPROFILE%\.printhub\hub.log</code> (Linux/macOS: <code>~/.printhub/hub.log</code>).
+    Open the last lines after a failed job&nbsp;— the exact error is there. For printing from another
+    computer or phone, enable <b>LAN mode</b> in the hub config and open port <b>9235</b> in the
+    firewall; the token stays required.</p></div>
+
+  <!-- CHAPTER 9 -->
+  <div class="chap">
+    <span class="tag">Chapter 9</span>
+    <h2>Quick Reference</h2>
+    <p class="lead">Every important fact on one page. Keep it near the printer.</p>
+    <div class="divider"></div>
+  </div>
+  <table>
+    <thead><tr><th style="width:34%">Item</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Hub address</td><td><code>http://127.0.0.1:9235</code> (local only by default)</td></tr>
+      <tr><td>Health page</td><td><code>http://127.0.0.1:9235/health</code></td></tr>
+      <tr><td>Security token</td><td><code>PrintHub-2024</code></td></tr>
+      <tr><td>Windows install folder</td><td><code>%LOCALAPPDATA%\PrintHubPro</code></td></tr>
+      <tr><td>Bundled Python runtime</td><td><code>%LOCALAPPDATA%\PrintHubPro\runtime</code> (v1.4.0)</td></tr>
+      <tr><td>Linux install folder</td><td><code>/opt/printhub</code></td></tr>
+      <tr><td>Print data &amp; history</td><td><code>%USERPROFILE%\.printhub</code> / <code>~/.printhub</code></td></tr>
+      <tr><td>Log file</td><td><code>.printhub\hub.log</code>&nbsp;— every job and error</td></tr>
+      <tr><td>Auto-run name</td><td>Scheduled task / service "PrintHub Pro"</td></tr>
+      <tr><td>Windows uninstall</td><td>Settings → Apps → PrintHub Pro, or <code>UNINSTALL-WINDOWS.bat</code></td></tr>
+      <tr><td>Linux uninstall</td><td><code>sudo apt remove printhub-pro</code> or <code>uninstall-unix.sh</code></td></tr>
+      <tr><td>Print engine (Windows)</td><td>SumatraPDF&nbsp;— silent, no dialog</td></tr>
+      <tr><td>CLI doctor</td><td><code>printhub doctor</code>&nbsp;— full self-check</td></tr>
+    </tbody>
+  </table>
+  <div class="tip"><b>Golden rule:</b> hub running (health page opens) + printer set as default +
+    SumatraPDF installed = printing works. When in doubt, run
+    <code>install-windows.bat</code>&nbsp;— it repairs everything automatically.</div>
+
+</div>
+
+<!-- ================= ENDING ================= -->
+<div class="ending">
+  <div class="deco d1"></div><div class="deco d2"></div>
+  <div class="brand">PrintHub <span style="color:#7ea8e0">Pro</span></div>
+  <div class="sub">Silent printing for PDFs and web pages&nbsp;— installed once, working at every
+    startup, staying on your own computer. Thank you for reading.</div>
+  <div class="stats">
+    <div class="stat"><div class="sv">:9235</div><div class="sl">Local Port</div></div>
+    <div class="stat"><div class="sv">100</div><div class="sl">Jobs in History</div></div>
+    <div class="stat"><div class="sv">0</div><div class="sl">Data Sent Online</div></div>
+    <div class="stat"><div class="sv">1×</div><div class="sl">One-Time Setup</div></div>
+  </div>
+  <div class="bye">Bitdream IT &middot; Manual for version 1.4.0 &middot; MIT License</div>
+</div>
+</body>
+</html>
