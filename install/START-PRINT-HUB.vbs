@@ -1,8 +1,8 @@
-' PrintHub Pro - hidden launcher, no console window  (v1.2.1)
-' MANUAL / FALLBACK launcher only: since v1.2.1 the "PrintHub Pro"
-' logon task runs pythonw.exe DIRECTLY (wscript/.vbs is blocked by
-' Defender ASR on many company machines). Double-click this file
-' only when the scheduled task could not be created.
+' PrintHub Pro - hidden launcher, no console window  (v1.5.0)
+' MANUAL / FALLBACK launcher only: normal installs start the hub
+' as the Startup app "PrintHub Pro" (Task Manager > Startup apps)
+' or from the tray icon. Double-click this file only when both
+' are unavailable.
 ' Hub log: %UserProfile%\.printhub\hub.log
 
 Option Explicit
@@ -14,8 +14,17 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 base = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
 hub  = base & "\hub\printhub.py"
 
-' ---- 1) resolve pythonw.exe -------------------------------------------
+' ---- 1) resolve the launcher -------------------------------------------
 py = ""
+
+' 1pre) BUNDLED runtime (full package) - v1.5.0 prefers
+'       PrintHubPro.exe (= pythonw.exe renamed: Task Manager shows
+'       "PrintHubPro" instead of "python")
+If fso.FileExists(base & "\installer\runtime\PrintHubPro.exe") Then
+  py = base & "\installer\runtime\PrintHubPro.exe"
+ElseIf fso.FileExists(base & "\installer\runtime\pythonw.exe") Then
+  py = base & "\installer\runtime\pythonw.exe"
+End If
 
 ' 1a) whatever is on PATH (where.exe, first hit wins)
 On Error Resume Next

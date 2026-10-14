@@ -4,15 +4,21 @@
 ;  - STANDALONE: ships a bundled Python 3.11 runtime
 ;    (%LOCALAPPDATA%\PrintHubPro\runtime) - no system Python
 ;    is ever needed; registry/py detection is only a fallback
-;  - registers auto-run at every logon (schtasks, direct pythonw)
+;  - the runtime ships PrintHubPro.exe (= pythonw.exe renamed):
+;    Task Manager shows "PrintHubPro", never "python"
+;  - registers auto-run as a NORMAL STARTUP APP
+;    ($SMSTARTUP\PrintHub Pro.lnk) - visible and toggleable in
+;    Task Manager > Startup apps (scheduled task removed: was
+;    invisible there - the hub looked uninstallable)
 ;  - starts the hub, creates Start Menu shortcuts
+;  - the hub shows a "PrintHub Pro" tray icon with a menu
 ;  - real uninstaller with Add/Remove Programs entry
 ;  built with makensis 3.11 on Linux (Bitdream IT)
 ; ============================================================
 
 Unicode true
 Name "PrintHub Pro"
-OutFile "/home/z/my-project/build/PrintHubPro/installer/PrintHub-Pro-Setup-1.4.0.exe"
+OutFile "/home/z/my-project/build/PrintHubPro/installer/PrintHub-Pro-Setup-1.5.0.exe"
 InstallDir "$LOCALAPPDATA\PrintHubPro"
 InstallDirRegKey HKCU "Software\PrintHubPro" "InstallDir"
 RequestExecutionLevel user
@@ -20,10 +26,10 @@ SetCompressor /SOLID lzma
 ShowInstDetails show
 ShowUnInstDetails show
 
-VIProductVersion "1.4.0.0"
+VIProductVersion "1.5.0.0"
 VIAddVersionKey ProductName "PrintHub Pro"
-VIAddVersionKey FileVersion "1.4.0"
-VIAddVersionKey ProductVersion "1.4.0"
+VIAddVersionKey FileVersion "1.5.0"
+VIAddVersionKey ProductVersion "1.5.0"
 VIAddVersionKey CompanyName "Bitdream IT"
 VIAddVersionKey LegalCopyright "MIT License"
 VIAddVersionKey FileDescription "PrintHub Pro - silent print bridge (one-time setup)"
@@ -95,6 +101,11 @@ LoopEnum_${ROOT}_${VIEW}:
 Function FindPythonW
   StrCpy $R0 ""
   ; 0) bundled Python runtime - the normal path, zero dependencies
+  ;    PrintHubPro.exe preferred: process name = PrintHubPro, not python
+  ${If} ${FileExists} "$INSTDIR\runtime\PrintHubPro.exe"
+    StrCpy $R0 "$INSTDIR\runtime\PrintHubPro.exe"
+    Goto Found
+  ${EndIf}
   ${If} ${FileExists} "$INSTDIR\runtime\pythonw.exe"
     StrCpy $R0 "$INSTDIR\runtime\pythonw.exe"
     Goto Found
@@ -128,6 +139,7 @@ Section "PrintHub Pro (required)" SEC_MAIN
   DetailPrint "Copying files..."
   SetOutPath "$INSTDIR\hub"
   File "/home/z/my-project/build/PrintHubPro/hub/printhub.py"
+  File "/oname=printhub.ico" "/home/z/my-project/build/PrintHubPro/hub/printhub.ico"
   SetOutPath "$INSTDIR\install"
   File "/oname=START-PRINT-HUB.vbs" "/home/z/my-project/build/PrintHubPro/install/START-PRINT-HUB.vbs"
   SetOutPath "$INSTDIR"
@@ -139,7 +151,7 @@ Section "PrintHub Pro (required)" SEC_MAIN
   SetOutPath "$INSTDIR\runtime"
   File /r "/home/z/my-project/build/PrintHubPro/installer/runtime\*.*"
 
-  DetailPrint "Resolving pythonw.exe..."
+  DetailPrint "Resolving the bundled launcher..."
   Call FindPythonW
   WriteRegStr HKCU "Software\PrintHubPro" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\PrintHubPro" "PythonW" "$R0"
@@ -153,20 +165,27 @@ Section "PrintHub Pro (required)" SEC_MAIN
     DetailPrint "SumatraPDF missing - install it later for silent PDF printing."
   ${EndIf}
 
-  ; ---- auto-run at every logon ----
+  ; ---- auto-run as a normal STARTUP APP (visible + controllable) ----
+  ;  v1.5.0: Startup-folder shortcut instead of a scheduled task -
+  ;  Task Manager > Startup apps now lists "PrintHub Pro" with our
+  ;  icon and the user can enable/disable it there (or in the tray).
+  ;  The hidden scheduled task from v1.2-v1.4 is removed (legacy).
+  DetailPrint "Registering auto-run as a Startup app..."
+  nsExec::Exec 'schtasks /Delete /TN $\"PrintHub Pro$\" /F'
+  Pop $R9
+  SetShellVarContext current   ; $SMSTARTUP = THIS user's Startup folder (no admin)
   ${If} $R0 != ""
-    DetailPrint "Registering auto-run (logon task, runs pythonw directly)..."
-    nsExec::Exec 'schtasks /Create /F /SC ONLOGON /TN $\"PrintHub Pro$\" /TR $\"\$\"$R0\$\" \$\"$INSTDIR\hub\printhub.py\$\" serve$\"'
-    Pop $R1
-    ${If} $R1 == "0"
-      DetailPrint "Auto-run registered (task: PrintHub Pro)."
+    CreateShortcut "$SMSTARTUP\PrintHub Pro.lnk" "$R0" \
+      '"$INSTDIR\hub\printhub.py" serve' "$INSTDIR\printhub.ico" 0
+    ${If} ${FileExists} "$SMSTARTUP\PrintHub Pro.lnk"
+      DetailPrint "Auto-run registered: Startup app 'PrintHub Pro' (Task Manager > Startup apps)."
     ${Else}
-      DetailPrint "Auto-run could not be registered (error $R1) - hub still installed."
+      DetailPrint "Auto-run shortcut could not be created - start manually via Start Menu."
     ${EndIf}
   ${Else}
     DetailPrint "No usable pythonw.exe (bundled runtime missing + no system Python)."
     MessageBox MB_ICONEXCLAMATION|MB_OK \
-      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download PrintHub-Pro-Setup-1.4.0.exe (file may be damaged), or install Python from python.org (tick 'Add python.exe to PATH') and run this setup again."
+      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download PrintHub-Pro-Setup-1.5.0.exe (file may be damaged), or install Python from python.org (tick 'Add python.exe to PATH') and run this setup again."
     ExecShell "open" "https://www.python.org/downloads/"
   ${EndIf}
 
@@ -183,7 +202,7 @@ Section "PrintHub Pro (required)" SEC_MAIN
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
     "DisplayName" "PrintHub Pro (silent print bridge)"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
-    "DisplayVersion" "1.4.0"
+    "DisplayVersion" "1.5.0"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
     "Publisher" "Bitdream IT"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
@@ -199,6 +218,7 @@ SectionEnd
 Section "Uninstall"
   SetShellVarContext current
   DetailPrint "Stopping hub and removing auto-run..."
+  Delete "$SMSTARTUP\PrintHub Pro.lnk"
   nsExec::Exec 'schtasks /Delete /TN $\"PrintHub Pro$\" /F'
   nsExec::Exec 'powershell -NoProfile -Command $\"Get-NetTCPConnection -LocalPort 9235 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $$_ -Force -ErrorAction SilentlyContinue }$\"'
   Delete "$SMPROGRAMS\PrintHub Pro\*.lnk"

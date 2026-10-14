@@ -39,12 +39,12 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) 
 
 ### 1. Install the hub (one-time, zero questions)
 
-**Easiest — native installers (v1.4.0):**
+**Easiest — native installers (v1.5.0):**
 
 | | file | what it does |
 |---|---|---|
-| **Windows** | `PrintHub-Pro-Setup-1.4.0.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run at every logon**, starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. No admin, no Python install, no dialogs. Note: unsigned EXE → Windows SmartScreen may ask once: *More info → Run anyway*. |
-| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_1.4.0_all.deb` | `sudo apt install ./printhub-pro_1.4.0_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
+| **Windows** | `PrintHub-Pro-Setup-1.5.0.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "PrintHub Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray icon** (right-click = status page, test page, pause, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
+| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_1.5.0_all.deb` | `sudo apt install ./printhub-pro_1.5.0_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
 | **macOS / other Linux** | `install/install-unix.sh` | same auto-run via LaunchAgent / systemd --user / XDG, no sudo needed. |
 
 **Or the portable way (both platforms):**
@@ -70,11 +70,16 @@ always there, no shortcut needed. To undo it:
 | **Windows** | `install\UNINSTALL-WINDOWS.bat` | data in `%USERPROFILE%\.printhub` |
 | **Linux / macOS** | `bash install/uninstall-unix.sh` | data in `~/.printhub` |
 
-Windows diagnostics: the logon task runs `pythonw.exe` **directly** (no
-`.vbs`/wscript — Defender ASR on many company machines blocks those with
-"Access is denied"). The installer also removes Mark-of-the-Web from the
-downloaded files automatically. If the hub ever fails to start after a
-reboot, open `%USERPROFILE%\.printhub\hub.log` — the hub logs every
+Windows notes (v1.5.0): the hub runs as `PrintHubPro.exe` (a renamed
+`pythonw.exe`), so Task Manager shows **"PrintHubPro"** — not "python".
+Auto-run is a normal **Startup app** shortcut: open **Task Manager →
+Startup apps** and you will find "PrintHub Pro" there with its icon —
+right-click → Enable/Disable any time (same switch as the tray icon
+menu, or `UNINSTALL-WINDOWS.bat`). The installer also removes
+Mark-of-the-Web from the downloaded files automatically, and the
+installer/upgrader deletes the invisible scheduled task that v1.2–v1.4
+used to create. If the hub ever fails to start after a reboot, open
+`%USERPROFILE%\.printhub\hub.log` — the hub logs every
 startup and print there.
 
 The hub starts on `http://127.0.0.1:9235` with default token `PrintHub-2024`.

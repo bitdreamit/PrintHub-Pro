@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>How to Publish PrintHub Pro on the Chrome Web Store</title>
+<style>
+  :root{--navy:#0b1220;--ink:#0f172a;--mut:#64748b;--blue:#1d4ed8;--blue2:#2563eb;
+        --ok:#16a34a;--okbg:#dcfce7;--warn:#b45309;--warnbg:#fef3c7;--line:#e2e8f0;--bg:#f8fafc;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font:15px/1.65 'Segoe UI','Noto Sans SC',system-ui,sans-serif;color:var(--ink);background:var(--bg);}
+  .page{max-width:880px;margin:0 auto;padding:0 28px 70px;}
+  .hero{background:linear-gradient(135deg,#0b1220,#1e3a8a);color:#fff;border-radius:0 0 18px 18px;
+        padding:44px 40px;margin:0 -28px 34px;}
+  .hero .pill{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.12em;color:#93c5fd;
+        border:1px solid rgba(147,197,253,.4);border-radius:999px;padding:5px 14px;text-transform:uppercase;}
+  .hero h1{font-size:32px;margin:16px 0 8px;letter-spacing:-.01em;}
+  .hero p{color:#cbd5e1;max-width:640px;}
+  h2{font-size:21px;margin:38px 0 6px;display:flex;align-items:center;gap:12px;}
+  .stepn{flex:none;width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;
+        font-size:16px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;}
+  h3{font-size:16px;margin:20px 0 6px;}
+  p{margin:8px 0;}
+  ul,ol{padding-left:24px;margin:8px 0;}
+  li{margin:5px 0;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:14px 0;}
+  .ok{background:var(--okbg);border:1px solid #bbf7d0;border-radius:12px;padding:14px 18px;margin:14px 0;}
+  .ok b{color:#166534;}
+  .warn{background:var(--warnbg);border:1px solid #fde68a;border-radius:12px;padding:14px 18px;margin:14px 0;}
+  .warn b{color:var(--warn);}
+  pre{background:#0b1220;color:#e2e8f0;border-radius:10px;padding:14px 18px;margin:10px 0;
+      font:13px/1.6 'Sarasa Mono SC','DejaVu Sans Mono',monospace;overflow-x:auto;}
+  code{background:#eef2f7;border:1px solid var(--line);border-radius:5px;padding:1px 6px;
+       font:13px 'Sarasa Mono SC','DejaVu Sans Mono',monospace;}
+  pre code{background:none;border:none;padding:0;color:inherit;}
+  table{width:100%;border-collapse:collapse;margin:12px 0;background:#fff;font-size:14px;}
+  th,td{text-align:left;padding:9px 12px;border:1px solid var(--line);vertical-align:top;}
+  th{background:var(--bg);font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);}
+  a{color:var(--blue);}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .mini{border:1px solid var(--line);border-radius:10px;padding:12px 16px;background:#fff;}
+  .mini b{display:block;margin-bottom:4px;}
+  .mini span{font-size:13px;color:var(--mut);}
+  .kbd{display:inline-block;background:#1e293b;color:#e2e8f0;border-radius:5px;
+       padding:1px 8px;font-size:12.5px;font-weight:700;border-bottom:2px solid #0f172a;}
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="hero">
+  <span class="pill">Chrome Web Store &middot; Publishing Kit</span>
+  <h1>How to publish PrintHub Pro on the Chrome Web Store</h1>
+  <p>Follow the steps in order. Everything you need is in this folder — the upload zip, the
+     screenshots, the privacy policy, and every text you have to paste. Time needed: about 45 minutes
+     (review by Google takes 1–7 days after that).</p>
+</div>
+
+<h2><span class="stepn">?</span>What is in this kit</h2>
+<table>
+  <tr><th>File / folder</th><th>What it is for</th></tr>
+  <tr><td><b>PrintHub-Pro-ChromeWebStore-1.5.0.zip</b></td><td>The file you upload to the store. Contains ONLY the extension, with <code>manifest.json</code> at the zip root (store requirement).</td></tr>
+  <tr><td><b>screenshots/</b></td><td>3 store screenshots (1280×800) + 1 small promo tile (440×280).</td></tr>
+  <tr><td><b>privacy-policy.html</b> + <b>PRIVACY-POLICY.md</b></td><td>Your privacy policy. You must put it online (Step 2) — the store asks for a public URL.</td></tr>
+  <tr><td><b>STORE-LISTING-TEXTS.md</b></td><td>Every text to paste: name, descriptions, permission justifications, reviewer notes.</td></tr>
+  <tr><td><b>HOW-TO-PUBLISH.html</b></td><td>This guide.</td></tr>
+</table>
+<div class="warn"><b>Why a new zip?</b> Your old <code>PrintHub-Pro-Extension-v1.4.0.zip</code> has the files
+inside an <code>extension/</code> folder. The store will refuse it with "manifest.json is missing or not at
+the root". Always upload the zip from this kit.</div>
+
+<h2><span class="stepn">1</span>Register as a Chrome Web Store developer (one-time $5)</h2>
+<ol>
+  <li>Turn on <b>2-Step Verification</b> for your Google account first (the store requires it):
+      <a href="https://myaccount.google.com/security">myaccount.google.com/security</a></li>
+  <li>Go to the <b>Developer Dashboard</b>: <a href="https://chrome.google.com/webstore/devconsole">chrome.google.com/webstore/devconsole</a></li>
+  <li>Sign in with your Google account (use the account you want shown as the publisher).</li>
+  <li>Accept the agreement and pay the <b>one-time US$5 registration fee</b> (card).</li>
+  <li>Under <b>Account → Account details</b>, set your seller/publisher name (e.g. <i>Bitdream IT</i>) and a contact email users can see.</li>
+</ol>
+
+<h2><span class="stepn">2</span>Put the privacy policy online (10 minutes, free)</h2>
+<p>The store <b>requires a public privacy policy URL</b> for extensions that ask for broad site access —
+yours does (<code>&lt;all_urls&gt;</code>). The easiest free host is GitHub Pages on your existing repo:</p>
+<ol>
+  <li>Copy <code>privacy-policy.html</code> and <code>PRIVACY-POLICY.md</code> into the <b>root</b> of the <code>PrintHub-Pro</code> repo, then push:
+<pre>git add privacy-policy.html PRIVACY-POLICY.md
+git commit -m "Add privacy policy"
+git push origin main</pre></li>
+  <li>On GitHub open the repo → <b>Settings → Pages</b>.</li>
+  <li>Under "Build and deployment" set Source = <b>Deploy from a branch</b>, Branch = <b>main</b> / <b>/ (root)</b>, Save.</li>
+  <li>Wait ~1–2 minutes. Your page is now live at:
+<pre>https://bitdreamit.github.io/PrintHub-Pro/privacy-policy.html</pre>
+      Open it to confirm. This exact URL is what you paste in Step 5.</li>
+</ol>
+
+<h2><span class="stepn">3</span>Create the item and upload the zip</h2>
+<ol>
+  <li>In the Developer Dashboard click <b>New item</b>.</li>
+  <li>Drag / choose <code>PrintHub-Pro-ChromeWebStore-1.5.0.zip</code> → upload.</li>
+  <li>When asked "Why are you requesting these permissions", tick that host permissions are needed —
+      full justifications come in Step 5.</li>
+</ol>
+
+<h2><span class="stepn">4</span>Fill the "Store listing" tab</h2>
+<p>Copy-paste everything from <b>STORE-LISTING-TEXTS.md</b> (sections 1–4):</p>
+<ul>
+  <li><b>Name</b> → "PrintHub Pro — Print from Any Web Page"</li>
+  <li><b>Short description</b> → the 123-character text</li>
+  <li><b>Description</b> → the detailed text</li>
+  <li><b>Category</b> = Productivity &nbsp;·&nbsp; <b>Language</b> = English (United States)</li>
+  <li><b>Screenshots</b>: upload the 3 PNGs from <code>screenshots/</code> in order 1→2→3.
+      Optionally add <code>promo-tile-440x280.png</code> under "Promotional images".</li>
+  <li>The store icon is taken automatically from the zip — nothing to upload.</li>
+</ul>
+
+<h2><span class="stepn">5</span>Fill the "Privacy" tab (this decides approval)</h2>
+<ol>
+  <li><b>Privacy policy URL</b> → <code>https://bitdreamit.github.io/PrintHub-Pro/privacy-policy.html</code></li>
+  <li><b>Single purpose</b> → paste section 5 of STORE-LISTING-TEXTS.md.</li>
+  <li><b>Permission justifications</b> → paste each text from section 6 next to its permission
+      (host permissions, tabs, activeTab/scripting, storage, notifications, contextMenus).</li>
+  <li><b>Data usage</b> → tick "This item does not collect any user data" and follow section 7
+      (also tick the three compliance certifications: no selling, no unrelated use, no creditworthiness).</li>
+  <li>Default locale data-collected answers: everything <b>No</b>.</li>
+</ol>
+
+<h2><span class="stepn">6</span>Distribution tab + submit</h2>
+<ol>
+  <li><b>Distribution</b>: Visibility = <b>Public</b>, countries = all (keep the default).</li>
+  <li>Pricing: keep <b>Free</b> (Chrome Web Store has no paid extensions anymore).</li>
+  <li>On the <b>Package</b> tab you can paste the "Notes for reviewers" text (STORE-LISTING-TEXTS.md section 8) in the review notes field when submitting — this explains the local hub and prevents a false "broken extension" rejection.</li>
+  <li>Click <b>Submit for review</b>.</li>
+</ol>
+
+<h2><span class="stepn">7</span>Wait for review</h2>
+<ul>
+  <li>Typical time: <b>a few hours to 7 days</b>. Extensions with <code>&lt;all_urls&gt;</code> content scripts
+      sometimes take the full week — this is normal, do not resubmit while waiting.</li>
+  <li>Status in dashboard: <i>Pending review</i> → <i>Published</i> (or <i>Rejected</i> with a reason by email).</li>
+  <li>You can edit the draft listing while it is in review, but big edits can restart the clock.</li>
+</ul>
+
+<h2><span class="stepn">8</span>After approval</h2>
+<ul>
+  <li>Your store link looks like: <code>https://chromewebstore.google.com/detail/printhub-pro/ITEM_ID</code></li>
+  <li>Add the link to the GitHub README ("Install from Chrome Web Store" section) and to the hub app docs.</li>
+  <li>Optional: add the official store badge image to the README.</li>
+</ul>
+
+<h2>Future updates (v1.4.1 and later)</h2>
+<ol>
+  <li>Bump <code>version</code> in <code>extension/manifest.json</code> (and the other 9 version anchors as usual).</li>
+  <li>Rebuild the store zip: <code>python scripts/build_store_zip.py</code> (edit the OUT filename/VERSION inside the script).</li>
+  <li>Dashboard → your item → <b>Package</b> → upload the new zip → <b>Submit for review</b>.
+      Updates to the listing text are made in the "Store listing" tab in the same go.</li>
+</ol>
+
+<h2>Common rejection reasons — and how this kit already handles them</h2>
+<table>
+  <tr><th>Google rejects when…</th><th>Your kit</th></tr>
+  <tr><td>The zip is missing <code>manifest.json</code> at the root</td>
+      <td>Kit zip is built with the manifest at root (verified).</td></tr>
+  <tr><td>"Broken functionality" — reviewer cannot test it</td>
+      <td>Reviewer notes explain the hub-less state is a graceful "Hub not running" screen; hub link + test steps provided.</td></tr>
+  <tr><td>Broad <code>&lt;all_urls&gt;</code> without a strong reason</td>
+      <td>Full justification text written (user-triggered printing + opt-out in Options).</td></tr>
+  <tr><td>Missing privacy policy</td>
+      <td>Policy written + GitHub Pages steps (Step 2).</td></tr>
+  <tr><td>Screenshots don't match the real UI</td>
+      <td>Screenshots were rebuilt from the real popup/options layout and labels.</td></tr>
+  <tr><td>Remote code / obfuscated code</td>
+      <td>None — all JS is local and readable; the extension never downloads code.</td></tr>
+</table>
+
+<h2>Quick links</h2>
+<div class="grid2">
+  <div class="mini"><b>Developer Dashboard</b><span>chrome.google.com/webstore/devconsole</span></div>
+  <div class="mini"><b>Store item (after approval)</b><span>chromewebstore.google.com/detail/&lt;id&gt;</span></div>
+  <div class="mini"><b>Hub releases for users</b><span>github.com/bitdreamit/PrintHub-Pro/releases</span></div>
+  <div class="mini"><b>Privacy policy URL</b><span>bitdreamit.github.io/PrintHub-Pro/privacy-policy.html</span></div>
+</div>
+
+<div class="ok"><b>You are ready.</b> Kit contents verified: zip OK (manifest at root, MV3, 14 files) ·
+screenshots 1280×800 + 440×280 · listing texts within all character limits · privacy policy ready to publish.</div>
+
+</div>
+</body>
+</html>

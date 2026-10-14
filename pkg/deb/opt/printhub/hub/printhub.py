@@ -35,11 +35,12 @@ import tempfile
 import threading
 import time
 import urllib.request
+import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 APP_NAME = "PrintHub Pro"
 VENDOR = "Bitdream IT"
 IS_WIN = sys.platform == "win32"
@@ -725,6 +726,131 @@ def save_file_job(kind, title, data, source="api", origin_ip="-"):
     return job_id, path
 
 # ------------------------------------------------------------
+# Auto-start at logon (visible, user-controllable)
+# ------------------------------------------------------------
+# v1.5.0: Windows autostart is a NORMAL STARTUP-APP SHORTCUT
+# ("shell:startup\PrintHub Pro.lnk"), NOT a hidden scheduled task.
+# Why it matters: Startup-folder apps appear in Task Manager ->
+# "Startup apps" with name + icon, so the user can Enable/Disable
+# them with one click; scheduled tasks are invisible there, which
+# made the hub look uninstallable. The tray icon menu and the
+# /autostart API below toggle the same shortcut.
+
+def hub_dir():
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def launcher_exe():
+    """Windows: prefer a sibling PrintHubPro.exe (renamed pythonw.exe) so
+    Task Manager shows 'PrintHubPro' instead of 'pythonw'. Non-Windows:
+    the current interpreter."""
+    if IS_WIN:
+        cand = os.path.join(os.path.dirname(sys.executable), "PrintHubPro.exe")
+        if os.path.isfile(cand):
+            return cand
+    return sys.executable
+
+
+def hub_icon_path():
+    cand = os.path.join(hub_dir(), "printhub.ico")
+    return cand if os.path.isfile(cand) else ""
+
+
+def autostart_path():
+    """File that controls 'start at logon' (None = unsupported platform)."""
+    if IS_WIN:
+        base = os.environ.get("APPDATA") or os.path.join(
+            os.path.expanduser("~"), "AppData", "Roaming")
+        return os.path.join(base, "Microsoft", "Windows", "Start Menu",
+                            "Programs", "Startup", "PrintHub Pro.lnk")
+    if sys.platform.startswith("linux"):
+        cfg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+            os.path.expanduser("~"), ".config")
+        return os.path.join(cfg, "autostart", "printhub-pro.desktop")
+    return None
+
+
+def autostart_enabled():
+    p = autostart_path()
+    return bool(p) and os.path.isfile(p)
+
+
+def _legacy_task_remove():
+    """Old releases (v1.2 - v1.4) registered a SCHEDULED TASK named
+    'PrintHub Pro'. Delete it so the hub never starts twice."""
+    if not IS_WIN:
+        return
+    try:
+        subprocess.run(["schtasks", "/Delete", "/TN", "PrintHub Pro", "/F"],
+                       creationflags=HIDE, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=15)
+    except Exception:
+        pass
+
+
+def autostart_set(enable):
+    """Enable/disable the logon autostart. Returns the resulting state."""
+    p = autostart_path()
+    if not p:
+        return False
+    _legacy_task_remove()
+    try:
+        if IS_WIN:
+            if enable:
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                lnk = p.replace("'", "''")
+                exe = launcher_exe().replace("'", "''")
+                hubpy = os.path.join(hub_dir(), "printhub.py").replace("'", "''")
+                ico = (hub_icon_path() or "").replace("'", "''")
+                wd = hub_dir().replace("'", "''")
+                ps = ("$w=New-Object -ComObject WScript.Shell;"
+                      "$s=$w.CreateShortcut('{lnk}');"
+                      "$s.TargetPath='{exe}';"
+                      "$s.Arguments='\"{hubpy}\" serve';"
+                      "$s.IconLocation='{ico},0';"
+                      "$s.WorkingDirectory='{wd}';"
+                      "$s.Description='PrintHub Pro silent print hub';"
+                      "$s.Save()").format(lnk=lnk, exe=exe, hubpy=hubpy,
+                                          ico=ico, wd=wd)
+                r = subprocess.run(
+                    ["powershell", "-NoProfile", "-ExecutionPolicy",
+                     "Bypass", "-Command", ps],
+                    creationflags=HIDE, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=30)
+                ok = (r.returncode == 0 and os.path.isfile(p))
+                log("[AUTOSTART] %s (%s)" %
+                    ("enabled - Startup shortcut created" if ok
+                     else "FAILED to create Startup shortcut",
+                     p))
+                return ok
+            if os.path.isfile(p):
+                os.remove(p)
+            log("[AUTOSTART] disabled - Startup shortcut removed")
+            return False
+        # Linux: XDG autostart desktop entry
+        if enable:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            exe = launcher_exe()
+            ico = os.path.join(hub_dir(), "printhub.png")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("[Desktop Entry]\nType=Application\n"
+                        "Name=PrintHub Pro\n"
+                        "Comment=Silent print hub (localhost:9235)\n"
+                        "Exec=%s %s serve\n" % (exe, os.path.join(hub_dir(),
+                                                                 "printhub.py")))
+                if os.path.isfile(ico):
+                    f.write("Icon=%s\n" % ico)
+                f.write("Terminal=false\nCategories=Utility;\n")
+            return os.path.isfile(p)
+        if os.path.isfile(p):
+            os.remove(p)
+        return False
+    except Exception as e:
+        log("[AUTOSTART] error: %s" % e)
+        return autostart_enabled()
+
+
+# ------------------------------------------------------------
 # HTTP API (pure stdlib, CORS-ready for ANY browser/website)
 # ------------------------------------------------------------
 CORS_HEADERS = [
@@ -878,6 +1004,7 @@ class Handler(BaseHTTPRequestHandler):
                 "jobs_today": db_count_today(),
                 "file_dir": default_file_dir(),
                 "token_set": bool(CFG["token"]),
+                "autostart": autostart_enabled(),
             })
 
         if not self._token_ok(qt):
@@ -891,6 +1018,7 @@ class Handler(BaseHTTPRequestHandler):
                               "/jobs/{id}/reprint (POST)", "/jobs/{id}/cancel (POST)",
                               "/print (POST)", "/queue (GET)",
                               "/queue/pause|resume|clear (POST)",
+                              "/autostart (GET) + /autostart (POST)",
                               "/testprint?kind=a4|thermal"],
             })
         if route == "/printers":
@@ -900,6 +1028,12 @@ class Handler(BaseHTTPRequestHandler):
                 "printers": [{"name": n, "is_default": n == dp}
                              for n in list_printers()],
                 "default": dp})
+        if route == "/autostart":
+            return self._send(200, {
+                "ok": True, "enabled": autostart_enabled(),
+                "path": autostart_path(),
+                "hint": "POST {\"enabled\": true|false} to change"
+                        " (same toggle as the tray icon menu)"})
         if route == "/queue":
             cur = None
             with _CURRENT_LOCK:
@@ -1032,6 +1166,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"ok": True, "canceled": n})
             return self._send(200, {"ok": True,
                                     "paused": not RESUME_EVENT.is_set()})
+
+        # POST /autostart  {"enabled": true|false}
+        if route == "/autostart":
+            enable = body.get("enabled")
+            if enable is None:
+                enable = (q.get("enabled") or [""])[0].lower() in ("1", "true", "on", "yes")
+            state = autostart_set(bool(enable))
+            return self._send(200, {"ok": True, "enabled": state,
+                                    "path": autostart_path()})
 
         # POST /print
         if route == "/print":
@@ -1169,17 +1312,85 @@ def cmd_serve():
     db_init()
     start_worker()
     addr = (CFG["host"], CFG["port"])
-    httpd = ThreadingHTTPServer(addr, Handler)
+    try:
+        httpd = ThreadingHTTPServer(addr, Handler)
+    except OSError as e:
+        # second instance guard: hub already running? do not scare the user
+        log("FATAL: cannot bind %s:%d (%s)" % (CFG["host"], CFG["port"], e))
+        log("PrintHub Pro is probably ALREADY running (check the tray icon"
+            " near the clock, or Task Manager -> 'PrintHubPro'). Exiting.")
+        time.sleep(1.2)
+        return
     httpd.daemon_threads = True
     print(BANNER)
     log("PrintHub Pro v%s listening on http://%s:%d" % (VERSION, CFG["host"], CFG["port"]))
     log("Health check -> http://127.0.0.1:%d/health   (token: %s)"
         % (CFG["port"], CFG["token"]))
     log("Open the extension popup and click Connect. Press Ctrl+C to stop.")
+    _start_tray(httpd)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         log("stopped by user (Ctrl+C)")
+
+
+def _start_tray(httpd):
+    """Windows tray icon ('PrintHub Pro' next to the clock) with a control
+    menu. 100% optional: any failure just means no tray icon."""
+    if not IS_WIN:
+        return
+    try:
+        import tray_windows
+    except Exception as e:
+        log("tray icon unavailable (%s) - printing still works" % e)
+        return
+
+    def _open_status():
+        webbrowser.open("http://127.0.0.1:%d/health" % CFG["port"])
+
+    def _test():
+        data, _ = thermal_pdf_bytes(
+            "#big PrintHub Pro TEST PAGE\n\nIf this page printed, the hub works.\n"
+            "Time: %s\n" % datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "tray-test", paper="a4")
+        job = enqueue_print("a4", "tray-test", data, origin_ip="tray")
+        log("[OK] test page queued from tray (job #%d)" % job)
+
+    def _pause_toggle():
+        if RESUME_EVENT.is_set():
+            RESUME_EVENT.clear()
+            log("[QUEUE] paused via tray menu")
+            return True
+        RESUME_EVENT.set()
+        log("[QUEUE] resumed via tray menu")
+        return False
+
+    def _auto_toggle():
+        newv = not autostart_enabled()
+        return autostart_set(newv)
+
+    def _exit():
+        log("PrintHub Pro stopped from the tray icon menu")
+        threading.Timer(0.5, os._exit, args=(0,)).start()
+        try:
+            threading.Thread(target=httpd.shutdown, daemon=True).start()
+        except Exception:
+            pass
+
+    tray_windows.start(
+        icon=hub_icon_path(),
+        tooltip="PrintHub Pro v%s - running on http://127.0.0.1:%d"
+                % (VERSION, CFG["port"]),
+        callbacks={
+            "on_open": _open_status,
+            "on_test": _test,
+            "is_paused": lambda: not RESUME_EVENT.is_set(),
+            "on_pause_toggle": _pause_toggle,
+            "is_autostart": autostart_enabled,
+            "on_autostart_toggle": _auto_toggle,
+            "on_exit": _exit,
+        },
+        logf=log)
 
 def cmd_testprint(kind):
     db_init(); start_worker()

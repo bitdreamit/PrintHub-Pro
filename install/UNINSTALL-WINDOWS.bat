@@ -1,18 +1,23 @@
 @echo off
 REM ============================================================
-REM  PrintHub Pro - Windows uninstall  (v1.2.0)
-REM  Removes the logon auto-run task and stops the hub.
+REM  PrintHub Pro - Windows uninstall  (v1.5.0)
+REM  Removes the Startup-app shortcut (and the legacy logon task
+REM  from v1.2-v1.4) and stops the hub.
 REM  Does NOT delete your print data or the Chrome extension.
 REM ============================================================
 title PrintHub Pro Uninstall
 echo.
-echo [..] Removing logon task "PrintHub Pro" ...
-schtasks /Delete /TN "PrintHub Pro" /F >nul 2>&1
-if not errorlevel 1 (
-  echo [OK] Logon task removed
+echo [..] Removing Startup shortcut "PrintHub Pro" ...
+del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\PrintHub Pro.lnk" >nul 2>&1
+if not exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\PrintHub Pro.lnk" (
+  echo [OK] Startup shortcut removed - no more auto-run at logon
 ) else (
-  echo [..] No logon task found - nothing to remove
+  echo [!] Could not remove the Startup shortcut - delete it manually:
+  echo     %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 )
+echo [..] Removing legacy logon task "PrintHub Pro" (v1.2-v1.4) ...
+schtasks /Delete /TN "PrintHub Pro" /F >nul 2>&1
+echo [OK] Done
 
 echo [..] Stopping any hub on port 9235 ...
 set KILLED=
