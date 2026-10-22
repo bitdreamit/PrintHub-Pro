@@ -1,18 +1,28 @@
-/* PrintHub Pro - MAIN world hook (v1.1.3).
+/* PrintHub Pro - MAIN world hook (v1.5.1).
  * Injected by the BROWSER itself (dynamic content-script registration on
  * Chrome 111+, or chrome.scripting.executeScript from the service worker).
  * Both routes are extension-initiated and therefore immune to the page's
  * Content-Security-Policy - strict-CSP pages (bank sites, chat apps ...)
  * cannot block it, unlike <script> tag injection.
  *
- * What it intercepts:
+ * What it intercepts (TOP FRAME ONLY since v1.5.1):
  *   1. window.print()  - JS calls (Odoo, POS, dashboards, report apps)
  *   2. Ctrl+P / Cmd+P  - the keyboard shortcut NEVER calls window.print(),
  *                        it goes straight to Chrome's print preview, so it
  *                        must be caught with a capture-phase keydown.
- * Both are redirected to the hub: silent, no dialog, no preview. */
+ * Both are redirected to the hub: silent, no dialog, no preview.
+ *
+ * v1.5.1 FIX: iframes are NOT hooked any more. The background can only
+ * ever print the TOP tab (sender.tab), so an iframe calling print()
+ * would silently print the WRONG content (the top page) while the page
+ * expected its own print dialog - e.g. a hidden fallback iframe doing
+ * iframe.print() made the same report come out of the printer twice.
+ * Iframes now keep the native print behavior. Pages that want to print
+ * an iframe natively from the top frame can still bypass the hook with
+ * win.__printhubNativePrint.call(win). */
 (function () {
   if (window.__printhubHooked) return;   // idempotent: never double-install
+  if (window.top !== window) return;     // v1.5.1: top frame only (see above)
   window.__printhubHooked = true;
   try {
     var native = window.print;            // kept so we can restore behavior

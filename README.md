@@ -33,18 +33,20 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) 
 
 **Extra features beyond the paid original:** auto-print PDF URLs with login cookies (Laravel signed routes work), silent printing of raw text to 80 mm thermal rolls, **save-as-PDF File destination for every job type**, reprint-from-history via HTTP and CLI, `doctor` self-diagnosis, optional LAN mode for shared office printers.
 
+> **What's new in v1.5.1 — double-print fix:** the `window.print()` interception hook is now **top-frame only**. Previously it was also injected into hidden iframes, so a page's own iframe-print fallback (e.g. a hidden iframe calling `iframe.print()` when the hub path fails) got hijacked and sent to the hub again — the same report could come out of the printer twice. Iframes now keep the native print dialog, and pages can bypass the hook explicitly via `win.__printhubNativePrint.call(win)`. Page-side hardening (URL dedupe + timeout→history check) ships in the **PrintHub-Pro-Page-Kit**.
+
 ---
 
 ## Quick start (3 steps)
 
 ### 1. Install the hub (one-time, zero questions)
 
-**Easiest — native installers (v1.5.0):**
+**Easiest — native installers (v1.5.1):**
 
 | | file | what it does |
 |---|---|---|
-| **Windows** | `PrintHub-Pro-Setup-1.5.0.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "PrintHub Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray icon** (right-click = status page, test page, pause, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
-| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_1.5.0_all.deb` | `sudo apt install ./printhub-pro_1.5.0_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
+| **Windows** | `PrintHub-Pro-Setup-1.5.1.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "PrintHub Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray icon** (right-click = status page, test page, pause, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
+| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_1.5.1_all.deb` | `sudo apt install ./printhub-pro_1.5.1_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
 | **macOS / other Linux** | `install/install-unix.sh` | same auto-run via LaunchAgent / systemd --user / XDG, no sudo needed. |
 
 **Or the portable way (both platforms):**
@@ -70,7 +72,7 @@ always there, no shortcut needed. To undo it:
 | **Windows** | `install\UNINSTALL-WINDOWS.bat` | data in `%USERPROFILE%\.printhub` |
 | **Linux / macOS** | `bash install/uninstall-unix.sh` | data in `~/.printhub` |
 
-Windows notes (v1.5.0): the hub runs as `PrintHubPro.exe` (a renamed
+Windows notes (v1.5.1): the hub runs as `PrintHubPro.exe` (a renamed
 `pythonw.exe`), so Task Manager shows **"PrintHubPro"** — not "python".
 Auto-run is a normal **Startup app** shortcut: open **Task Manager →
 Startup apps** and you will find "PrintHub Pro" there with its icon —

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PrintHub Pro — page integration demo (silent print button)</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.6 'Segoe UI',system-ui,Arial,sans-serif; background:#f1f5f9; color:#0f172a; }
+  .wrap { max-width:860px; margin:0 auto; padding:32px 20px 60px; }
+  .banner { background:#0f172a; color:#e2e8f0; border-radius:12px; padding:16px 20px; margin-bottom:24px; font-size:14px; }
+  .banner b { color:#7dd3fc; }
+  .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:24px; margin-bottom:20px; box-shadow:0 1px 3px rgba(15,23,42,.06); }
+  h1 { font-size:22px; margin:0 0 6px; }
+  h2 { font-size:16px; margin:0 0 14px; color:#334155; }
+  .sub { color:#64748b; font-size:13.5px; margin:0 0 20px; }
+  label { display:block; font-size:13px; font-weight:600; color:#475569; margin:14px 0 4px; }
+  input[type=text] { width:100%; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; font:14px/1.4 inherit; }
+  input[type=text]:focus { outline:2px solid #3b82f6; outline-offset:1px; border-color:#3b82f6; }
+  .row { display:flex; gap:12px; align-items:center; margin-top:20px; flex-wrap:wrap; }
+  button { background:#2563eb; border:0; color:#fff; padding:11px 22px; border-radius:8px; font:600 14.5px/1 inherit; cursor:pointer; }
+  button:hover { background:#1d4ed8; }
+  button.ghost { background:#e2e8f0; color:#334155; }
+  button.ghost:hover { background:#cbd5e1; }
+  #log { background:#0f172a; color:#86efac; font:12.5px/1.55 ui-monospace,Consolas,monospace; border-radius:10px; padding:14px 16px; height:220px; overflow-y:auto; white-space:pre-wrap; }
+  #log .w { color:#fca5a5; }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid #e2e8f0; vertical-align:top; }
+  th { color:#475569; font-size:12.5px; text-transform:uppercase; letter-spacing:.04em; }
+  code { background:#f1f5f9; border:1px solid #e2e8f0; border-radius:5px; padding:1px 6px; font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="banner">
+    <b>Demo page —</b> this reproduces your lab app's print button with the FIXED snippet
+    (<code>lab-report-print.js</code>). With PrintHub Pro installed + hub running: prints
+    <b>silently</b> (no dialog). Without it: the browser print dialog opens (fallback path).
+    Open DevTools console for the <code>[PrintHub]</code> debug lines.
+  </div>
+
+  <h1>Print a lab report — silent print chain</h1>
+  <p class="sub">hub silent print &nbsp;&#8594;&nbsp; hidden-iframe print dialog &nbsp;&#8594;&nbsp; new tab (last resort)</p>
+
+  <div class="card">
+    <h2>Lab report — print selected</h2>
+    <label for="demo_url">Report URL (form.action — change it to one of YOUR routes)</label>
+    <input type="text" id="demo_url" spellcheck="false"
+           value="https://example.com/lab/medical_reports/print/1001">
+
+    <!-- your app has this exact form; the snippet reads print_form + its fields -->
+    <form id="print_form" action="https://example.com/lab/medical_reports/print/1001">
+      <input type="hidden" name="report_id" value="1001">
+      <input type="hidden" name="dept"      value="lab">
+      <input type="hidden" name="copies"    value="1">
+    </form>
+
+    <div class="row">
+      <!-- keep type="button" so the browser never submits the page -->
+      <button type="button" id="print_selected_btn">🖨 Print selected</button>
+      <button type="button" class="ghost" onclick="window.printhub && window.printhub.status().then(s=>log('hub: '+JSON.stringify(s))).catch(e=>log('hub status failed: '+(e.message||e)))">
+        Check hub status
+      </button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Live log</h2>
+    <div id="log"></div>
+  </div>
+
+  <div class="card">
+    <h2>What each toast means</h2>
+    <table>
+      <tr><th>Toast</th><th>Meaning</th></tr>
+      <tr><td>“Sending to printer…”</td><td>Extension detected — the URL goes to the local hub for silent printing.</td></tr>
+      <tr><td>“Sent to printer (job N)”</td><td>Hub accepted the job. Watch the tray icon / popup → Recent jobs.</td></tr>
+      <tr><td>“Print dialog opening…”</td><td>Hub path unavailable (extension/hub off, or login expired) — the browser dialog will open with the report.</td></tr>
+    </table>
+  </div>
+
+</div>
+
+<script>
+  /* demo helper: keep the form.action in sync with the URL box */
+  var urlBox = document.getElementById('demo_url');
+  var form   = document.getElementById('print_form');
+  urlBox.addEventListener('change', function () { form.action = urlBox.value.trim(); });
+
+  /* demo helper: mirror console [PrintHub] lines into the log panel */
+  var logEl = document.getElementById('log');
+  function log(msg, warn) {
+    var line = document.createElement('div');
+    if (warn) line.className = 'w';
+    line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  (function () {
+    var olog = console.log, owarn = console.warn;
+    console.log  = function () { var a = [].slice.call(arguments); olog.apply(console, a); log(a.join(' ')); };
+    console.warn = function () { var a = [].slice.call(arguments); owarn.apply(console, a); log(a.join(' '), true); };
+  })();
+  log('page ready — printPdfLink ' + (typeof printPdfLink === 'function'
+      ? 'DETECTED (extension loaded)' : 'not present (extension off / other browser)'));
+</script>
+
+<!-- THE FIXED SNIPPET — same file you drop into your Laravel blade layout -->
+<script src="./lab-report-print.js"></script>
+</body>
+</html>

@@ -40,7 +40,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 APP_NAME = "PrintHub Pro"
 VENDOR = "Bitdream IT"
 IS_WIN = sys.platform == "win32"
@@ -728,7 +728,7 @@ def save_file_job(kind, title, data, source="api", origin_ip="-"):
 # ------------------------------------------------------------
 # Auto-start at logon (visible, user-controllable)
 # ------------------------------------------------------------
-# v1.5.0: Windows autostart is a NORMAL STARTUP-APP SHORTCUT
+# v1.5.1: Windows autostart is a NORMAL STARTUP-APP SHORTCUT
 # ("shell:startup\PrintHub Pro.lnk"), NOT a hidden scheduled task.
 # Why it matters: Startup-folder apps appear in Task Manager ->
 # "Startup apps" with name + icon, so the user can Enable/Disable

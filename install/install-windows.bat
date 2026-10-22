@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  PrintHub Pro - ONE-CLICK Windows setup  (v1.5.0)
+REM  PrintHub Pro - ONE-CLICK Windows setup  (v1.5.1)
 REM  Just double-click this file. Zero questions:
 REM    1. removes Mark-of-the-Web from all files
 REM       (fixes "Access is denied" on downloaded zips)
@@ -45,7 +45,7 @@ if defined OLDKILL (
 )
 
 REM ---- 1) Python: BUNDLED runtime first, system Python = fallback ------
-REM  v1.5.0: PrintHubPro.exe = pythonw.exe renamed, so Task Manager
+REM  v1.5.1: PrintHubPro.exe = pythonw.exe renamed, so Task Manager
 REM  shows "PrintHubPro" instead of "python".
 set PYW=
 if exist "%~dp0..\installer\runtime\PrintHubPro.exe" (
@@ -115,7 +115,7 @@ if defined SUMATRA (
 )
 
 REM ---- 4) AUTO-RUN as a normal STARTUP APP (visible + controllable) ----
-REM  v1.5.0: a shortcut named "PrintHub Pro" in the user's Startup
+REM  v1.5.1: a shortcut named "PrintHub Pro" in the user's Startup
 REM  folder - Task Manager > Startup apps lists it with our icon, and
 REM  it can be enabled/disabled there (or in the tray icon menu).
 REM  The hidden SCHEDULED TASK from v1.2-v1.4 is removed so the hub

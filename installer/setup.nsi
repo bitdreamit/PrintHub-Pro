@@ -18,7 +18,7 @@
 
 Unicode true
 Name "PrintHub Pro"
-OutFile "/home/z/my-project/build/PrintHubPro/installer/PrintHub-Pro-Setup-1.5.0.exe"
+OutFile "/home/z/my-project/build/PrintHubPro/installer/PrintHub-Pro-Setup-1.5.1.exe"
 InstallDir "$LOCALAPPDATA\PrintHubPro"
 InstallDirRegKey HKCU "Software\PrintHubPro" "InstallDir"
 RequestExecutionLevel user
@@ -26,10 +26,10 @@ SetCompressor /SOLID lzma
 ShowInstDetails show
 ShowUnInstDetails show
 
-VIProductVersion "1.5.0.0"
+VIProductVersion "1.5.1.0"
 VIAddVersionKey ProductName "PrintHub Pro"
-VIAddVersionKey FileVersion "1.5.0"
-VIAddVersionKey ProductVersion "1.5.0"
+VIAddVersionKey FileVersion "1.5.1"
+VIAddVersionKey ProductVersion "1.5.1"
 VIAddVersionKey CompanyName "Bitdream IT"
 VIAddVersionKey LegalCopyright "MIT License"
 VIAddVersionKey FileDescription "PrintHub Pro - silent print bridge (one-time setup)"
@@ -166,7 +166,7 @@ Section "PrintHub Pro (required)" SEC_MAIN
   ${EndIf}
 
   ; ---- auto-run as a normal STARTUP APP (visible + controllable) ----
-  ;  v1.5.0: Startup-folder shortcut instead of a scheduled task -
+  ;  v1.5.1: Startup-folder shortcut instead of a scheduled task -
   ;  Task Manager > Startup apps now lists "PrintHub Pro" with our
   ;  icon and the user can enable/disable it there (or in the tray).
   ;  The hidden scheduled task from v1.2-v1.4 is removed (legacy).
@@ -185,7 +185,7 @@ Section "PrintHub Pro (required)" SEC_MAIN
   ${Else}
     DetailPrint "No usable pythonw.exe (bundled runtime missing + no system Python)."
     MessageBox MB_ICONEXCLAMATION|MB_OK \
-      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download PrintHub-Pro-Setup-1.5.0.exe (file may be damaged), or install Python from python.org (tick 'Add python.exe to PATH') and run this setup again."
+      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download PrintHub-Pro-Setup-1.5.1.exe (file may be damaged), or install Python from python.org (tick 'Add python.exe to PATH') and run this setup again."
     ExecShell "open" "https://www.python.org/downloads/"
   ${EndIf}
 
@@ -202,7 +202,7 @@ Section "PrintHub Pro (required)" SEC_MAIN
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
     "DisplayName" "PrintHub Pro (silent print bridge)"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
-    "DisplayVersion" "1.5.0"
+    "DisplayVersion" "1.5.1"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
     "Publisher" "Bitdream IT"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \

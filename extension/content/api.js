@@ -1,4 +1,4 @@
-/* PrintHub Pro - MAIN world developer API (v1.1.6).
+/* PrintHub Pro - MAIN world developer API (v1.5.1).
  * Injected into every http(s) page by the browser itself (CSP-immune).
  *
  *   window.printhub.status()                 -> hub health
@@ -93,7 +93,7 @@
   }
 
   window.printhub = {
-    version: "1.5.0",
+    version: "1.5.1",
     status: () => call({ fn: "status" }),
     printers: () => call({ fn: "printers" }),
     history: (limit) => call({ fn: "history", limit: limit || 20 }),
