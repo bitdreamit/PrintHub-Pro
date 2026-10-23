@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PrintHub Auto - universal light auto-print demo</title>
+<style>
+  :root { --blue:#1d4ed8; --ink:#0f172a; --mut:#64748b; --ok:#16a34a; --bad:#dc2626; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font:15px/1.6 "Segoe UI",system-ui,sans-serif; color:var(--ink);
+         background:#f5f8fc; padding-bottom:60px; }
+  header { background:linear-gradient(135deg,#1e3a8a,#1d4ed8); color:#fff; padding:22px 26px; }
+  header h1 { font-size:19px; } header p { font-size:12.5px; opacity:.9; margin-top:3px; }
+  main { max-width:760px; margin:22px auto; padding:0 18px; }
+  section { background:#fff; border:1px solid #e2e8f0; border-radius:12px;
+            padding:18px 20px; margin-bottom:14px; }
+  h2 { font-size:15px; margin-bottom:6px; }
+  .sub { color:var(--mut); font-size:12.5px; margin-bottom:12px; }
+  a.pdf, button.pdfbtn { display:inline-block; margin:4px 8px 4px 0; padding:9px 14px;
+      border-radius:8px; border:1px solid #dbe2ee; background:#fff; color:var(--blue);
+      font:600 13.5px "Segoe UI",system-ui,sans-serif; cursor:pointer; text-decoration:none; }
+  a.pdf:hover, button.pdfbtn:hover { border-color:var(--blue); }
+  .badge { display:inline-block; font:700 11px/1 system-ui,sans-serif; color:#fff;
+           background:var(--ok); border-radius:9px; padding:4px 10px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--mut); font-size:11px; text-transform:uppercase;
+       letter-spacing:.05em; padding:6px 8px; border-bottom:1px solid #e2e8f0; }
+  td { padding:7px 8px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
+  code { font:12.5px Consolas,monospace; background:#eef2ff; border-radius:5px; padding:1px 6px; }
+  .note { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; border-radius:8px;
+          padding:10px 12px; font-size:12.5px; margin-top:10px; }
+  footer { text-align:center; color:var(--mut); font-size:12px; margin-top:8px; }
+  footer a { color:var(--blue); font-weight:700; text-decoration:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PrintHub Auto &mdash; universal light auto-print <span class="badge" id="ver">v?</span></h1>
+  <p>AdvMedi by Bit Dream IT &middot; Innovative Healthcare Solutions &middot; www.bitdreamit.com</p>
+</header>
+
+<main>
+  <section>
+    <h2>1. Plain PDF links &mdash; zero code</h2>
+    <p class="sub">Click a link. With the extension installed the PDF prints silently (one click = one job).
+       Without it, the link opens normally &mdash; the browser fallback is automatic.</p>
+    <a class="pdf" href="sample-report.pdf">sample-report.pdf</a>
+    <a class="pdf" href="invoice-2026-04.pdf" data-print-title="Invoice 2026-04">invoice-2026-04.pdf (custom title)</a>
+  </section>
+
+  <section>
+    <h2>2. Any element with <code>data-printhub</code></h2>
+    <p class="sub">Buttons, cards, rows &mdash; anything carrying a URL in <code>data-printhub</code> prints that URL.</p>
+    <button class="pdfbtn" data-printhub="https://example.com/reports/605310.pdf" data-print-title="Lab report 605310">Print lab report 605310</button>
+    <button class="pdfbtn" data-printhub-ignore>Not a print button (ignored)</button>
+  </section>
+
+  <section>
+    <h2>3. How it decides</h2>
+    <table>
+      <tr><th>Situation</th><th>What happens</th></tr>
+      <tr><td>Extension + hub running</td><td>Silent print &mdash; toast <b>Sent to printer (job N)</b>. No tab, no dialog.</td></tr>
+      <tr><td>Extension missing / disabled</td><td>Click is <b>not</b> intercepted &mdash; the link opens the URL exactly like before.</td></tr>
+      <tr><td>Print fails (hub off, printer error)</td><td>The URL opens in a new tab (browser fallback), toast explains it.</td></tr>
+      <tr><td>Double click / fast re-click</td><td>Swallowed by a 1.5 s cooldown &mdash; <b>one click = one job</b>, never two copies.</td></tr>
+      <tr><td>Page's own script already handled the click</td><td>PrintHub Auto stands down (no double handling).</td></tr>
+    </table>
+    <div class="note">
+      Install on any page: <code>&lt;script src="printhub-auto.js"&gt;&lt;/script&gt;</code> &mdash; that's all.
+      Optional customisation: <code>PrinthubAuto.init({ selector:'.print-btn', title:'Report' })</code>,
+      manual API: <code>PrinthubAuto.print(url, 'Title')</code>.
+      Sample links point to files that do not exist here &mdash; they only demonstrate the click behaviour.
+    </div>
+  </section>
+</main>
+
+<footer>
+  AdvMedi by <a href="https://www.bitdreamit.com" target="_blank" rel="noopener">Bit Dream IT</a>
+  &mdash; Innovative Healthcare Solutions &middot; PrintHub Pro is 100% local &amp; MIT open source
+</footer>
+
+<script>
+  // live status badge (demo only)
+  window.addEventListener("load", function () {
+    var v = (window.PrinthubAuto && window.PrinthubAuto.version) || "?";
+    var el = document.getElementById("ver");
+    el.textContent = "v" + v + (typeof printPdfLink === "function"
+      ? " - extension detected" : " - no extension (links open normally)");
+    el.style.background = typeof printPdfLink === "function" ? "#16a34a" : "#64748b";
+  });
+</script>
+<script src="printhub-auto.js"></script>
+</body>
+</html>
