@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  PrintHub Pro v1.0.0  -  Print from any web page to any printer
-#  by Bitdream IT  -  MIT licensed, 100% local & open source
+#  PrintHub Pro v1.6.0  -  Print from any web page to any printer
+#  AdvMedi by Bit Dream IT  -  https://www.bitdreamit.com
+#  Innovative Healthcare Solutions - MIT licensed, 100% local
 # ------------------------------------------------------------
 #  Chrome extension <-> this hub (localhost) -> ANY printer
 #  NO print dialog. NO subscription. NO cloud. NO data collection.
@@ -40,15 +41,20 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "1.5.1"
+VERSION = "1.6.0"
 APP_NAME = "PrintHub Pro"
-VENDOR = "Bitdream IT"
+VENDOR = "Bit Dream IT"
+BRAND = "AdvMedi by Bit Dream IT - Innovative Healthcare Solutions"
+BRAND_URL = "https://www.bitdreamit.com"
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 HIDE = 0x08000000 if IS_WIN else 0          # no console window flash on Windows
 MAX_BODY = 40 * 1024 * 1024                 # 40 MB hard cap on request body
 MAX_PDF = 25 * 1024 * 1024                  # 25 MB cap for downloaded pdf_url
 HISTORY_DEFAULT = 100                       # Ultraprint-style: last 100 jobs
+# v1.6.0: stored job PDFs older than this are auto-deleted (0 = keep forever).
+# Keeps the data folder small on PCs that print thousands of reports.
+KEEP_DAYS = float(os.environ.get("PRINTHUB_KEEP_DAYS", "14") or 14)
 
 # ------------------------------------------------------------
 # Configuration (environment variables override defaults)
@@ -133,16 +139,28 @@ def db_init():
                    duration_ms INTEGER DEFAULT 0
                )"""
         )
+        # v1.6.0: page-scaling preference ('' | noscale | shrinkfit | fit)
+        try:
+            conn.execute("ALTER TABLE jobs ADD COLUMN fit TEXT DEFAULT ''")
+        except Exception:
+            pass  # column already exists
+        # v1.6.0 PERF: WAL journal = faster writes, fewer fsync stalls while
+        # the HTTP threads and the print worker hit the DB at the same time
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            pass
 
 def db_add(kind, title, printer, copies, file_path, source, origin_ip,
-           status="queued"):
+           status="queued", fit=""):
     with _DB_LOCK, db() as conn:
         cur = conn.execute(
             "INSERT INTO jobs (created_at, kind, title, printer, copies, status,"
-            " file_path, source, origin_ip)"
-            " VALUES (?,?,?,?,?,?,?,?,?)",
+            " file_path, source, origin_ip, fit)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (datetime.now().isoformat(timespec="seconds"), kind, title, printer,
-             copies, status, file_path, source, origin_ip),
+             copies, status, file_path, source, origin_ip, fit or ""),
         )
         return cur.lastrowid
 
@@ -195,6 +213,13 @@ def db_count_today():
 # ------------------------------------------------------------
 # Printer + browser discovery (best effort, pure stdlib)
 # ------------------------------------------------------------
+# v1.6.0 PERF: every /health and /printers call used to spawn PowerShell
+# (0.3-1.5 s each on Windows). Results are cached for 30 s now - the popup
+# and status page feel instant and idle CPU drops to almost zero.
+_PRINTER_TTL = 30.0
+_PRINTER_CACHE = {"at": 0.0, "list": None}
+_DEFAULT_CACHE = {"at": 0.0, "name": None}
+
 def find_sumatra():
     """Locate SumatraPDF.exe on common Windows paths."""
     if not IS_WIN:
@@ -243,8 +268,12 @@ def find_browser():
             return p
     return None
 
-def list_printers():
-    """Return list of installed printer names (best effort)."""
+def list_printers(force=False):
+    """Return list of installed printer names (best effort, 30 s cache)."""
+    now = time.time()
+    if (not force and _PRINTER_CACHE["list"] is not None
+            and now - _PRINTER_CACHE["at"] < _PRINTER_TTL):
+        return _PRINTER_CACHE["list"]
     try:
         if IS_WIN:
             ps = "Get-CimInstance Win32_Printer | Select-Object -ExpandProperty Name"
@@ -252,7 +281,6 @@ def list_printers():
                                  capture_output=True, text=True, timeout=20,
                                  creationflags=HIDE)
             names = [l.strip() for l in (out.stdout or "").splitlines() if l.strip()]
-            return names
         else:
             out = subprocess.run(["lpstat", "-e"], capture_output=True,
                                  text=True, timeout=10)
@@ -263,13 +291,20 @@ def list_printers():
                 for l in (out.stdout or "").splitlines():
                     if l.startswith("printer "):
                         names.append(l.split()[1])
-            return names
+        if names:   # v1.6.0: never cache a transient empty result
+            _PRINTER_CACHE["list"] = names
+            _PRINTER_CACHE["at"] = now
+        return names
     except Exception as e:
         log("[WARN] list_printers failed: %s" % e)
         return []
 
-def default_printer():
-    """Return the OS default printer name (best effort)."""
+def default_printer(force=False):
+    """Return the OS default printer name (best effort, 30 s cache)."""
+    now = time.time()
+    if (not force and _DEFAULT_CACHE["name"] is not None
+            and now - _DEFAULT_CACHE["at"] < _PRINTER_TTL):
+        return _DEFAULT_CACHE["name"]
     try:
         if IS_WIN:
             ps = ("(Get-CimInstance Win32_Printer | Where-Object Default)"
@@ -278,14 +313,17 @@ def default_printer():
                                  capture_output=True, text=True, timeout=20,
                                  creationflags=HIDE)
             name = (out.stdout or "").strip()
-            return name or None
         else:
+            name = None
             out = subprocess.run(["lpstat", "-d"], capture_output=True,
                                  text=True, timeout=10)
             for l in (out.stdout or "").splitlines():
                 if "system default destination" in l:
-                    return l.split(":")[-1].strip()
-            return None
+                    name = l.split(":")[-1].strip()
+                    break
+        _DEFAULT_CACHE["name"] = name or None
+        _DEFAULT_CACHE["at"] = now
+        return name or None
     except Exception:
         return None
 
@@ -514,6 +552,7 @@ def html_to_pdf_bytes(source, is_url=True, title="page"):
         cmd = [exe, headless_flag, "--disable-gpu", "--no-first-run",
                "--disable-extensions", "--user-data-dir=" + profile,
                "--no-pdf-header-footer",
+               "--virtual-time-budget=8000",
                "--print-to-pdf=" + out_path, target]
         if IS_WIN:
             return subprocess.run(cmd, capture_output=True, timeout=120,
@@ -551,11 +590,12 @@ def html_to_pdf_bytes(source, is_url=True, title="page"):
 _CURRENT_LOCK = threading.Lock()
 _CURRENT = {"id": None, "proc": None}
 
-def print_file(path, kind="a4", printer="", copies=1, job_id=None):
+def print_file(path, kind="a4", printer="", copies=1, job_id=None, fit=""):
     """
     Print a PDF file SILENTLY (no dialog) to the given printer
     or the OS default. Raises RuntimeError with a friendly message.
     The spawned process is registered so /jobs/{id}/cancel can kill it.
+    fit: '' (kind default) | 'noscale' | 'shrinkfit' | 'fit' (v1.6.0).
     """
     copies = max(1, min(int(copies or 1), 50))
     target = printer or CFG["printer"] or default_printer() or ""
@@ -572,7 +612,12 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None):
             if not sumatra:
                 raise RuntimeError(
                     "SumatraPDF not found. Install it first: %s" % SUMATRA_HINT)
-            settings = "noscale" if kind in ("thermal", "image-thermal") else "shrinkfit"
+            fitv = (fit or "").lower()
+            if fitv in ("noscale", "shrinkfit", "fit"):
+                settings = fitv
+            else:
+                settings = ("noscale" if kind in ("thermal", "image-thermal")
+                            else "shrinkfit")
             if copies > 1:
                 settings += ",%dx" % copies
             cmd = [sumatra, "-silent", "-exit-when-done",
@@ -635,6 +680,7 @@ def cancel_current_print():
 # ------------------------------------------------------------
 RESUME_EVENT = threading.Event()   # set = queue running, clear = paused
 RESUME_EVENT.set()
+WAKE_EVENT = threading.Event()     # v1.6.0: instant wake-up when a job arrives
 
 def worker():
     # recover jobs stuck in 'printing' from a previous crash/restart
@@ -646,14 +692,17 @@ def worker():
         RESUME_EVENT.wait()                     # pause support
         job = db_next_queued()
         if not job:
-            time.sleep(0.35)
+            # v1.6.0: sleep until a new job signals WAKE (instant start)
+            # or a 1 s heartbeat passes - no more busy 0.35 s polling
+            WAKE_EVENT.wait(timeout=1.0)
+            WAKE_EVENT.clear()
             continue
         t0 = time.time()
         db_update(job["id"], status="printing", error=None)
         try:
             target = print_file(job["file_path"], job["kind"],
                                 job["printer"], job["copies"],
-                                job_id=job["id"])
+                                job_id=job["id"], fit=job.get("fit") or "")
             ms = int((time.time() - t0) * 1000)
             db_update(job["id"], status="printed", error=None,
                       duration_ms=ms, printer=target)
@@ -691,12 +740,14 @@ def save_job_file(kind, title, data):
     return path
 
 def enqueue_print(kind, title, data, printer="", copies=1,
-                  source="api", origin_ip="-"):
+                  source="api", origin_ip="-", fit=""):
     """Save file + insert DB row (worker picks it up). Returns job id."""
     path = save_job_file(kind, title, data)
-    job_id = db_add(kind, title, printer, copies, path, source, origin_ip)
+    job_id = db_add(kind, title, printer, copies, path, source, origin_ip,
+                    fit=fit)
     log("[QUEUE] job #%d queued (%s, %s) from %s"
         % (job_id, kind, title or "untitled", source))
+    WAKE_EVENT.set()          # v1.6.0: print starts immediately, no poll delay
     return job_id
 
 def save_file_job(kind, title, data, source="api", origin_ip="-"):
@@ -726,9 +777,46 @@ def save_file_job(kind, title, data, source="api", origin_ip="-"):
     return job_id, path
 
 # ------------------------------------------------------------
+# Disk hygiene (v1.6.0): auto-delete old stored job files
+# ------------------------------------------------------------
+def cleanup_old_job_files():
+    """Delete stored job PDFs older than KEEP_DAYS days (0 = keep forever).
+    History rows stay in SQLite; reprinting a cleaned job answers with the
+    usual friendly 'file no longer stored' error."""
+    if KEEP_DAYS <= 0:
+        return
+    cutoff = time.time() - KEEP_DAYS * 86400
+    removed = 0
+    try:
+        with _DB_LOCK, db() as conn:
+            rows = conn.execute(
+                "SELECT file_path FROM jobs WHERE file_path IS NOT NULL"
+            ).fetchall()
+    except Exception:
+        return
+    for r in rows:
+        fp = r["file_path"]
+        if not fp or not os.path.exists(fp):
+            continue
+        try:
+            if os.path.getmtime(fp) < cutoff:
+                os.unlink(fp)
+                removed += 1
+        except OSError:
+            pass
+    if removed:
+        log("[CLEANUP] removed %d job file(s) older than %g day(s)"
+            % (removed, KEEP_DAYS))
+
+def _cleanup_loop():
+    while True:
+        time.sleep(6 * 3600)
+        cleanup_old_job_files()
+
+# ------------------------------------------------------------
 # Auto-start at logon (visible, user-controllable)
 # ------------------------------------------------------------
-# v1.5.1: Windows autostart is a NORMAL STARTUP-APP SHORTCUT
+# v1.5.0: Windows autostart is a NORMAL STARTUP-APP SHORTCUT
 # ("shell:startup\PrintHub Pro.lnk"), NOT a hidden scheduled task.
 # Why it matters: Startup-folder apps appear in Task Manager ->
 # "Startup apps" with name + icon, so the user can Enable/Disable
@@ -1005,6 +1093,8 @@ class Handler(BaseHTTPRequestHandler):
                 "file_dir": default_file_dir(),
                 "token_set": bool(CFG["token"]),
                 "autostart": autostart_enabled(),
+                "brand": BRAND,
+                "brand_url": BRAND_URL,
             })
 
         if not self._token_ok(qt):
@@ -1014,7 +1104,8 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/":
             return self._send(200, {
                 "app": APP_NAME, "version": VERSION, "by": VENDOR,
-                "endpoints": ["/health", "/printers", "/jobs", "/jobs/{id}/file",
+                "brand": BRAND, "brand_url": BRAND_URL,
+                "endpoints": ["/health", "/printers", "/jobs", "/jobs/clear (POST)", "/jobs/{id}/file",
                               "/jobs/{id}/reprint (POST)", "/jobs/{id}/cancel (POST)",
                               "/print (POST)", "/queue (GET)",
                               "/queue/pause|resume|clear (POST)",
@@ -1110,6 +1201,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(401, {"ok": False,
                                     "error": "invalid or missing token"})
 
+        # POST /jobs/clear  (v1.6.0: wipe the job history - files stay on
+        # disk, the popup and Options 'Clear' buttons call this)
+        if route == "/jobs/clear":
+            with _DB_LOCK, db() as conn:
+                n = conn.execute("DELETE FROM jobs").rowcount
+            log("[HISTORY] cleared %d job(s) by request" % n)
+            return self._send(200, {"ok": True, "cleared": n})
+
         # POST /jobs/{id}/reprint
         if route.startswith("/jobs/") and route.endswith("/reprint"):
             jid = route.strip("/").split("/")[1]
@@ -1128,7 +1227,8 @@ class Handler(BaseHTTPRequestHandler):
                 rpt_printer = ""
             job_id = enqueue_print(j["kind"], (j["title"] or "reprint") + "-reprint",
                                    data, rpt_printer, j["copies"] or 1,
-                                   "api", self.client_address[0])
+                                   "api", self.client_address[0],
+                                   fit=j.get("fit") or "")
             return self._send(200, {"ok": True, "job_id": job_id,
                                     "reprint_of": j["id"]})
 
@@ -1155,6 +1255,7 @@ class Handler(BaseHTTPRequestHandler):
                 log("[QUEUE] paused by request")
             elif route == "/queue/resume":
                 RESUME_EVENT.set()
+                WAKE_EVENT.set()      # v1.6.0: wake the worker right away
                 log("[QUEUE] resumed by request")
             else:
                 n = 0
@@ -1197,6 +1298,11 @@ class Handler(BaseHTTPRequestHandler):
                 copies = max(1, min(int(copies), 50))
             except (TypeError, ValueError):
                 copies = 1
+            # v1.6.0: page scaling - 'noscale' | 'shrinkfit' | 'fit'
+            # ('' = per-kind default: thermal noscale, A4 shrinkfit)
+            fit = str(bget("fit") or "").lower()
+            if fit not in ("", "noscale", "shrinkfit", "fit"):
+                fit = ""
             # destination: "printer" (default) | "file" (save as PDF, no paper)
             # printer value "__file__" is the extension's alias for destination file
             destination = (bget("destination") or
@@ -1287,7 +1393,7 @@ class Handler(BaseHTTPRequestHandler):
                 })
 
             job = enqueue_print(kind, title, data, printer, copies,
-                                source, self.client_address[0])
+                                source, self.client_address[0], fit=fit)
             return self._send(200, {
                 "ok": True, "job_id": job, "kind": kind, "copies": copies,
                 "destination": "printer",
@@ -1306,11 +1412,17 @@ BANNER = r"""
  |  __/| | (_| | | | | |  __/  __/| |  | | (_| | | | | (_|  __/
  |_|   |_|\__,_|_| |_|_|\___|_|   |_|  |_|\__,_|_| |_|\___\___|
             v%s  by %s  -  open source (MIT)
-""" % (VERSION, VENDOR)
+   %s
+   %s
+""" % (VERSION, VENDOR, BRAND, BRAND_URL)
 
 def cmd_serve():
     db_init()
     start_worker()
+    threading.Thread(target=_cleanup_loop, daemon=True,
+                     name="printhub-cleanup").start()
+    threading.Thread(target=cleanup_old_job_files, daemon=True,
+                     name="printhub-cleanup-start").start()
     addr = (CFG["host"], CFG["port"])
     try:
         httpd = ThreadingHTTPServer(addr, Handler)
@@ -1515,6 +1627,8 @@ Options (environment variables):
   PRINTHUB_FILE_DIR Where "destination:file" PDFs are saved
                     (default ~/Downloads/PrintHub)
   PRINTHUB_DATA     Data folder (default ~/.printhub)
+  PRINTHUB_KEEP_DAYS  Auto-delete stored job PDFs older than N days
+                    (default 14, set 0 to keep everything forever)
 
 Chrome extension: see extension/ folder - load it unpacked in Chrome,
 then click the PrintHub icon and press Connect.

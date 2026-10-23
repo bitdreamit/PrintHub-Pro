@@ -75,6 +75,43 @@ function collect() {
   return rules;
 }
 
+/* ---------- blocked sites table (v1.6.0) ---------- */
+function siteRow(host) {
+  const tr = document.createElement("tr");
+  const td = document.createElement("td");
+  const inP = document.createElement("input");
+  inP.type = "text";
+  inP.value = host || "";
+  inP.placeholder = "example.com  or  *.example.com";
+  inP.addEventListener("change", collect);
+  td.appendChild(inP);
+  const tdX = document.createElement("td");
+  const bx = document.createElement("button");
+  bx.className = "mini danger";
+  bx.textContent = "Unblock";
+  bx.title = "Remove from the block list (auto-print works again)";
+  bx.addEventListener("click", () => { tr.remove(); collect(); });
+  tdX.appendChild(bx);
+  tr.append(td, tdX);
+  return tr;
+}
+
+function renderSites(list) {
+  const body = $("sitesBody");
+  body.innerHTML = "";
+  (list || []).forEach((h) => body.appendChild(siteRow(h)));
+}
+
+function collectSites() {
+  const out = [];
+  $("sitesBody").querySelectorAll("input[type=text]").forEach((inp) => {
+    let v = inp.value.trim().toLowerCase()
+      .replace(/^[a-z][a-z0-9+.-]*:\/\//, "").split("/")[0].split(":")[0];
+    if (v && out.indexOf(v) === -1) out.push(v);
+  });
+  return out;
+}
+
 /* ---------- load / save ---------- */
 async function loadPrinters() {
   const r = await send({ type: "hubPrinters" });
@@ -98,10 +135,11 @@ async function loadAll() {
   $("token").value = c.token || "";
   $("autoPrintAllPdfs").checked = c.autoPrintAllPdfs !== false;
   $("hookPrint").checked = !!c.hookPrint;
-  $("closeAfterPrint").checked = c.closeAfterPrint !== false;
+  $("closeAfterPrint").checked = !!c.closeAfterPrint;   // v1.6.0: OFF by default
   $("failFallback").value = c.failFallback === "none" ? "none" : "tab";
   $("contextMenu").checked = !!c.contextMenu;
   $("badge").checked = !!c.badge;
+  renderSites(c.blockedSites || []);
   await loadPrinters();
   $("defaultPrinter").value = c.defaultPrinter || "";
   testHub(false);
@@ -120,6 +158,7 @@ async function saveAll() {
       failFallback: $("failFallback").value,
       contextMenu: $("contextMenu").checked,
       badge: $("badge").checked,
+      blockedSites: collectSites(),
       rules: collect()
     }
   });
@@ -192,6 +231,11 @@ $("bReloadPrinters").addEventListener("click", loadPrinters);
 $("bAddRule").addEventListener("click", () => {
   $("rulesBody").appendChild(ruleRow({ pattern: "", printer: "", action: "auto", auto: false }));
 });
+$("bAddSite").addEventListener("click", () => {
+  $("sitesBody").appendChild(siteRow(""));
+  const inputs = $("sitesBody").querySelectorAll("input[type=text]");
+  if (inputs.length) inputs[inputs.length - 1].focus();
+});
 $("bSave").addEventListener("click", saveAll);
 $("bTestPage").addEventListener("click", async () => {
   const cfg = await send({ type: "getCfg" });
@@ -214,6 +258,12 @@ $("bReloadJobs").addEventListener("click", loadJobs);
 $("bClearHist").addEventListener("click", async () => {
   await chrome.storage.local.set({ history: [] });
   saved("Extension history copy cleared (hub history untouched)");
+});
+$("bClearHub").addEventListener("click", async () => {
+  const r = await send({ type: "hubJobsClear" });
+  saved(r.ok ? "Hub history cleared (" + (r.cleared || 0) + " jobs)"
+             : "Failed: " + r.error);
+  loadJobs();
 });
 ["autoPrintAllPdfs", "hookPrint", "closeAfterPrint", "failFallback", "contextMenu", "badge", "defaultPrinter"].forEach((id) =>
   $(id).addEventListener("change", saveAll));

@@ -98,6 +98,70 @@ $("bPause").addEventListener("click", async () => {
   if (r.ok) refresh(); else msg("Failed: " + r.error, "err");
 });
 
+/* v1.6.0: one-click auto-print ON/OFF for the site in the active tab */
+async function refreshSiteToggle() {
+  const r = await send({ type: "siteAutoState" });
+  const b = $("bSite");
+  if (!r.ok || !r.host) {
+    b.textContent = "Auto-print here";
+    b.className = "";
+    b.disabled = true;
+    return;
+  }
+  b.disabled = false;
+  b.textContent = r.blocked ? "Auto-print here: OFF" : "Auto-print here: ON";
+  b.className = r.blocked ? "off" : "on";
+}
+
+$("bSite").addEventListener("click", async () => {
+  const r = await send({ type: "toggleSiteAuto" });
+  if (r.ok) {
+    msg(r.blocked
+      ? "Auto-print turned OFF for " + r.host
+      : "Auto-print turned ON for " + r.host, "info");
+    refreshSiteToggle();
+  } else msg("Failed: " + r.error, "err");
+});
+
+/* v1.6.0: clear the hub job history right from the popup */
+$("bClear").addEventListener("click", async () => {
+  const r = await send({ type: "hubJobsClear" });
+  if (r.ok) { msg("History cleared (" + (r.cleared || 0) + " jobs)", "info"); refresh(); }
+  else msg("Failed: " + r.error, "err");
+});
+
+/* v1.6.0: one-click auto-print ON/OFF for the site in the active tab */
+async function refreshSiteToggle() {
+  const r = await send({ type: "siteAutoState" });
+  const b = $("bSite");
+  if (!r.ok || !r.host) {
+    b.textContent = "Auto-print here";
+    b.className = "";
+    b.disabled = true;
+    return;
+  }
+  b.disabled = false;
+  b.textContent = r.blocked ? "Auto-print here: OFF" : "Auto-print here: ON";
+  b.className = r.blocked ? "off" : "on";
+}
+
+$("bSite").addEventListener("click", async () => {
+  const r = await send({ type: "toggleSiteAuto" });
+  if (r.ok) {
+    msg(r.blocked
+      ? "Auto-print turned OFF for " + r.host
+      : "Auto-print turned ON for " + r.host, "info");
+    refreshSiteToggle();
+  } else msg("Failed: " + r.error, "err");
+});
+
+/* v1.6.0: clear the hub job history right from the popup */
+$("bClear").addEventListener("click", async () => {
+  const r = await send({ type: "hubJobsClear" });
+  if (r.ok) { msg("History cleared (" + (r.cleared || 0) + " jobs)", "info"); refresh(); }
+  else msg("Failed: " + r.error, "err");
+});
+
 $("bOpts").addEventListener("click", () => chrome.runtime.openOptionsPage());
 $("lnkApi").addEventListener("click", (e) => {
   e.preventDefault();
@@ -106,3 +170,4 @@ $("lnkApi").addEventListener("click", (e) => {
 $("connect").addEventListener("click", (e) => { e.preventDefault(); refresh(); });
 
 refresh();
+refreshSiteToggle();

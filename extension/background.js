@@ -11,7 +11,8 @@ const DEFAULTS = {
   hookPrint: true,          // intercept window.print() on every page
   failFallback: "tab",      // page print call failed: "tab"=open URL in new tab, "none"=stay silent
   autoPrintAllPdfs: true,   // SIMPLE MODE: any PDF opened in the browser prints silently
-  closeAfterPrint: true,    // auto-printed URLs: close the tab after -> no browser view
+  closeAfterPrint: false,   // v1.6.0 default OFF (was true): auto-printed tabs stay open
+  blockedSites: [],         // v1.6.0: host globs with auto-print OFF, e.g. ["*.example.com"]
   contextMenu: true,        // right-click "PrintHub Pro" menu
   badge: true,              // show ok/fail on the toolbar icon
   rules: [
@@ -88,6 +89,49 @@ function matchRule(url, rules) {
   return null;
 }
 
+/* ---------------- site auto-print block list (v1.6.0) ----------------
+ * blockedSites holds host globs: "example.com", "*.example.com", "*".
+ * A blocked site NEVER auto-prints (auto rules + simple mode are skipped);
+ * explicit actions (page print buttons, popup, right-click menu) still
+ * work - blocking is only about the automatic paths. Fast toggle: the
+ * popup button "Auto-print here" or the right-click menu item. */
+function hostOf(url) {
+  try { return new URL(url).hostname.toLowerCase(); } catch (_) { return ""; }
+}
+
+function hostMatches(host, glob) {
+  host = (host || "").toLowerCase();
+  glob = (glob || "").toLowerCase().trim();
+  if (!host || !glob) return false;
+  if (glob === "*") return true;
+  if (glob.startsWith("*.")) {
+    const rest = glob.slice(2);
+    return host === rest || host.endsWith("." + rest);
+  }
+  return host === glob;
+}
+
+function normalizeHostGlob(g) {
+  // accept pasted URLs/domains: "https://www.x.com/path" -> "www.x.com"
+  g = (g || "").trim().toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "").split("/")[0].split(":")[0];
+  return g;
+}
+
+/* store "www." hosts as a wildcard so the apex + subdomains follow suit */
+function hostGlobFor(host) {
+  host = normalizeHostGlob(host);
+  return host.startsWith("www.") ? "*." + host.slice(4) : host;
+}
+
+function isSiteBlocked(url, cfg) {
+  const host = hostOf(url);
+  if (!host) return false;
+  const list = (cfg && cfg.blockedSites) || [];
+  for (const g of list) if (hostMatches(host, g)) return true;
+  return false;
+}
+
 /* ---------------- badge + history ---------------- */
 async function flashBadge(ok, text) {
   const cfg = await loadCfg();
@@ -134,23 +178,63 @@ async function printPdfUrl(url, title, printer, extra = {}) {
   return printPdfResponse(res, url, title, printer, extra);
 }
 
+function pdfToBase64(buf) {
+  let bin = "";
+  const CH = 32768;
+  for (let i = 0; i < buf.length; i += CH) {
+    bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+  }
+  return btoa(bin);
+}
+
+/* v1.6.0 PERF: POST the PDF bytes RAW (application/pdf) instead of a
+ * base64 JSON blob. No giant JS string, ~25% fewer bytes on the wire and
+ * the hub skips the base64 decode - noticeably faster + far less memory
+ * on big reports. Falls back to the legacy base64 path for older hubs. */
+async function hubPrintRaw(bytes, params) {
+  const cfg = await loadCfg();
+  const base = (cfg.hubUrl || DEFAULTS.hubUrl).replace(/\/+$/, "");
+  const qs = new URLSearchParams();
+  for (const k of Object.keys(params)) {
+    const v = params[k];
+    if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+  }
+  const res = await fetch(base + "/print?" + qs.toString(), {
+    method: "POST",
+    headers: { "X-PrintHub-Token": cfg.token, "Content-Type": "application/pdf" },
+    body: bytes
+  });
+  let data = {};
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok || data.ok === false) {
+    throw new HubError(data.error || ("HTTP " + res.status));
+  }
+  return data;
+}
+
 async function printPdfResponse(res, url, title, printer, extra = {}) {
   const blob = await res.blob();
   const buf = new Uint8Array(await blob.arrayBuffer());
   if (buf.length < 5 || String.fromCharCode(...buf.slice(0, 5)) !== "%PDF-") {
     throw new HubError("URL did not return a PDF - got HTML? login expired?");
   }
-  let bin = "";
-  const CH = 32768;
-  for (let i = 0; i < buf.length; i += CH) {
-    bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
-  }
-  const data = await hubPrint(Object.assign({
-    pdf_base64: btoa(bin),
+  const params = Object.assign({
     title: title || "document",
     printer: printer || "",
     source: "extension"
-  }, extra));
+  }, extra);
+  let data;
+  try {
+    data = await hubPrintRaw(buf, params);
+  } catch (rawErr) {
+    const msg = String((rawErr && rawErr.message) || rawErr);
+    // older hub (pre raw-upload) rejects the raw body -> legacy base64
+    if (/unknown endpoint|bad request body|not a PDF|HTTP 4\d\d/.test(msg)) {
+      data = await hubPrint(Object.assign({ pdf_base64: pdfToBase64(buf) }, params));
+    } else {
+      throw rawErr;
+    }
+  }
   // record in the shared 60 s dedupe so an auto rule will not print the
   // same URL again when a fallback tab (or the user) opens it right after
   await markPrinted(url);
@@ -292,6 +376,7 @@ async function markPrinted(url) {
 
 async function shouldAutoPrint(url) {
   const cfg = await loadCfg();
+  if (isSiteBlocked(url, cfg)) return null;   // v1.6.0: auto-print OFF for this site
   const rule = matchRule(url, cfg.rules);
   if (!rule || !rule.auto) return null;
   const { seen, now, fresh } = await printedRecently(url);
@@ -325,6 +410,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
      * page's own button already printed the same URL. */
     const cfg = await loadCfg();
     if (!cfg.autoPrintAllPdfs) return;
+    if (isSiteBlocked(tab.url, cfg)) return;   // v1.6.0: simple mode honours the site block list
     const { fresh } = await printedRecently(tab.url);
     const looksPdf = /\.pdf(\?|#|$)/i.test(tab.url);
     let res = null;
@@ -511,6 +597,47 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         case "hubJobs":
           reply(await hubFetch("/jobs?limit=" + (msg.limit || 100)));
           break;
+        case "hubJobsClear":
+          // v1.6.0: wipe the hub job history (SQLite) - files stay on disk
+          reply(await hubFetch("/jobs/clear", { method: "POST", body: {} }));
+          break;
+        case "siteAutoState": {
+          // v1.6.0: is auto-print currently ON or OFF for the active tab's site?
+          const scfg = await loadCfg();
+          const tab = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+          reply({ ok: true, host: hostOf(tab && tab.url),
+                  blocked: isSiteBlocked((tab && tab.url) || "", scfg) });
+          break;
+        }
+        case "toggleSiteAuto": {
+          // v1.6.0: one-click block / unblock of the active site
+          const tcfg = await loadCfg();
+          const tab = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+          const host = msg.host || hostOf(tab && tab.url);
+          if (!host || !/^https?:/i.test(tab && tab.url || "")) {
+            reply({ ok: false, error: "no printable site" });
+            break;
+          }
+          const list = (tcfg.blockedSites || []).slice();
+          const glob = msg.block === true ? hostGlobFor(host) : null;
+          let blocked;
+          if (glob) {
+            if (!list.some((g) => hostMatches(host, g))) list.push(glob);
+            blocked = true;
+          } else {
+            const kept = list.filter((g) => !hostMatches(host, g));
+            blocked = kept.length !== list.length;   // true if something was removed
+            if (msg.block === false && kept.length === list.length) {
+              reply({ ok: false, error: "site was not blocked" });
+              break;
+            }
+            list.length = 0;
+            list.push.apply(list, kept);
+          }
+          await saveCfg({ blockedSites: list });
+          reply({ ok: true, host, blocked, blockedSites: list });
+          break;
+        }
         case "queueAction":
           reply(await hubFetch("/queue/" + msg.action, { method: "POST", body: {} }));
           break;
@@ -618,6 +745,10 @@ async function rebuildMenus() {
     id: "ph-shot", parentId: "printhub-root",
     title: "Print screenshot", contexts: ["page"]
   });
+  chrome.contextMenus.create({
+    id: "ph-site-toggle", parentId: "printhub-root",
+    title: "Auto-print this site: ON/OFF (toggle)", contexts: ["page"]
+  });
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -632,6 +763,32 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     } else if (info.menuItemId === "ph-shot") {
       const win = await chrome.windows.getCurrent();
       await printScreenshot(win.id);
+    } else if (info.menuItemId === "ph-site-toggle" && tab) {
+      // v1.6.0: fast block/unblock auto-print for this site
+      const cfg0 = await loadCfg();
+      const wasBlocked = isSiteBlocked(tab.url || "", cfg0);
+      const r = await (async () => {
+        const host = hostOf(tab.url || "");
+        const list = (cfg0.blockedSites || []).slice();
+        const glob = wasBlocked ? null : hostGlobFor(host);
+        if (glob) {
+          if (!list.some((g) => hostMatches(host, g))) list.push(glob);
+        } else {
+          const kept = list.filter((g) => !hostMatches(host, g));
+          list.length = 0;
+          list.push.apply(list, kept);
+        }
+        await saveCfg({ blockedSites: list });
+        return { ok: true, blocked: !wasBlocked, host };
+      })();
+      chrome.notifications.create({
+        type: "basic", iconUrl: "icons/icon128.png",
+        title: "PrintHub Pro",
+        message: r.blocked
+          ? "Auto-print turned OFF for " + r.host
+          : "Auto-print turned ON for " + r.host
+      });
+      return;
     }
   } catch (e) {
     await flashBadge(false, "!");
@@ -662,11 +819,16 @@ chrome.commands.onCommand.addListener(async (command) => {
 chrome.action.onClicked?.addListener?.(async () => { /* popup handles it */ });
 
 /* ---------------- lifecycle ---------------- */
-chrome.runtime.onInstalled.addListener(async () => {
-  const st = await chrome.storage.local.get({ initialized: false });
+chrome.runtime.onInstalled.addListener(async (details) => {
+  const st = await chrome.storage.local.get(
+    { initialized: false, migrated16: false });
   if (!st.initialized) {
     // seed defaults once so Options shows the htncr.org example rule
     await chrome.storage.local.set(Object.assign({}, DEFAULTS, { initialized: true }));
+  } else if (!st.migrated16 && details.previousVersion) {
+    // v1.6.0 one-time migration: "Close tab after auto-print" now
+    // defaults OFF - apply it to installs that upgrade from <= 1.5.0
+    await chrome.storage.local.set({ closeAfterPrint: false, migrated16: true });
   }
   await rebuildMenus();
   await applyHook();
@@ -677,6 +839,14 @@ chrome.runtime.onStartup.addListener(async () => {
   await applyHook();
 });
 
-// MV3 service workers wake on events - make sure open tabs always have
-// the hook (idempotent; cheap because of the __printhub* guards).
-injectIntoOpenTabs();
+// MV3 service workers wake on events. v1.6.0 PERF: re-injecting into every
+// open tab on EVERY wake burned CPU - registered content scripts already
+// cover new navigations, so push into open tabs once per browser session.
+(async () => {
+  try {
+    const st = await chrome.storage.session.get({ tabsInjected: false });
+    if (st.tabsInjected) return;
+    await chrome.storage.session.set({ tabsInjected: true });
+  } catch (_) { return; }
+  injectIntoOpenTabs();
+})();

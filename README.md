@@ -13,6 +13,20 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) 
 
 ---
 
+## What's new in v1.6.0 (performance & control)
+
+- **Branding** — AdvMedi by Bit Dream IT · Innovative Healthcare Solutions · [www.bitdreamit.com](https://www.bitdreamit.com) now appears in the popup, Options footer, hub banner and `/health`.
+- **"Close tab after auto-print" is OFF by default** (was ON). Upgrade installs get the new default once via a one-time migration; the checkbox stays where it is (Options → Behavior).
+- **Fast block / unblock per site** — new popup button **"Auto-print here: ON/OFF"**, new right-click item **"Auto-print this site: ON/OFF (toggle)"**, and a full block list in **Options → Auto-print sites**. Blocked sites never auto-print (rules + simple mode skip them); explicit printing (page buttons, popup, right-click) always works.
+- **Faster pipeline, lower memory** — the extension now uploads PDFs **raw** (`application/pdf`, no base64 string building) with automatic legacy fallback; the hub skips base64 decoding too. Small pages feel instant, big reports use far less RAM.
+- **Hub is lighter and quicker** — printer lists are cached 30 s (no PowerShell spawn per health check), the print worker wakes **instantly** on new jobs (event instead of 0.35 s polling), SQLite runs in WAL mode, and stored job PDFs auto-delete after **14 days** (`PRINTHUB_KEEP_DAYS`, `0` = keep forever).
+- **Job history Clear button** — right in the popup (next to "Recent jobs") and in Options ("Clear hub history") → new `POST /jobs/clear` endpoint; PDF files stay on disk.
+- **`fit` print parameter** — `noscale` / `shrinkfit` / `fit` per job (query or JSON) for exact page scaling on thermal and A4 printers.
+- **New ultra-light page script** — `printhub-auto.js` (~2.5 KB, ES5): drop it on ANY site and every PDF link prints silently on click; without the extension links simply open. See the Page Kit folder.
+- **Fonts print correctly** — PDFs keep their embedded fonts (SumatraPDF/MuPDF renders exactly what mPDF embedded, including complex scripts). For *page/HTML* printing, install the fonts used by your reports on Windows (e.g. Noto Sans Bengali) so headless Chrome can use them.
+
+---
+
 ## Feature highlights
 
 | | PrintHub Pro |
@@ -33,20 +47,18 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) 
 
 **Extra features beyond the paid original:** auto-print PDF URLs with login cookies (Laravel signed routes work), silent printing of raw text to 80 mm thermal rolls, **save-as-PDF File destination for every job type**, reprint-from-history via HTTP and CLI, `doctor` self-diagnosis, optional LAN mode for shared office printers.
 
-> **What's new in v1.5.1 — double-print fix:** the `window.print()` interception hook is now **top-frame only**. Previously it was also injected into hidden iframes, so a page's own iframe-print fallback (e.g. a hidden iframe calling `iframe.print()` when the hub path fails) got hijacked and sent to the hub again — the same report could come out of the printer twice. Iframes now keep the native print dialog, and pages can bypass the hook explicitly via `win.__printhubNativePrint.call(win)`. Page-side hardening (URL dedupe + timeout→history check) ships in the **PrintHub-Pro-Page-Kit**.
-
 ---
 
 ## Quick start (3 steps)
 
 ### 1. Install the hub (one-time, zero questions)
 
-**Easiest — native installers (v1.5.1):**
+**Easiest — native installers (v1.6.0):**
 
 | | file | what it does |
 |---|---|---|
-| **Windows** | `PrintHub-Pro-Setup-1.5.1.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "PrintHub Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray icon** (right-click = status page, test page, pause, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
-| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_1.5.1_all.deb` | `sudo apt install ./printhub-pro_1.5.1_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
+| **Windows** | `PrintHub-Pro-Setup-1.6.0.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "PrintHub Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray icon** (right-click = status page, test page, pause, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
+| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_1.6.0_all.deb` | `sudo apt install ./printhub-pro_1.6.0_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
 | **macOS / other Linux** | `install/install-unix.sh` | same auto-run via LaunchAgent / systemd --user / XDG, no sudo needed. |
 
 **Or the portable way (both platforms):**
@@ -72,7 +84,7 @@ always there, no shortcut needed. To undo it:
 | **Windows** | `install\UNINSTALL-WINDOWS.bat` | data in `%USERPROFILE%\.printhub` |
 | **Linux / macOS** | `bash install/uninstall-unix.sh` | data in `~/.printhub` |
 
-Windows notes (v1.5.1): the hub runs as `PrintHubPro.exe` (a renamed
+Windows notes (v1.6.0): the hub runs as `PrintHubPro.exe` (a renamed
 `pythonw.exe`), so Task Manager shows **"PrintHubPro"** — not "python".
 Auto-run is a normal **Startup app** shortcut: open **Task Manager →
 Startup apps** and you will find "PrintHub Pro" there with its icon —

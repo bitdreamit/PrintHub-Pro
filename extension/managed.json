@@ -33,7 +33,14 @@
     },
     "closeAfterPrint": {
       "type": "boolean",
-      "description": "Close the tab automatically after a rule auto-prints its URL (no browser view)"
+      "description": "Close the tab automatically after a rule auto-prints its URL (no browser view). Default: false since v1.6.0."
+    },
+    "blockedSites": {
+      "type": "array",
+      "description": "Host globs where AUTOMATIC printing is off (auto rules + simple mode). Explicit prints still work. Examples: example.com, *.example.com, * (all sites).",
+      "items": {
+        "type": "string"
+      }
     },
     "rules": {
       "type": "array",

@@ -55,6 +55,10 @@
         font:12px/1.6 Consolas,monospace; overflow-x:auto; margin-top:10px; }
   pre b { color:#93c5fd; font-weight:600; }
   .mono { font-family:Consolas,monospace; font-size:12px; }
+  footer.brand { max-width:860px; margin:8px auto 30px; padding:0 20px; text-align:center;
+                 color:var(--mut); font-size:12px; }
+  footer.brand a { color:var(--blue); font-weight:700; text-decoration:none; }
+  footer.brand a:hover { text-decoration:underline; }
 </style>
 </head>
 <body>
@@ -132,7 +136,7 @@
     <div class="toggle">
       <input type="checkbox" id="closeAfterPrint">
       <div><b>Close tab after auto-print</b>
-        <p>When a rule auto-prints an opened URL, the tab is closed right after the job is queued - zero browser view, the paper just comes out.</p></div>
+        <p>When a rule auto-prints an opened URL, the tab is closed right after the job is queued - zero browser view, the paper just comes out. <b>OFF by default since v1.6.0</b> (tabs stay open so you can see what was printed).</p></div>
     </div>
     <div class="toggle">
       <select id="failFallback">
@@ -159,6 +163,24 @@
   </section>
 
   <section>
+    <h2>Auto-print sites (block / unblock)</h2>
+    <p class="sub">Sites listed here <b>never print automatically</b> (rules + simple mode are skipped) - opening a PDF there just shows it normally.
+      Explicit printing (page buttons, popup, right-click) still works everywhere.
+      Fast toggle: the popup button <b>"Auto-print here"</b> or the right-click menu.</p>
+    <table>
+      <thead><tr><th style="width:70%">Site / domain</th><th></th></tr></thead>
+      <tbody id="sitesBody"></tbody>
+    </table>
+    <div class="row" style="margin-top:12px">
+      <button id="bAddSite">+ Add site</button>
+    </div>
+    <div class="note">Accepts <span class="mono">example.com</span>,
+      <span class="mono">*.example.com</span> (subdomains too) or a full URL -
+      it is trimmed to the domain. Use <span class="mono">*</span> to pause
+      auto-printing on <b>all</b> sites. Changes are saved with <b>Save settings</b>.</div>
+  </section>
+
+  <section>
     <h2>Job history <span class="sub" style="display:inline">(last 100)</span></h2>
     <p class="sub">Served by the hub from SQLite. Survives restarts.</p>
     <table>
@@ -168,6 +190,7 @@
     </table>
     <div class="row" style="margin-top:10px">
       <button class="mini" id="bReloadJobs">Refresh</button>
+      <button class="mini danger" id="bClearHub">Clear hub history</button>
       <button class="mini danger" id="bClearHist">Clear extension copy</button>
     </div>
   </section>
@@ -195,6 +218,12 @@
       <span class="mono">X-PrintHub-Token</span> - see docs/API.md in the package.</div>
   </section>
 </main>
+
+<footer class="brand">
+  <a href="https://www.bitdreamit.com" target="_blank" rel="noopener">AdvMedi</a>
+  by <a href="https://www.bitdreamit.com" target="_blank" rel="noopener">Bit Dream IT</a>
+  &mdash; Innovative Healthcare Solutions &middot; www.bitdreamit.com &middot; PrintHub Pro is 100% local &amp; MIT open source
+</footer>
 
 <script src="options.js"></script>
 </body>
