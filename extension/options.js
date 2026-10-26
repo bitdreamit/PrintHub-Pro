@@ -1,6 +1,50 @@
-/* PrintHub Pro v1.7.0 - options page logic */
+/* PrintHub Pro v1.7.1 - options page logic (tabbed UI) */
 const $ = (id) => document.getElementById(id);
 let PRINTERS = [];
+
+/* ---------- tabs (v1.7.1) ----------
+   Opens on the QUEUE tab when the hub already has jobs, otherwise on
+   SETTINGS. Any tab can be deep-linked: options.html#sharing etc. */
+const TABS = ["queue", "settings", "sharing", "service", "api", "about"];
+let ACTIVE_TAB = "settings";
+let TAB_CHOSEN = false;
+
+function showTab(id, push) {
+  if (!TABS.includes(id)) id = "settings";
+  ACTIVE_TAB = id;
+  document.querySelectorAll(".tab").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tab === id));
+  TABS.forEach((t) => { const p = $("panel-" + t); if (p) p.hidden = (t !== id); });
+  if (push) {
+    try { history.replaceState(null, "", "#" + id); } catch (_) {}
+  }
+  if (id === "queue") loadJobs();
+  if (id === "service") loadService();
+}
+
+function tabFromHash() {
+  const h = (location.hash || "").replace("#", "");
+  return TABS.includes(h) ? h : null;
+}
+
+function chooseDefaultTab(jobsCount) {
+  if (TAB_CHOSEN) return;
+  TAB_CHOSEN = true;
+  showTab(tabFromHash() || (jobsCount > 0 ? "queue" : "settings"), true);
+}
+
+function updateQueueBadge(jobs) {
+  const b = $("qBadge");
+  if (!b) return;
+  const list = jobs || [];
+  const failed = list.filter((j) => j.status === "failed" || j.status === "canceled").length;
+  const active = list.filter((j) => j.status === "queued" || j.status === "printing").length;
+  b.textContent = String(list.length);
+  b.classList.toggle("zero", list.length === 0);
+  b.classList.toggle("blue", failed === 0);
+  b.title = failed ? (failed + " failed - open the Queue tab to retry")
+           : active ? (active + " waiting to print") : "print history";
+}
 
 function send(m) {
   return new Promise((resolve) => {
@@ -186,6 +230,45 @@ function parsePeers(text) {
   return text.split(/\n+/).map((s) => s.trim()).filter(Boolean);
 }
 
+/* ---------- windows service (v1.7.1) ---------- */
+async function loadService() {
+  const st = await send({ type: "hubService", action: "status" });
+  const el = $("svcState"), det = $("svcDetail");
+  if (!st.ok) {
+    el.textContent = "hub offline";
+    el.style.color = "#dc2626";
+    det.textContent = "";
+  } else {
+    const s = st.service;
+    if (st.service_mode) {
+      el.textContent = "RUNNING as the Windows service";
+      el.style.color = "#16a34a";
+      det.textContent = "this hub IS the service (session 0 - no tray icon)";
+    } else if (!s) {
+      el.textContent = "not available (not Windows)";
+      el.style.color = "#64748b";
+      det.textContent = "";
+    } else if (!s.installed) {
+      el.textContent = "Not installed (startup-app mode)";
+      el.style.color = "#64748b";
+      det.textContent = "install to see 'PrintHub Pro Service' in services.msc";
+    } else {
+      el.textContent = s.running ? "Installed & RUNNING" : "Installed (stopped)";
+      el.style.color = s.running ? "#16a34a" : "#dc2626";
+      det.textContent = "manage it in services.msc -> 'PrintHub Pro Service'";
+    }
+  }
+  const a = await send({ type: "hubAutostart" });
+  const as = $("autoStartState");
+  if (a.ok) {
+    as.textContent = a.enabled ? "ON (Startup app)" : "OFF";
+    as.style.color = a.enabled ? "#16a34a" : "#64748b";
+  } else {
+    as.textContent = "hub offline";
+    as.style.color = "#dc2626";
+  }
+}
+
 /* ---------- jobs ---------- */
 async function loadJobs() {
   const r = await send({ type: "hubJobs", limit: 200 });
@@ -193,8 +276,12 @@ async function loadJobs() {
   body.innerHTML = "";
   if (!r.ok) {
     body.innerHTML = '<tr><td colspan="7">Hub offline - start it with: python printhub.py serve</td></tr>';
+    updateQueueBadge([]);
+    chooseDefaultTab(0);
     return;
   }
+  updateQueueBadge(r.jobs || []);
+  chooseDefaultTab((r.jobs || []).length);
   for (const j of r.jobs || []) {
     const tr = document.createElement("tr");
     const status = j.status || "queued";
@@ -318,6 +405,36 @@ $("bPrintPdf").addEventListener("click", async () => {
   loadJobs();
 });
 
+/* windows service + autostart (v1.7.1) */
+$("bSvcInstall").addEventListener("click", async () => {
+  $("svcDetail").textContent = "waiting for the Windows admin (UAC) prompt...";
+  const r = await send({ type: "hubService", action: "install" });
+  $("svcDetail").textContent = r.ok
+    ? (r.detail || "service installed - open services.msc")
+    : "failed: " + (r.error || r.detail || "unknown");
+  saved(r.ok ? "Windows service installed" : "Service install failed");
+  loadService();
+});
+$("bSvcRemove").addEventListener("click", async () => {
+  $("svcDetail").textContent = "waiting for the Windows admin (UAC) prompt...";
+  const r = await send({ type: "hubService", action: "remove" });
+  $("svcDetail").textContent = r.ok
+    ? (r.detail || "service removed")
+    : "failed: " + (r.error || r.detail || "unknown");
+  saved(r.ok ? "Windows service removed" : "Service removal failed");
+  loadService();
+});
+$("bAutoStart").addEventListener("click", async () => {
+  const r = await send({ type: "hubAutostartToggle" });
+  saved(r.ok ? (r.enabled ? "Startup app ON" : "Startup app OFF")
+             : "Failed: " + (r.error || "?"));
+  loadService();
+});
+
+/* tabs */
+document.querySelectorAll(".tab").forEach((b) =>
+  b.addEventListener("click", () => showTab(b.dataset.tab, true)));
+
 /* jobs */
 $("bReloadJobs").addEventListener("click", loadJobs);
 $("bClearFailed").addEventListener("click", () => clearJobs("failed"));
@@ -337,5 +454,11 @@ try {
   $("aboutVer").textContent = chrome.runtime.getManifest().version;
 } catch (_) {}
 
+/* v1.7.1: refresh the queue list every 4 s while the Queue tab is visible */
+setInterval(() => {
+  if (ACTIVE_TAB === "queue" && !document.hidden) loadJobs();
+}, 4000);
+
 loadAll();
-loadJobs();
+loadJobs();        // also picks the default tab (queue if jobs exist, else settings)
+loadService();     // keeps the Windows-service tab ready before it is opened

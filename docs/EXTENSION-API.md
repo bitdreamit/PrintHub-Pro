@@ -180,3 +180,13 @@ Prefer `window.printhub` in normal pages — it never exposes the token in page 
 - `data-printhub-skip` excludes one link; `data-printhub-selector="a.report"` restricts interception to matches.
 - Manual API: `printhubAuto.print(url, title)` (Promise), `printhubAuto.printLink(el)`, `printhubAuto.scanNow()`.
 - 15/15 behaviour tests: `node scripts/test_printhub_auto.js`; interactive demo: `printhub-auto-demo.html`.
+
+## 7. Options page tabs & Windows service (v1.7.1)
+
+- `options.html` is tabbed: **Queue** (default when the hub has jobs, else
+  **Settings**) / Settings / Sharing / Windows service / API / About. Deep-link any
+  tab with a hash: `options.html#sharing`, `options.html#service`.
+- The Queue tab shows a live count badge and refreshes every 4 s.
+- New background messages: `hubService` (`status` via /health, `install`/`remove`
+  via POST /service/*), `hubAutostart` (GET /autostart), `hubAutostartToggle`.
+- Windows service: see README 'Run PrintHub Pro as a Windows service'.

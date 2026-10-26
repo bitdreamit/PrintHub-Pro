@@ -205,3 +205,15 @@ Delete history rows **and** their stored PDF files. `completed` = printed + save
 ### Failover forwarding
 
 After the final local failure (auto-retry exhausted) the worker POSTs the stored PDF to each configured peer (`POST peer/print?title=...&source=peer` with `X-PrintHub-Token` of the peer). First `{"ok": true}` wins: the local job becomes `forwarded` with `forwarded_to` set; the peer records a normal job with `source: "peer"`. Jobs arriving from peers are **never re-forwarded** (loop protection).
+
+## v1.7.1 — Windows service (Windows only)
+
+- `GET /health` adds `"service": {"installed": bool, "running": bool}`
+  (null off-Windows) and `"service_mode": bool` (this process IS the service).
+- `POST /service/install` / `POST /service/remove` (token-gated): the hub writes
+  `service\service.json`, pops ONE UAC prompt (PowerShell RunAs), and the elevated
+  child compiles `hub/service/PrintHubProService.cs` with the machine's own `csc.exe`,
+  registers + starts "PrintHub Pro Service" (auto start, failure recovery 60 s) and
+  turns the Startup-app shortcut OFF. Returns `{"ok": bool, "detail": "..."}`.
+  Refused with 400 on non-Windows.
+- CLI: `python printhub.py service install|remove|status` (self-elevates).

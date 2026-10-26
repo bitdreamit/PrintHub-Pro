@@ -21,6 +21,18 @@
             padding:20px 22px; margin-bottom:16px; }
   h2 { font-size:15px; margin-bottom:4px; }
   .sub { color:var(--mut); font-size:12px; margin-bottom:14px; }
+  /* v1.7.1: tab bar - every area is its own tab */
+  .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .tab { border:1px solid var(--line); background:#fff; border-radius:10px;
+         padding:9px 15px; font:600 13px "Segoe UI",system-ui,sans-serif;
+         color:var(--mut); cursor:pointer; display:flex; align-items:center; }
+  .tab:hover { border-color:var(--blue); color:var(--blue); }
+  .tab.active { background:var(--blue); border-color:var(--blue); color:#fff; }
+  .badge { background:#dc2626; color:#fff; border-radius:9px; padding:1px 7px;
+           font-size:11px; margin-left:7px; font-weight:700; }
+  .badge.blue { background:#1e40af; }
+  .badge.zero { display:none; }
+  .panel[hidden] { display:none; }
   .row { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
   label { font-weight:600; font-size:13px; min-width:150px; }
   input[type=text], input[type=password], select {
@@ -73,12 +85,50 @@
 <header>
   <div class="logo">P</div>
   <div>
-    <h1>PrintHub Pro <span style="font-size:12px;opacity:.85">v1.7.0</span></h1>
+    <h1>PrintHub Pro <span style="font-size:12px;opacity:.85">v1.7.1</span></h1>
     <p>AdvMedi by Bit Dream IT - Innovative Healthcare Solutions &middot; silent &middot; 100% local &middot; MIT</p>
   </div>
 </header>
 
 <main>
+  <!-- v1.7.1: tab bar - opens on Queue when jobs exist, otherwise Settings -->
+  <nav class="tabs" id="tabBar">
+    <button class="tab" data-tab="queue" id="tab-queue">Queue
+      <span class="badge zero" id="qBadge">0</span></button>
+    <button class="tab" data-tab="settings">Settings</button>
+    <button class="tab" data-tab="sharing">Sharing</button>
+    <button class="tab" data-tab="service">Windows service</button>
+    <button class="tab" data-tab="api">API</button>
+    <button class="tab" data-tab="about">About</button>
+  </nav>
+
+  <!-- ============ QUEUE ============ -->
+  <div class="panel" id="panel-queue" hidden>
+  <section>
+    <h2>Job queue &amp; history <span class="sub" style="display:inline">(hub SQLite - unlimited, survives restarts)</span></h2>
+    <p class="sub">Served by the hub. Failed jobs stay in the list: Retry them, or Clear what you do not need. This list refreshes itself every few seconds.</p>
+    <table>
+      <thead><tr><th>#</th><th>Time</th><th>Title</th><th>Printer</th>
+        <th>Kind</th><th>Status</th><th style="width:150px"></th></tr></thead>
+      <tbody id="jobsBody"></tbody>
+    </table>
+    <div class="row" style="margin-top:10px">
+      <button class="mini" id="bReloadJobs">Refresh</button>
+      <button class="mini danger" id="bClearFailed">Clear failed</button>
+      <button class="mini danger" id="bClearCompleted">Clear completed</button>
+      <button class="mini danger" id="bClearAll">Clear ALL history</button>
+      <button class="mini" id="bClearHist">Clear extension copy</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label>Print a PDF now</label>
+      <input type="text" id="pdfUrl" placeholder="https://example.com/report.pdf">
+      <button id="bPrintPdf">Print it</button>
+    </div>
+  </section>
+  </div>
+
+  <!-- ============ SETTINGS ============ -->
+  <div class="panel" id="panel-settings" hidden>
   <section>
     <h2>Connection</h2>
     <p class="sub">Link the extension to the PrintHub Pro hub running on this computer.</p>
@@ -92,11 +142,89 @@
       <button class="primary" id="bTestHub">Connect</button>
       <span id="hubState" class="mono"></span>
     </div>
-    <div class="note">The hub runs on THIS PC by default. To let other PCs print here, use
-      <b>Sharing</b> below - one hub can serve the whole office. Start the hub with
+    <div class="note">The hub runs on THIS PC by default. To let other PCs print here, open the
+      <b>Sharing</b> tab - one hub can serve the whole office. Start the hub with
       <b>python printhub.py serve</b>.</div>
   </section>
 
+  <section>
+    <h2>Printing</h2>
+    <p class="sub">Where jobs go when no routing rule matches.</p>
+    <div class="row">
+      <label>Default printer</label>
+      <select id="defaultPrinter"><option value="">OS default printer</option></select>
+      <button class="mini" id="bReloadPrinters">Reload list</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Auto-print &amp; routing rules</h2>
+    <p class="sub">First matching rule wins. Patterns are globs: <span class="mono">*://www.htncr.org/lab/medical_reports/*</span>.
+      <b>Auto</b> = print automatically when the URL is opened.</p>
+    <table id="rulesTable">
+      <thead><tr>
+        <th style="width:44%">URL pattern</th><th style="width:22%">Printer</th>
+        <th style="width:14%">Action</th><th style="width:8%">Auto</th><th></th>
+      </tr></thead>
+      <tbody id="rulesBody"></tbody>
+    </table>
+    <div class="row" style="margin-top:12px">
+      <button id="bAddRule">+ Add rule</button>
+      <span id="saveMsg"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Behavior</h2>
+    <div class="toggle">
+      <input type="checkbox" id="autoPrintAllPdfs">
+      <div><b>Print every PDF opened in the browser (simple mode)</b>
+        <p>ANY PDF you open - any site, any URL - is printed silently and its tab closes. No print view, no dialog, no rules needed. Turn off to auto-print only URLs matching your rules below.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="hookPrint">
+      <div><b>Intercept window.print()</b>
+        <p>Web apps (Odoo, POS, dashboards) that call window.print() are printed silently through the hub instead of opening the dialog. Also intercepts Ctrl+P / Cmd+P.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="closeAfterPrint">
+      <div><b>Close tab after auto-print</b>
+        <p>When a rule auto-prints an opened URL, the tab is closed right after the job is queued - zero browser view, the paper just comes out. Off by default since v1.7.0 so tabs stay open; turn it on for a kiosk-like flow.</p></div>
+    </div>
+    <div class="toggle">
+      <div style="width:100%">
+        <b>Never auto-print on these sites</b>
+        <p>One host per line (e.g. <span class="mono">example.com</span>). Rules and "print every PDF" skip these sites - the quick way to silence a chatty system. You can also toggle the current site from the popup button or the right-click menu.</p>
+        <textarea id="blockedSites" rows="3" placeholder="example.com&#10;reports.somecompany.com"></textarea>
+      </div>
+    </div>
+    <div class="toggle">
+      <select id="failFallback">
+        <option value="tab">Open the URL in a new tab</option>
+        <option value="none">Stay silent (no tab)</option>
+      </select>
+      <div><b>When a page print call fails</b>
+        <p>Controls the automatic fallback of printPdfLink() / printPdf() on web pages: if the hub cannot print a PDF (hub off, printer error, not a PDF), either open the URL in a normal tab so the browser prints it the default way, or stay completely silent - nothing opens, the failure is only logged in the job history. A per-call opts.fallback (true/false) in page JS overrides this setting.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="contextMenu">
+      <div><b>Right-click menu</b>
+        <p>Add "PrintHub Pro" to the context menu (print page / selection / linked PDF / screenshot).</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="badge">
+      <div><b>Toolbar badge</b>
+        <p>Green OK / red ! on the extension icon after every job.</p></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="bSave">Save settings</button>
+      <button id="bTestPage">Send test page</button>
+    </div>
+  </section>
+  </div>
+
+  <!-- ============ SHARING ============ -->
+  <div class="panel" id="panel-sharing" hidden>
   <section>
     <h2>Sharing - one hub for many PCs</h2>
     <p class="sub">Turn THIS pc into the office print server: every computer installs only the
@@ -153,104 +281,44 @@
       <button class="mini primary" id="bSaveShare">Save queue settings</button>
     </div>
   </section>
+  </div>
 
+  <!-- ============ WINDOWS SERVICE ============ -->
+  <div class="panel" id="panel-service" hidden>
   <section>
-    <h2>Printing</h2>
-    <p class="sub">Where jobs go when no routing rule matches.</p>
+    <h2>Windows service - run before logon</h2>
+    <p class="sub">Install PrintHub Pro as a real Windows service: it appears in
+      <b>services.msc</b> as "PrintHub Pro Service", starts at BOOT before anyone logs in,
+      and restarts automatically if it crashes. In service mode there is no tray icon
+      (Windows rule for services) - manage it in services.msc, here, or the status page.</p>
     <div class="row">
-      <label>Default printer</label>
-      <select id="defaultPrinter"><option value="">OS default printer</option></select>
-      <button class="mini" id="bReloadPrinters">Reload list</button>
+      <label>Startup app</label>
+      <span id="autoStartState" class="big-status">checking...</span>
+      <button class="mini" id="bAutoStart">Toggle</button>
+      <span style="color:var(--mut);font-size:12px">(tray icon + Startup folder - runs after logon)</span>
     </div>
+    <div class="row">
+      <label>Windows service</label>
+      <span id="svcState" class="big-status">checking...</span>
+      <button class="primary" id="bSvcInstall">Install service</button>
+      <button class="danger" id="bSvcRemove">Remove service</button>
+    </div>
+    <div class="row">
+      <label>Detail</label>
+      <span id="svcDetail" class="mono" style="color:var(--mut)"></span>
+    </div>
+    <div class="note">Installing pops a one-time <b>Windows admin (UAC) prompt</b> - confirm it and
+      you are done; the service is compiled on your PC from
+      <span class="mono">hub\service\PrintHubProService.cs</span> with your own Windows
+      <span class="mono">csc.exe</span> (nothing is downloaded). Prefer files? Run
+      <span class="mono">install\INSTALL-WINDOWS-SERVICE.bat</span> or
+      <span class="mono">REMOVE-WINDOWS-SERVICE.bat</span>. CLI:
+      <span class="mono">PrintHubPro.exe hub\printhub.py service install|remove|status</span>.</div>
   </section>
+  </div>
 
-  <section>
-    <h2>Auto-print &amp; routing rules</h2>
-    <p class="sub">First matching rule wins. Patterns are globs: <span class="mono">*://www.htncr.org/lab/medical_reports/*</span>.
-      <b>Auto</b> = print automatically when the URL is opened.</p>
-    <table id="rulesTable">
-      <thead><tr>
-        <th style="width:44%">URL pattern</th><th style="width:22%">Printer</th>
-        <th style="width:14%">Action</th><th style="width:8%">Auto</th><th></th>
-      </tr></thead>
-      <tbody id="rulesBody"></tbody>
-    </table>
-    <div class="row" style="margin-top:12px">
-      <button id="bAddRule">+ Add rule</button>
-      <span id="saveMsg"></span>
-    </div>
-    <div class="row" style="margin-top:6px">
-      <label>Reprint a PDF link</label>
-      <input type="text" id="pdfUrl" placeholder="https://www.htncr.org/lab/medical_reports/pdf-test/.../605310">
-      <button id="bPrintPdf">Print it</button>
-    </div>
-  </section>
-
-  <section>
-    <h2>Behavior</h2>
-    <div class="toggle">
-      <input type="checkbox" id="autoPrintAllPdfs">
-      <div><b>Print every PDF opened in the browser (simple mode)</b>
-        <p>ANY PDF you open - any site, any URL - is printed silently and its tab closes. No print view, no dialog, no rules needed. Turn off to auto-print only URLs matching your rules below.</p></div>
-    </div>
-    <div class="toggle">
-      <input type="checkbox" id="hookPrint">
-      <div><b>Intercept window.print()</b>
-        <p>Web apps (Odoo, POS, dashboards) that call window.print() are printed silently through the hub instead of opening the dialog. Also intercepts Ctrl+P / Cmd+P.</p></div>
-    </div>
-    <div class="toggle">
-      <input type="checkbox" id="closeAfterPrint">
-      <div><b>Close tab after auto-print</b>
-        <p>When a rule auto-prints an opened URL, the tab is closed right after the job is queued - zero browser view, the paper just comes out. Off by default since v1.7.0 so tabs stay open; turn it on for a kiosk-like flow.</p></div>
-    </div>
-    <div class="toggle">
-      <div style="width:100%">
-        <b>Never auto-print on these sites</b>
-        <p>One host per line (e.g. <span class="mono">example.com</span>). Rules and "print every PDF" skip these sites - the quick way to silence a chatty system. You can also toggle the current site from the popup button or the right-click menu.</p>
-        <textarea id="blockedSites" rows="3" placeholder="example.com&#10;reports.somecompany.com"></textarea>
-      </div>
-    </div>
-    <div class="toggle">
-      <select id="failFallback">
-        <option value="tab">Open the URL in a new tab</option>
-        <option value="none">Stay silent (no tab)</option>
-      </select>
-      <div><b>When a page print call fails</b>
-        <p>Controls the automatic fallback of printPdfLink() / printPdf() on web pages: if the hub cannot print a PDF (hub off, printer error, not a PDF), either open the URL in a normal tab so the browser prints it the default way, or stay completely silent - nothing opens, the failure is only logged in the job history. A per-call opts.fallback (true/false) in page JS overrides this setting.</p></div>
-    </div>
-    <div class="toggle">
-      <input type="checkbox" id="contextMenu">
-      <div><b>Right-click menu</b>
-        <p>Add "PrintHub Pro" to the context menu (print page / selection / linked PDF / screenshot).</p></div>
-    </div>
-    <div class="toggle">
-      <input type="checkbox" id="badge">
-      <div><b>Toolbar badge</b>
-        <p>Green OK / red ! on the extension icon after every job.</p></div>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <button class="primary" id="bSave">Save settings</button>
-      <button id="bTestPage">Send test page</button>
-    </div>
-  </section>
-
-  <section>
-    <h2>Job history <span class="sub" style="display:inline">(hub SQLite - unlimited, survives restarts)</span></h2>
-    <p class="sub">Served by the hub. Failed jobs stay in the list: Retry them, or Clear what you do not need.</p>
-    <table>
-      <thead><tr><th>#</th><th>Time</th><th>Title</th><th>Printer</th>
-        <th>Kind</th><th>Status</th><th style="width:150px"></th></tr></thead>
-      <tbody id="jobsBody"></tbody>
-    </table>
-    <div class="row" style="margin-top:10px">
-      <button class="mini" id="bReloadJobs">Refresh</button>
-      <button class="mini danger" id="bClearFailed">Clear failed</button>
-      <button class="mini danger" id="bClearCompleted">Clear completed</button>
-      <button class="mini danger" id="bClearAll">Clear ALL history</button>
-      <button class="mini" id="bClearHist">Clear extension copy</button>
-    </div>
-  </section>
-
+  <!-- ============ API ============ -->
+  <div class="panel" id="panel-api" hidden>
   <section id="api">
     <h2>Developer API - <span class="mono">window.printhub</span></h2>
     <p class="sub">Available on every page (when the hook is enabled). All methods return Promises.</p>
@@ -275,16 +343,20 @@
       Raw binary upload: POST the PDF bytes to <span class="mono">/print?title=...&amp;fit=noscale</span>
       with <span class="mono">Content-Type: application/pdf</span>.</div>
   </section>
+  </div>
 
+  <!-- ============ ABOUT ============ -->
+  <div class="panel" id="panel-about" hidden>
   <section class="brand">
     <h2>About</h2>
     <p><b>AdvMedi</b> by <b>Bit Dream IT</b> - Innovative Healthcare Solutions</p>
-    <p class="sub" style="margin-top:4px">PrintHub Pro v<span id="aboutVer">1.7.0</span> &middot;
+    <p class="sub" style="margin-top:4px">PrintHub Pro v<span id="aboutVer">1.7.1</span> &middot;
       MIT open source &middot; 100% local &middot; no cloud &middot; no subscription</p>
     <div class="row" style="margin-top:8px">
       <a href="https://www.bitdreamit.com" target="_blank" rel="noreferrer">www.bitdreamit.com</a>
     </div>
   </section>
+  </div>
 </main>
 
 <script src="options.js"></script>

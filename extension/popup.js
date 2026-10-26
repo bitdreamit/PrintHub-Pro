@@ -1,4 +1,4 @@
-/* PrintHub Pro v1.7.0 - popup logic */
+/* PrintHub Pro v1.7.1 - popup logic */
 const $ = (id) => document.getElementById(id);
 let paused = false;
 let curTabUrl = "";

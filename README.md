@@ -32,6 +32,8 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost or LAN
 | **Print queue** | Pause, resume, cancel — live, and the queue survives hub restarts. |
 | **Industrial queue (v1.7.0)** | **Unlimited** job list. Failed jobs **auto-retry** with growing delay, stay visible in the history with Retry / Cancel buttons, and can **fail over**: if this PC cannot print, the job is forwarded to a peer hub on the LAN and that PC prints it. Clear failed / completed / all with one click. |
 | **Network sharing (v1.7.0)** | One-click **share the hub on the office LAN**: every PC installs only the extension, pastes the **connect code** (`http://192.168.x.x:9235|TOKEN`) and prints through this one hub + printer. Token-protected — nobody without the token can use the shared IP. Toggle in Options → Sharing, from the tray menu, or `python printhub.py share on`. |
+| **Windows service (v1.7.1)** | **"PrintHub Pro Service" in services.msc** — starts at boot BEFORE anyone logs in, auto-restarts on crash. One click: Options → Windows service → Install (one UAC prompt; the C# wrapper is compiled on your PC by Windows' own csc.exe — nothing downloaded). CLI: `python printhub.py service install`.
+| **Tabbed Options (v1.7.1)** | Options is now tabs: **Queue** (default when jobs exist, otherwise Settings) / Settings / Sharing / Windows service / API / About — with a queue count badge, 4 s auto-refresh and deep links (`options.html#sharing`).
 | **Site block/unblock (v1.7.0)** | Quick popup button + right-click item: **"Auto-print on this site: ON/BLOCKED"** — instantly silence a chatty system without touching your rules. |
 | **Job history** | Unlimited jobs with status, printer, timing, retry counter — reprint or requeue any job, clear what you don't need. |
 | **Performance (v1.7.0)** | Raw binary PDF upload (no base64), thread-local SQLite + WAL, event-driven worker, cached printer discovery, automatic job-file cleanup, `fit` page-scaling parameter. |
@@ -46,12 +48,12 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost or LAN
 
 ### 1. Install the hub (one-time, zero questions)
 
-**Easiest — native installers (v1.7.0):**
+**Easiest — native installers (v1.7.1):**
 
 | | file | what it does |
 |---|---|---|
-| **Windows** | `PrintHub-Pro-Setup-1.7.0.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "PrintHub Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray icon** (right-click = status page, test page, pause, **share on network**, **copy connect code**, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
-| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_1.7.0_all.deb` | `sudo apt install ./printhub-pro_1.7.0_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
+| **Windows** | `PrintHub-Pro-Setup-1.7.1.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "PrintHub Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray icon** (right-click = status page, test page, pause, **share on network**, **copy connect code**, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
+| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_1.7.1_all.deb` | `sudo apt install ./printhub-pro_1.7.1_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
 | **macOS / other Linux** | `install/install-unix.sh` | same auto-run via LaunchAgent / systemd --user / XDG, no sudo needed. |
 
 **Or the portable way (both platforms):**
@@ -104,6 +106,25 @@ The hub starts on `http://127.0.0.1:9235` with default token `PrintHub-2024`.
 3. Or open a URL matching a routing rule (the default rule auto-prints `*://www.htncr.org/lab/medical_reports/*`) — it prints with no dialog
 
 ---
+
+## Run PrintHub Pro as a Windows service (v1.7.1)
+
+Prefer a real Windows service over the tray/startup app? One click:
+
+- **Extension:** Options → **Windows service** tab → **Install service** → confirm the UAC prompt.
+- **CLI:** `python printhub.py service install` (self-elevates).
+- **Files:** `install\INSTALL-WINDOWS-SERVICE.bat` / `REMOVE-WINDOWS-SERVICE.bat`.
+
+What you get: **"PrintHub Pro Service" in services.msc**, starting at BOOT before anyone
+logs in (other PCs keep printing even at the logon screen) and **auto-restart** on crash
+(`sc failure` recovery, every 60 s). The wrapper is a small C# file compiled ON YOUR PC by
+Windows' own `csc.exe` — nothing is downloaded. The hub child runs with `PRINTHUB_DATA`
+pointed at your existing `~/.printhub`, so the queue, config.json and tokens are exactly
+the ones you already had. In service mode there is **no tray icon** (Windows hides service
+UI); manage it in services.msc, the Options → Windows service tab, or
+`printhub.py service status`. Installing the service turns the Startup-app shortcut OFF
+(no double start); removing it does not re-enable the shortcut — toggle it from the tray
+or Options.
 
 ## Share one hub across the office (v1.7.0)
 
@@ -199,6 +220,11 @@ Settings live in **`~/.printhub/config.json`** (the extension Options → Sharin
 
 ## Changelog
 
+- **v1.7.1 — Service & Options Edition:** Windows service ("PrintHub Pro Service" in
+  services.msc: boot start, auto-restart) installable in ONE click from the new Options
+  tab — /service/install|remove API, `service` CLI, INSTALL/REMOVE bats; tabbed Options
+  (Queue default-if-data / Settings / Sharing / Windows service / API / About) with queue
+  badge + auto-refresh + hash deep links.
 - **v1.7.0 — Network & Queue Edition:** one-click LAN sharing with connect-code pairing + token protection; shared-queue failover to peer hubs; unlimited job history with Retry / Clear failed / Clear completed / Clear all; auto-retry with backoff; site block/unblock (popup + right-click + Options); "Close tab after auto-print" now OFF by default; raw binary PDF upload from the extension; thread-local SQLite + WAL, event-driven worker, printer cache, job-file cleanup, `fit` scaling param; **AdvMedi by Bit Dream IT** branding.
 - **v1.6.0 — (folded into v1.7.0):** performance & control release.
 - **v1.5.0:** tray icon identity, visible Startup-app auto-run, PrintHubPro.exe process name, double-start guard.

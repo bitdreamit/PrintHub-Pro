@@ -591,6 +591,24 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           reply(await hubFetch(`/jobs/${msg.id}/${msg.action}`,
                                { method: "POST", body: {} }));
           break;
+        case "hubService":          // v1.7.1: status | install | remove
+          if (msg.action === "install" || msg.action === "remove") {
+            reply(await hubFetch("/service/" + msg.action,
+                                 { method: "POST", body: {} }));
+          } else {
+            reply(await hubFetch("/health"));
+          }
+          break;
+        case "hubAutostart":        // v1.7.1: startup-app state
+          reply(await hubFetch("/autostart"));
+          break;
+        case "hubAutostartToggle": {
+          const cur = await hubFetch("/autostart");
+          if (!cur.ok) { reply(cur); break; }
+          reply(await hubFetch("/autostart",
+              { method: "POST", body: { enabled: !cur.enabled } }));
+          break;
+        }
         case "saveCfg":
           await saveCfg(msg.patch || {});
           await applyHook();

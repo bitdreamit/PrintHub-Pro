@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  PrintHub Pro v1.7.0  -  Print from any web page to any printer
+#  PrintHub Pro v1.7.1  -  Print from any web page to any printer
 #  AdvMedi by Bit Dream IT  -  Innovative Healthcare Solutions
 #  MIT licensed, 100% local & open source
 # ------------------------------------------------------------
@@ -22,6 +22,11 @@
 #  * v1.7.0 INDUSTRIAL QUEUE: auto-retry with backoff, failed jobs
 #    stay in the list (Retry / Clear), failover forwarding to peer
 #    hubs - if this PC cannot print, another PC's hub takes the job.
+#  * v1.7.1 WINDOWS SERVICE: 'PrintHub Pro Service' in services.msc -
+#    starts at boot before logon, auto-restarts on crash; one click
+#    to install (Options > Windows service) or CLI service install.
+#  * v1.7.1 TABBED OPTIONS: Queue (default when jobs exist) /
+#    Settings / Sharing / Windows service / API / About.
 #
 #  Quick start:   python printhub.py serve
 #  Health check:  http://127.0.0.1:9235/health
@@ -49,7 +54,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl, quote
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 APP_NAME = "PrintHub Pro"
 VENDOR = "Bit Dream IT"
 BRAND_LINE = "AdvMedi by Bit Dream IT - Innovative Healthcare Solutions"
@@ -1205,6 +1210,228 @@ def autostart_set(enable):
 
 
 # ------------------------------------------------------------
+# v1.7.1: WINDOWS SERVICE - "PrintHub Pro Service" in services.msc
+# Starts at BOOT before anyone logs in, auto-restarts on crash, and
+# is managed from services.msc, the extension Options > Windows
+# service tab, or the CLI below. The hub stays a plain python
+# process: a tiny C# wrapper (compiled ON THE PC by Windows' own
+# csc.exe - nothing is downloaded) is the registered service binary
+# and launches this hub as its child with PRINTHUB_SERVICE=1 and
+# PRINTHUB_DATA pointed at the installing user's data dir, so the
+# queue, config.json and tokens are shared with the normal mode.
+# ------------------------------------------------------------
+SERVICE_NAME = "PrintHubPro"
+SERVICE_DISPLAY = "PrintHub Pro Service"
+_SVC_STATE = {"t": 0.0, "state": None}      # 2 s cache for sc.exe queries
+
+
+def service_mode():
+    """True when THIS hub process was launched by the Windows service."""
+    return os.environ.get("PRINTHUB_SERVICE") == "1"
+
+
+def _svc_dir():
+    return os.path.join(os.path.dirname(hub_dir()), "service")
+
+
+def _svc_exe():
+    return os.path.join(_svc_dir(), "PrintHubProService.exe")
+
+
+def _svc_result_file():
+    return os.path.join(CFG["data_dir"], "service_result.txt")
+
+
+def _svc_write_service_json():
+    """The user-level hub writes the launch config BEFORE elevating:
+    LocalSystem only runs the wrapper - it must know what to start."""
+    os.makedirs(_svc_dir(), exist_ok=True)
+    info = {"python": launcher_exe(),
+            "script": os.path.join(hub_dir(), "printhub.py"),
+            "data": CFG["data_dir"]}
+    with open(os.path.join(_svc_dir(), "service.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(info, f, indent=2)
+    return info
+
+
+def _svc_query():
+    """Parse 'sc query PrintHubPro' (2 s cache). Returns
+    {'installed': bool, 'running': bool} - None off-Windows."""
+    if not IS_WIN:
+        return None
+    now = time.time()
+    if now - _SVC_STATE["t"] < 2.0:
+        return _SVC_STATE["state"]
+    st = {"installed": False, "running": False}
+    try:
+        r = subprocess.run(["sc", "query", SERVICE_NAME],
+                           creationflags=HIDE, stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL, timeout=10)
+        out = r.stdout.decode("utf-8", "replace")
+        if r.returncode == 0 and "STATE" in out:
+            st["installed"] = True
+            st["running"] = "RUNNING" in out
+    except Exception:
+        pass
+    _SVC_STATE["t"] = now
+    _SVC_STATE["state"] = st
+    return st
+
+
+def _svc_find_csc():
+    """Windows ships the .NET Framework C# compiler on every 10/11 PC."""
+    for base in (r"C:\Windows\Microsoft.NET\Framework64",
+                 r"C:\Windows\Microsoft.NET\Framework"):
+        if not os.path.isdir(base):
+            continue
+        for ver in ("v4.0.30319", "v3.5", "v2.0.50727"):
+            csc = os.path.join(base, ver, "csc.exe")
+            if os.path.isfile(csc):
+                return csc
+    return None
+
+
+def _svc_is_admin():
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def _svc_done(code, msg):
+    """Elevated side: persist the human result for the caller to read."""
+    try:
+        with open(_svc_result_file(), "w", encoding="utf-8") as f:
+            f.write(msg)
+    except Exception:
+        pass
+    print(msg)
+    return code
+
+
+def _svc_elevate_and_wait(action):
+    """Run 'launcher service <action>' elevated via PowerShell UAC and
+    wait. Returns (exit_code, result_text)."""
+    exe = launcher_exe().replace("'", "''")
+    py = os.path.join(hub_dir(), "printhub.py")
+    argstr = ('"%s" service %s' % (py, action)).replace("'", "''")
+    ps = ("$p=Start-Process -FilePath '%s' -ArgumentList '%s'"
+          " -Verb RunAs -Wait -PassThru; $p.ExitCode" % (exe, argstr))
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-Command", ps],
+            creationflags=HIDE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, timeout=900)
+        code = r.returncode
+    except Exception as e:
+        return 1, "elevation failed: %s" % e
+    txt = ""
+    try:
+        with open(_svc_result_file(), "r", encoding="utf-8") as f:
+            txt = f.read().strip()
+    except Exception:
+        pass
+    return code, txt
+
+
+def _svc_install_impl():
+    """ELEVATED side: compile the wrapper with csc.exe, register +
+    start the service, then retire the Startup-app shortcut."""
+    if not IS_WIN:
+        return _svc_done(1, "Windows only")
+    if not _svc_is_admin():
+        return _svc_done(1, "not elevated - self-elevation did not run")
+    csc = _svc_find_csc()
+    if not csc:
+        return _svc_done(1, "csc.exe not found - install .NET Framework 4.x")
+    os.makedirs(_svc_dir(), exist_ok=True)
+    src = os.path.join(hub_dir(), "service", "PrintHubProService.cs")
+    if not os.path.isfile(src):
+        return _svc_done(1, "missing " + src)
+    _svc_write_service_json()
+    r = subprocess.run([csc, "/nologo", "/target:exe",
+                        "/out:" + _svc_exe(),
+                        "/r:System.dll", "/r:System.ServiceProcess.dll",
+                        src],
+                       creationflags=HIDE, stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, timeout=180)
+    if r.returncode != 0 or not os.path.isfile(_svc_exe()):
+        return _svc_done(1, "compile failed:\n" +
+                         r.stdout.decode("utf-8", "replace")[:600])
+    r = subprocess.run([_svc_exe(), "install"], creationflags=HIDE,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                       timeout=180)
+    out = r.stdout.decode("utf-8", "replace").strip()
+    if r.returncode != 0:
+        return _svc_done(1, "service registration failed:\n" + out[:600])
+    try:
+        if autostart_enabled():
+            autostart_set(False)   # service takes over - never start twice
+    except Exception:
+        pass
+    log("[SERVICE] installed + started (%s)" % SERVICE_DISPLAY)
+    return _svc_done(0, "%s installed and STARTED - manage it in"
+                        " services.msc (no tray icon in service mode)"
+                        % SERVICE_DISPLAY)
+
+
+def _svc_remove_impl():
+    if not IS_WIN:
+        return _svc_done(1, "Windows only")
+    if not _svc_is_admin():
+        return _svc_done(1, "not elevated - self-elevation did not run")
+    if not os.path.isfile(_svc_exe()):
+        st = _svc_query() or {}
+        if not st.get("installed"):
+            return _svc_done(0, "service was not installed")
+        return _svc_done(1, "service exe missing - run: sc delete %s"
+                         % SERVICE_NAME)
+    r = subprocess.run([_svc_exe(), "remove"], creationflags=HIDE,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                       timeout=180)
+    out = r.stdout.decode("utf-8", "replace").strip()
+    _SVC_STATE["t"] = 0.0
+    return _svc_done(r.returncode,
+                     out or "%s removed (code %d)" % (SERVICE_DISPLAY,
+                                                      r.returncode))
+
+
+def cmd_service(arg="status"):
+    """CLI: python printhub.py service install|remove|status"""
+    arg = (arg or "status").lower()
+    if arg == "status":
+        st = _svc_query()
+        print("Process mode  : %s" %
+              ("WINDOWS SERVICE (this process IS the service)"
+               if service_mode() else "console / startup app"))
+        if st is None:
+            print("Windows service : n/a (not Windows)")
+        elif not st["installed"]:
+            print("Windows service : not installed - install with:"
+                  " python printhub.py service install")
+        else:
+            print("Windows service : %s (%s)" %
+                  ("RUNNING" if st["running"] else "STOPPED",
+                   SERVICE_DISPLAY))
+        return
+    if not IS_WIN:
+        print("Windows service is only available on Windows.")
+        sys.exit(1)
+    if arg in ("install", "remove"):
+        if _svc_is_admin():
+            code = _svc_install_impl() if arg == "install" else _svc_remove_impl()
+            sys.exit(code)
+        code, txt = _svc_elevate_and_wait(arg)
+        print(txt or ("done (exit code %s)" % code))
+        sys.exit(0 if code == 0 else 1)
+    print("usage: python printhub.py service [install|remove|status]")
+    sys.exit(1)
+
+
+# ------------------------------------------------------------
 # HTTP API (pure stdlib, CORS-ready for ANY browser/website)
 # ------------------------------------------------------------
 CORS_HEADERS = [
@@ -1370,6 +1597,8 @@ class Handler(BaseHTTPRequestHandler):
                 "sharing": sharing_enabled(),
                 "address": share_address(),
                 "lan_ip": get_lan_ip(),
+                "service": _svc_query(),          # v1.7.1 Windows service state
+                "service_mode": service_mode(),   # v1.7.1 running AS the service
             })
 
         if not self._token_ok(qt):
@@ -1387,6 +1616,7 @@ class Handler(BaseHTTPRequestHandler):
                               "/queue/pause|resume|clear (POST)",
                               "/share (GET/POST)", "/config (POST = /share)",
                               "/autostart (GET) + /autostart (POST)",
+                              "/service/install + /service/remove (POST, Windows)",
                               "/testprint?kind=a4|thermal"],
             })
         if route == "/printers":
@@ -1688,6 +1918,22 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "enabled": state,
                                     "path": autostart_path()})
 
+        # POST /service/install | /service/remove  (v1.7.1, Windows)
+        # One click from Options > Windows service: the hub writes
+        # service.json, pops ONE UAC prompt (PowerShell RunAs) and the
+        # elevated child compiles the C# wrapper + registers the service.
+        if route in ("/service/install", "/service/remove"):
+            if not IS_WIN:
+                return self._send(400, {"ok": False,
+                    "error": "Windows service is only available on Windows"})
+            action = "install" if route.endswith("/install") else "remove"
+            log("[SERVICE] %s requested via API - waiting for UAC..." % action)
+            code, txt = _svc_elevate_and_wait(action)
+            _SVC_STATE["t"] = 0.0
+            return self._send(200, {"ok": code == 0, "action": action,
+                                    "detail": txt or "done",
+                                    "service": _svc_query()})
+
         # POST /print
         if route == "/print":
             def bget(key, default=None):
@@ -1910,6 +2156,11 @@ def _start_tray():
     """Windows tray icon ('PrintHub Pro' next to the clock) with a control
     menu. 100% optional: any failure just means no tray icon."""
     if not IS_WIN:
+        return
+    if service_mode():
+        # v1.7.1: services run in session 0 - a tray icon can never be
+        # shown there. Manage the service in services.msc / Options.
+        log("[SERVICE] running as the Windows service - tray icon skipped")
         return
     try:
         import tray_windows
@@ -2139,6 +2390,9 @@ def cmd_help():
   reprint <job_id>          Print a previous job again
   queue                     Show queue status (paused / pending / failed)
   share [on|off]            Share the hub on the LAN / go localhost-only
+  service [install|remove|status]
+                            Windows service (services.msc): starts at boot,
+                            auto-restarts; install pops one UAC prompt
   doctor                    Check everything and report [OK]/[!!]
   help                      This help
 
@@ -2163,10 +2417,15 @@ fail over to peer hubs. Token always required.
 
 def main():
     args = sys.argv[1:]
+    if "--service" in args:               # launched by the service wrapper
+        os.environ["PRINTHUB_SERVICE"] = "1"
+        args.remove("--service")
     cmd = args[0] if args else "serve"
     try:
         if cmd in ("serve", "start"):
             cmd_serve()
+        elif cmd == "service":
+            cmd_service(args[1] if len(args) > 1 else "status")
         elif cmd == "testprint":
             cmd_testprint(args[1] if len(args) > 1 else "a4")
         elif cmd == "printers":

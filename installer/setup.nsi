@@ -18,7 +18,7 @@
 
 Unicode true
 Name "PrintHub Pro"
-OutFile "/home/z/my-project/build/PrintHubPro/installer/PrintHub-Pro-Setup-1.7.0.exe"
+OutFile "/home/z/my-project/build/PrintHubPro/installer/PrintHub-Pro-Setup-1.7.1.exe"
 InstallDir "$LOCALAPPDATA\PrintHubPro"
 InstallDirRegKey HKCU "Software\PrintHubPro" "InstallDir"
 RequestExecutionLevel user
@@ -26,10 +26,10 @@ SetCompressor /SOLID lzma
 ShowInstDetails show
 ShowUnInstDetails show
 
-VIProductVersion "1.7.0.0"
+VIProductVersion "1.7.1.0"
 VIAddVersionKey ProductName "PrintHub Pro"
-VIAddVersionKey FileVersion "1.7.0"
-VIAddVersionKey ProductVersion "1.7.0"
+VIAddVersionKey FileVersion "1.7.1"
+VIAddVersionKey ProductVersion "1.7.1"
 VIAddVersionKey CompanyName "Bit Dream IT (AdvMedi)"
 VIAddVersionKey LegalCopyright "MIT License"
 VIAddVersionKey FileDescription "PrintHub Pro - silent print bridge (one-time setup)"
@@ -142,6 +142,14 @@ Section "PrintHub Pro (required)" SEC_MAIN
   File "/oname=printhub.ico" "/home/z/my-project/build/PrintHubPro/hub/printhub.ico"
   SetOutPath "$INSTDIR\install"
   File "/oname=START-PRINT-HUB.vbs" "/home/z/my-project/build/PrintHubPro/install/START-PRINT-HUB.vbs"
+  ; v1.7.1: Windows service - one-click install from Options > Windows service
+  CreateDirectory "$INSTDIR\service"
+  File "/oname=service\PrintHubProService.cs" "/home/z/my-project/build/PrintHubPro/hub/service/PrintHubProService.cs"
+  CreateDirectory "$INSTDIR\install"
+  File "/oname=install\service-install.ps1" "/home/z/my-project/build/PrintHubPro/install/service-install.ps1"
+  File "/oname=install\service-remove.ps1" "/home/z/my-project/build/PrintHubPro/install/service-remove.ps1"
+  File "/oname=install\INSTALL-WINDOWS-SERVICE.bat" "/home/z/my-project/build/PrintHubPro/install/INSTALL-WINDOWS-SERVICE.bat"
+  File "/oname=install\REMOVE-WINDOWS-SERVICE.bat" "/home/z/my-project/build/PrintHubPro/install/REMOVE-WINDOWS-SERVICE.bat"
   SetOutPath "$INSTDIR"
   File "/oname=README.md" "/home/z/my-project/build/PrintHubPro/README.md"
   File "/oname=LICENSE" "/home/z/my-project/build/PrintHubPro/LICENSE"
@@ -185,7 +193,7 @@ Section "PrintHub Pro (required)" SEC_MAIN
   ${Else}
     DetailPrint "No usable pythonw.exe (bundled runtime missing + no system Python)."
     MessageBox MB_ICONEXCLAMATION|MB_OK \
-      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download PrintHub-Pro-Setup-1.7.0.exe (file may be damaged), or install Python from python.org (tick 'Add python.exe to PATH') and run this setup again."
+      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download PrintHub-Pro-Setup-1.7.1.exe (file may be damaged), or install Python from python.org (tick 'Add python.exe to PATH') and run this setup again."
     ExecShell "open" "https://www.python.org/downloads/"
   ${EndIf}
 
@@ -202,7 +210,7 @@ Section "PrintHub Pro (required)" SEC_MAIN
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
     "DisplayName" "PrintHub Pro (silent print bridge)"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
-    "DisplayVersion" "1.7.0"
+    "DisplayVersion" "1.7.1"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
     "Publisher" "Bitdream IT"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro" \
