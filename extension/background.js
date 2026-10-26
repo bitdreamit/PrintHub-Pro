@@ -1,23 +1,24 @@
 /* ============================================================
- * PrintHub Pro v1.7.2 - background service worker (MV3)
- * Bridges web pages <-> the PrintHub hub (localhost OR a shared LAN hub).
+ * PrintHub Pro - background service worker (MV3)
+ * Bridges web pages <-> local hub (http://127.0.0.1:9235).
  * All printing is silent: the hub prints via the OS, never a dialog.
- * v1.7.2: master ENABLE/DISABLE switch (popup + Options) - when off,
- * nothing prints, the toolbar badge shows a red OFF.
- * v1.7.0: raw binary PDF upload (no base64), site block/unblock,
- * sharing + queue controls, inject-once throttle, closeAfterPrint off.
  * ============================================================ */
 
 const DEFAULTS = {
-  enabled: true,            // v1.7.2 MASTER SWITCH: false = nothing prints
   hubUrl: "http://127.0.0.1:9235",
   token: "PrintHub-2024",
   defaultPrinter: "",
+  enabled: true,            // MASTER SWITCH: false = PrintHub fully off
+                            // (no printing, no auto-print, no hook/API,
+                            //  gray OFF badge on the toolbar icon)
+  queueMode: true,          // ON  = jobs go through the hub FIFO queue
+                            //      (pause/resume, ordered)
+                            // OFF = hub prints each job immediately
+                            //      (queue:false - no waiting in line)
   hookPrint: true,          // intercept window.print() on every page
   failFallback: "tab",      // page print call failed: "tab"=open URL in new tab, "none"=stay silent
   autoPrintAllPdfs: true,   // SIMPLE MODE: any PDF opened in the browser prints silently
-  closeAfterPrint: false,   // v1.7.0: default OFF - auto-printed tabs stay open unless enabled
-  blockedSites: [],         // v1.7.0: hosts where auto-print is switched off (quick block)
+  closeAfterPrint: true,    // auto-printed URLs: close the tab after -> no browser view
   contextMenu: true,        // right-click "PrintHub Pro" menu
   badge: true,              // show ok/fail on the toolbar icon
   rules: [
@@ -45,29 +46,6 @@ async function loadCfg() {
 }
 
 function invalidateCfg() { CFG = null; }
-
-/* v1.7.2 master switch helpers */
-async function isEnabled() {
-  return (await loadCfg()).enabled !== false;
-}
-
-const DISABLED_MSG =
-  "PrintHub Pro is disabled - turn it ON from the toolbar popup";
-
-async function applyEnabledState() {
-  // red persistent OFF badge while disabled; clean it when re-enabled
-  const on = await isEnabled();
-  try {
-    if (!on) {
-      await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
-      await chrome.action.setBadgeText({ text: "OFF" });
-    } else {
-      const cur = await chrome.action.getBadgeText({});
-      if (cur === "OFF") await chrome.action.setBadgeText({ text: "" });
-    }
-  } catch (_) {}
-  return on;
-}
 
 async function saveCfg(patch) {
   await chrome.storage.local.set(patch);
@@ -97,31 +75,6 @@ async function hubFetch(path, opts = {}) {
   return data;
 }
 
-/* v1.7.0: RAW binary POST - the PDF bytes go up as-is (Content-Type
- * application/pdf), parameters ride the query string. Zero base64
- * CPU/RAM cost; the hub has accepted this shape since v1.5.0. */
-async function hubPrintRaw(pdfBytes, params = {}) {
-  const cfg = await loadCfg();
-  const base = (cfg.hubUrl || DEFAULTS.hubUrl).replace(/\/+$/, "");
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
-  }
-  const q = qs.toString();
-  const res = await fetch(base + "/print" + (q ? "?" + q : ""), {
-    method: "POST",
-    headers: { "X-PrintHub-Token": cfg.token,
-               "Content-Type": "application/pdf" },
-    body: pdfBytes
-  });
-  let data = {};
-  try { data = await res.json(); } catch (_) {}
-  if (!res.ok || data.ok === false) {
-    throw new HubError(data.error || ("HTTP " + res.status));
-  }
-  return data;
-}
-
 /* ---------------- URL pattern matching (glob style) ---------------- */
 function patternToRegex(pattern) {
   let rx = "";
@@ -142,28 +95,26 @@ function matchRule(url, rules) {
   return null;
 }
 
-/* ---------------- site block/unblock (v1.7.0) ---------------- */
-function hostOf(url) {
-  try { return new URL(url).hostname.toLowerCase(); } catch (_) { return ""; }
-}
-
-function isBlocked(url, blocked) {
-  const h = hostOf(url);
-  if (!h) return false;
-  return (blocked || []).some((b) => h === b || h.endsWith("." + b));
-}
-
 /* ---------------- badge + history ---------------- */
-async function flashBadge(ok, text) {
+/* Master switch state on the toolbar icon: gray OFF badge while
+ * disabled, cleared when enabled. Applied on install/startup and
+ * whenever the config changes. */
+async function applyEnabledBadge() {
   const cfg = await loadCfg();
-  if (!cfg.badge) return;
   try {
     if (cfg.enabled === false) {
-      // master switch is OFF - keep the red OFF badge, no flashes
-      await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+      await chrome.action.setBadgeBackgroundColor({ color: "#64748b" });
       await chrome.action.setBadgeText({ text: "OFF" });
-      return;
+    } else {
+      await chrome.action.setBadgeText({ text: "" });
     }
+  } catch (_) {}
+}
+
+async function flashBadge(ok, text) {
+  const cfg = await loadCfg();
+  if (!cfg.badge || cfg.enabled === false) return;
+  try {
     await chrome.action.setBadgeBackgroundColor(
       { color: ok ? "#16a34a" : "#dc2626" });
     await chrome.action.setBadgeText({ text });
@@ -195,7 +146,12 @@ function hubPrint(payload) {
     payload.destination = "file";
     payload.printer = "";
   }
-  return hubFetch("/print", { method: "POST", body: payload });
+  // Queue Mode OFF -> tell the hub to print THIS job immediately
+  // (bypasses the FIFO; pause/resume does not hold it back).
+  return loadCfg().then((cfg) => {
+    if (cfg.queueMode === false) payload.queue = false;
+    return hubFetch("/print", { method: "POST", body: payload });
+  });
 }
 
 async function printPdfUrl(url, title, printer, extra = {}) {
@@ -206,17 +162,22 @@ async function printPdfUrl(url, title, printer, extra = {}) {
 }
 
 async function printPdfResponse(res, url, title, printer, extra = {}) {
-  const buf = new Uint8Array(await res.arrayBuffer());
+  const blob = await res.blob();
+  const buf = new Uint8Array(await blob.arrayBuffer());
   if (buf.length < 5 || String.fromCharCode(...buf.slice(0, 5)) !== "%PDF-") {
     throw new HubError("URL did not return a PDF - got HTML? login expired?");
   }
-  // v1.7.0: raw binary upload (no base64) - faster on big lab reports
-  const data = await hubPrintRaw(buf, {
+  let bin = "";
+  const CH = 32768;
+  for (let i = 0; i < buf.length; i += CH) {
+    bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+  }
+  const data = await hubPrint(Object.assign({
+    pdf_base64: btoa(bin),
     title: title || "document",
     printer: printer || "",
-    source: "extension",
-    ...extra
-  });
+    source: "extension"
+  }, extra));
   // record in the shared 60 s dedupe so an auto rule will not print the
   // same URL again when a fallback tab (or the user) opens it right after
   await markPrinted(url);
@@ -370,9 +331,8 @@ async function shouldAutoPrint(url) {
 chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
   if (info.status !== "complete" || !tab || !/^https?:/i.test(tab.url || "")) return;
   try {
-    if (!(await isEnabled())) return;   // v1.7.2 master switch is OFF
-    const blocked = await loadCfg().then((c) => isBlocked(tab.url, c.blockedSites));
-    if (blocked) return;   // v1.7.0: auto-print is switched off for this site
+    const cfg0 = await loadCfg();
+    if (cfg0.enabled === false) return;      // master switch OFF - do nothing
     const rule = await shouldAutoPrint(tab.url);
     if (rule) {
       const printer = rule.printer || (await loadCfg()).defaultPrinter || "";
@@ -431,11 +391,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
   if (info.status !== "loading" || !/^https?:/i.test(tab.url || "")) return;
   try {
     const cfg = await loadCfg();
+    // Master switch OFF -> inject NOTHING: no window.print() hook, no
+    // window.printhub API, nothing. Pages keep their native behavior.
+    if (cfg.enabled === false) return;
     // v1.1.6: api.js (window.printhub + global printPdfLink) is injected
-    // ALWAYS; hook.js (window.print interception) follows the toggles.
-    // v1.7.2: with the master switch OFF the hook is never injected.
-    const wantHook = !!cfg.hookPrint && cfg.enabled !== false;
-    const files = wantHook
+    // ALWAYS; hook.js (window.print interception) follows the toggle.
+    const files = cfg.hookPrint
       ? ["content/hook.js", "content/api.js"]
       : ["content/api.js"];
     await chrome.scripting.executeScript({
@@ -446,27 +407,20 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
   } catch (_) { /* restricted page or injection unsupported */ }
 });
 
-async function injectIntoOpenTabs(force) {
+async function injectIntoOpenTabs() {
   // Pages opened BEFORE registration have nothing yet - push the scripts
   // into every open http(s) tab now. All scripts are idempotent, so
   // re-running them is safe. api.js goes in regardless of the hook toggle
   // so window.printhub / printPdfLink stay global (v1.1.6).
-  // v1.7.0: MV3 wakes this on many events - run at most once per 30 s
-  // (pass force=true after Options changes) to keep wakes cheap.
-  try {
-    const st = await chrome.storage.session.get({ lastInject: 0 });
-    if (!force && Date.now() - (st.lastInject || 0) < 30000) return;
-    await chrome.storage.session.set({ lastInject: Date.now() });
-  } catch (_) {}
   const cfg = await loadCfg();
+  if (cfg.enabled === false) return;         // master switch OFF
   let tabs = [];
   try {
     tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
   } catch (_) { return; }
   for (const tab of tabs) {
     if (!tab || !tab.id) continue;
-    const wantHook = !!cfg.hookPrint && cfg.enabled !== false;   // v1.7.2
-    const files = wantHook
+    const files = cfg.hookPrint
       ? ["content/hook.js", "content/api.js"]
       : ["content/api.js"];
     try {
@@ -487,6 +441,20 @@ async function injectIntoOpenTabs(force) {
 
 async function applyHook() {
   const cfg = await loadCfg();
+  // MASTER SWITCH OFF: pull out every registration and inject nothing.
+  // Enabled again -> applyHook re-registers what the toggles ask for.
+  if (cfg.enabled === false) {
+    try {
+      const regs = await chrome.scripting.getRegisteredContentScripts();
+      const ids = regs.map((r) => r.id)
+        .filter((id) => id === "printhub-api" || id === "printhub-hook");
+      if (ids.length) {
+        await chrome.scripting.unregisterContentScripts({ ids });
+      }
+    } catch (_) {}
+    return;
+  }
+  const wanted = !!cfg.hookPrint;
   const existing = await chrome.scripting.getRegisteredContentScripts();
   const hasApi = existing.some((s) => s.id === "printhub-api");
   const hookReg = existing.find((s) => s.id === "printhub-hook");
@@ -516,9 +484,7 @@ async function applyHook() {
     } catch (_) {}
   }
 
-  // hook.js strictly follows the "Print interception" toggle AND the
-  // v1.7.2 master switch (disabled = native window.print, no interception)
-  const wanted = !!cfg.hookPrint && cfg.enabled !== false;
+  // hook.js strictly follows the "Print interception" toggle
   if (wanted && (legacy || !hookReg)) {
     try {
       await chrome.scripting.registerContentScripts([{
@@ -536,25 +502,20 @@ async function applyHook() {
       await chrome.scripting.unregisterContentScripts({ ids: ["printhub-hook"] });
     } catch (_) {}
   }
-  await injectIntoOpenTabs(true);
+  await injectIntoOpenTabs();
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   (async () => {
     try {
-      // v1.7.2 master switch: every PRINT-producing message is refused
-      // while PrintHub Pro is disabled (read-only queries still work,
-      // so the popup/options can show status and turn it back on).
-      const PRINT_MSGS = new Set(["hookPrint", "printTab", "printPdfUrl",
-                                  "printSelection", "printScreenshot"]);
-      if (PRINT_MSGS.has(msg && msg.type) && !(await isEnabled())) {
-        reply({ ok: false, error: DISABLED_MSG });
-        return;
-      }
       switch (msg && msg.type) {
         case "hookPrint": {
           // window.print() was called on a page -> print that page silently
           const hcfg = await loadCfg();
+          if (hcfg.enabled === false) {
+            reply({ ok: false, error: "PrintHub is disabled - enable it from the toolbar popup" });
+            break;
+          }
           if (!hcfg.hookPrint) {
             reply({ ok: false, error: "print interception is disabled in Options" });
             break;
@@ -571,6 +532,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           break;
         }
         case "printTab": {
+          if ((await loadCfg()).enabled === false) {
+            reply({ ok: false, error: "PrintHub is disabled - enable it in the popup" });
+            break;
+          }
           const tab = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
           // msg.dest === "file" -> save as PDF instead of printing on paper
           const over = msg.dest === "file" ? "__file__" : undefined;
@@ -578,15 +543,27 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           break;
         }
         case "printPdfUrl": {
+          if ((await loadCfg()).enabled === false) {
+            reply({ ok: false, error: "PrintHub is disabled - enable it in the popup" });
+            break;
+          }
           const printer = await resolvePrinter(msg.url);
           const out = await printPdfUrl(msg.url, msg.title, printer);
           reply({ ok: true, ...out });
           break;
         }
         case "printSelection":
+          if ((await loadCfg()).enabled === false) {
+            reply({ ok: false, error: "PrintHub is disabled - enable it in the popup" });
+            break;
+          }
           reply({ ok: true, ...(await printSelection(msg.text, msg.title)) });
           break;
         case "printScreenshot": {
+          if ((await loadCfg()).enabled === false) {
+            reply({ ok: false, error: "PrintHub is disabled - enable it in the popup" });
+            break;
+          }
           const win = await chrome.windows.getCurrent();
           reply({ ok: true, ...(await printScreenshot(win.id)) });
           break;
@@ -600,44 +577,6 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         case "hubJobs":
           reply(await hubFetch("/jobs?limit=" + (msg.limit || 100)));
           break;
-        case "jobsClear":
-          reply(await hubFetch("/jobs/clear",
-              { method: "POST", body: { scope: msg.scope || "failed" } }));
-          break;
-        case "hubShare":
-          reply(await hubFetch("/share"));
-          break;
-        case "shareAction":
-          reply(await hubFetch("/share",
-              { method: "POST", body: msg.patch || {} }));
-          break;
-        case "siteBlockState":
-          reply({ ok: true,
-                  blocked: isBlocked(msg.url || "",
-                                     (await loadCfg()).blockedSites) });
-          break;
-        case "setSiteBlocked": {
-          const host = hostOf(msg.url || "");
-          if (!host) {
-            reply({ ok: false, error: "this page has no host to block" });
-            break;
-          }
-          const ccfg = await loadCfg();
-          const list = (ccfg.blockedSites || []).filter((h) => h !== host);
-          const blocked = msg.blocked !== false;
-          if (blocked) list.push(host);
-          await saveCfg({ blockedSites: list });
-          reply({ ok: true, host, blocked, blockedSites: list });
-          break;
-        }
-        case "setEnabled": {              // v1.7.2 master switch on/off
-          const val = msg.value !== false;
-          await saveCfg({ enabled: val });
-          await applyHook();
-          await applyEnabledState();
-          reply({ ok: true, enabled: val });
-          break;
-        }
         case "queueAction":
           reply(await hubFetch("/queue/" + msg.action, { method: "POST", body: {} }));
           break;
@@ -645,29 +584,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           reply(await hubFetch(`/jobs/${msg.id}/${msg.action}`,
                                { method: "POST", body: {} }));
           break;
-        case "hubService":          // v1.7.2: status | install | remove
-          if (msg.action === "install" || msg.action === "remove") {
-            reply(await hubFetch("/service/" + msg.action,
-                                 { method: "POST", body: {} }));
-          } else {
-            reply(await hubFetch("/health"));
-          }
-          break;
-        case "hubAutostart":        // v1.7.2: startup-app state
-          reply(await hubFetch("/autostart"));
-          break;
-        case "hubAutostartToggle": {
-          const cur = await hubFetch("/autostart");
-          if (!cur.ok) { reply(cur); break; }
-          reply(await hubFetch("/autostart",
-              { method: "POST", body: { enabled: !cur.enabled } }));
-          break;
-        }
         case "saveCfg":
           await saveCfg(msg.patch || {});
           await applyHook();
           await rebuildMenus();
-          await applyEnabledState();   // v1.7.2: keep the OFF badge in sync
+          await applyEnabledBadge();
           reply({ ok: true });
           break;
         case "getCfg":
@@ -686,10 +607,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 async function handleApi(msg) {
   const cfg = await loadCfg();
   const req = msg.payload || {};
-  // v1.7.2: the page-facing print API refuses to print while disabled
-  if (["print", "printPage", "printPdf"].includes(req.fn) &&
-      cfg.enabled === false) {
-    throw new HubError(DISABLED_MSG);
+  // read-only calls stay available even while disabled; printing calls
+  // are refused so a disabled PrintHub never prints from a page
+  const PRINT_FNS = ["printPage", "printPdf", "print"];
+  if (PRINT_FNS.includes(req.fn) && cfg.enabled === false) {
+    throw new HubError("PrintHub is disabled - enable it in the toolbar popup");
   }
   switch (req.fn) {
     case "status":
@@ -749,7 +671,7 @@ async function handleApi(msg) {
 async function rebuildMenus() {
   const cfg = await loadCfg();
   await chrome.contextMenus.removeAll();
-  if (!cfg.contextMenu) return;
+  if (!cfg.contextMenu || cfg.enabled === false) return;   // no menu while disabled
   chrome.contextMenus.create({
     id: "printhub-root", title: "PrintHub Pro", contexts: ["all"]
   });
@@ -769,22 +691,11 @@ async function rebuildMenus() {
     id: "ph-shot", parentId: "printhub-root",
     title: "Print screenshot", contexts: ["page"]
   });
-  chrome.contextMenus.create({
-    id: "ph-site-toggle", parentId: "printhub-root",
-    title: "Auto-print: block / allow this site", contexts: ["page"]
-  });
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   try {
-    // v1.7.2: print actions are refused while disabled (the site
-    // block/allow toggle still works - it is only a setting change)
-    if (info.menuItemId !== "ph-site-toggle" && !(await isEnabled())) {
-      chrome.notifications.create({
-        type: "basic", iconUrl: "icons/icon128.png",
-        title: "PrintHub Pro", message: DISABLED_MSG });
-      return;
-    }
+    if ((await loadCfg()).enabled === false) return;   // master switch OFF
     if (info.menuItemId === "ph-print-page" && tab) {
       await printTab(tab);
     } else if (info.menuItemId === "ph-print-sel" && info.selectionText) {
@@ -795,20 +706,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     } else if (info.menuItemId === "ph-shot") {
       const win = await chrome.windows.getCurrent();
       await printScreenshot(win.id);
-    } else if (info.menuItemId === "ph-site-toggle" && tab && tab.url) {
-      // v1.7.0 quick block/unblock - no Options visit needed
-      const host = hostOf(tab.url);
-      const ccfg = await loadCfg();
-      const was = isBlocked(tab.url, ccfg.blockedSites);
-      const list = (ccfg.blockedSites || []).filter((h) => h !== host);
-      if (!was) list.push(host);
-      await saveCfg({ blockedSites: list });
-      chrome.notifications.create({
-        type: "basic", iconUrl: "icons/icon128.png",
-        title: "PrintHub Pro",
-        message: was ? ("Auto-print allowed again on " + host)
-                     : ("Auto-print blocked on " + host)
-      });
     }
   } catch (e) {
     await flashBadge(false, "!");
@@ -822,15 +719,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 /* ---------------- toolbar command (Alt+P) ---------------- */
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== "print-current-tab") return;
+  if ((await loadCfg()).enabled === false) return;     // master switch OFF
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) return;
   try {
-    if (!(await isEnabled())) {          // v1.7.2 master switch guard
-      chrome.notifications.create({
-        type: "basic", iconUrl: "icons/icon128.png",
-        title: "PrintHub Pro", message: DISABLED_MSG });
-      return;
-    }
     await printTab(tab);
   } catch (e) {
     await flashBadge(false, "!");
@@ -846,30 +738,23 @@ chrome.action.onClicked?.addListener?.(async () => { /* popup handles it */ });
 
 /* ---------------- lifecycle ---------------- */
 chrome.runtime.onInstalled.addListener(async () => {
-  const st = await chrome.storage.local.get({ initialized: false,
-                                              migrated170: false });
+  const st = await chrome.storage.local.get({ initialized: false });
   if (!st.initialized) {
     // seed defaults once so Options shows the htncr.org example rule
-    await chrome.storage.local.set(Object.assign({}, DEFAULTS,
-                                                 { initialized: true }));
-  } else if (!st.migrated170) {
-    // v1.7.0 one-time migration: "Close tab after auto-print" now ships
-    // OFF so tabs stay open unless the user explicitly wants them gone.
-    await chrome.storage.local.set({ closeAfterPrint: false,
-                                     migrated170: true });
+    await chrome.storage.local.set(Object.assign({}, DEFAULTS, { initialized: true }));
   }
+  await applyEnabledBadge();
   await rebuildMenus();
   await applyHook();
-  await applyEnabledState();   // v1.7.2: red OFF badge when disabled
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+  await applyEnabledBadge();
   await rebuildMenus();
   await applyHook();
-  await applyEnabledState();   // v1.7.2: red OFF badge when disabled
 });
 
 // MV3 service workers wake on events - make sure open tabs always have
-// the hook (idempotent; cheap because of the __printhub* guards + the
-// 30 s inject-once throttle).
+// the hook (idempotent; cheap because of the __printhub* guards).
+applyEnabledBadge();
 injectIntoOpenTabs();

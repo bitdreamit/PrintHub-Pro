@@ -1,11 +1,6 @@
 {
   "type": "object",
   "properties": {
-    "enabled": {
-      "type": "boolean",
-      "default": true,
-      "description": "v1.7.2 master switch: false = the extension prints nothing (no auto-print, no window.print() interception, no popup/context/API printing)."
-    },
     "hubUrl": {
       "type": "string",
       "description": "PrintHub Pro hub base URL, e.g. http://127.0.0.1:9235"
@@ -17,6 +12,16 @@
     "defaultPrinter": {
       "type": "string",
       "description": "Default printer name. Empty = OS default printer. Use __file__ for save-as-PDF."
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "MASTER SWITCH: false disables ALL PrintHub printing, auto-print, the window.print() hook and the page API (gray OFF badge)."
+    },
+    "queueMode": {
+      "type": "boolean",
+      "default": true,
+      "description": "Queue Mode: true = jobs wait in the hub FIFO queue (pause works); false = the hub prints each job immediately (queue bypass)."
     },
     "hookPrint": {
       "type": "boolean",
@@ -38,14 +43,7 @@
     },
     "closeAfterPrint": {
       "type": "boolean",
-      "description": "Close the tab automatically after a rule auto-prints its URL (no browser view). Default OFF since v1.7.0 - tabs stay open unless enabled."
-    },
-    "blockedSites": {
-      "type": "array",
-      "description": "Hosts where auto-print (rules + print-every-PDF) is switched off. One host per entry, subdomains included.",
-      "items": {
-        "type": "string"
-      }
+      "description": "Close the tab automatically after a rule auto-prints its URL (no browser view)"
     },
     "rules": {
       "type": "array",

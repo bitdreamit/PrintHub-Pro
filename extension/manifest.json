@@ -3,9 +3,9 @@
   "name": "PrintHub Pro — Print from Any Web Page",
   "short_name": "PrintHub Pro",
   "version": "1.7.2",
-  "description": "Print any web page, PDF, selection or screenshot to ANY printer via your PrintHub Pro hub - local or shared on the office LAN. Silent, no print dialog, 100% local.",
-  "author": "Bit Dream IT (AdvMedi)",
-  "homepage_url": "https://www.bitdreamit.com",
+  "description": "Print any web page, PDF, selection or screenshot to ANY printer via your local PrintHub Pro hub. Silent, no print dialog, 100% local.",
+  "author": "Bitdream IT",
+  "homepage_url": "https://github.com/bitdreamit/PrintHub-Pro",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -47,15 +47,21 @@
   ],
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/relay.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/relay.js"
+      ],
       "run_at": "document_start",
       "all_frames": true
     }
   ],
   "commands": {
     "print-current-tab": {
-      "suggested_key": { "default": "Alt+P" },
+      "suggested_key": {
+        "default": "Alt+P"
+      },
       "description": "Print the current tab with PrintHub Pro"
     }
   }

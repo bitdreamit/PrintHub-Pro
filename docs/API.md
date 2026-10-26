@@ -39,7 +39,7 @@ All responses are JSON with an `"ok"` field. The API is CORS-open with `Access-C
 
 ## POST /print
 
-One of the payload sources is required. Common optional fields: `title`, `printer` (empty = default), `copies` (1–50), `source` (free tag shown in history), `destination` (`"printer"` default or `"file"` to save as PDF without printing).
+One of the payload sources is required. Common optional fields: `title`, `printer` (empty = default), `copies` (1–50), `source` (free tag shown in history), `destination` (`"printer"` default or `"file"` to save as PDF without printing), `queue` (`true` default / `false` = **Queue Mode OFF for this job** — the hub prints it immediately in its own thread, bypassing the FIFO; Pause has no effect on it; v1.7.2+).
 
 | Source field | Meaning | Notes |
 |---|---|---|
@@ -56,7 +56,9 @@ curl -X POST http://127.0.0.1:9235/print \
   -d '{"pdf_base64":"JVBERi0...","title":"Invoice 42","printer":"HP LaserJet Pro","copies":2}'
 ```
 
-Response: `{"ok": true, "job_id": 17, "kind": "a4", "copies": 2, "destination": "printer", "message": "queued to printer"}`
+Response: `{"ok": true, "job_id": 17, "kind": "a4", "copies": 2, "destination": "printer", "queue_mode": "on", "message": "queued to printer"}`
+
+With `"queue": false` the response reports `"queue_mode": "off"` and `"message": "printing immediately (queue mode off)"` — the job row is already `printing` when the response arrives.
 
 ### Raw binary PDF — no base64 (fastest path)
 
@@ -116,6 +118,8 @@ Errors: `400` bad payload · `401` bad token · `500` render failure (html/page)
 | `POST /queue/resume` | Worker continues; queued jobs print in FIFO order |
 | `POST /queue/clear` | All `queued` jobs become `canceled` |
 
+> **Queue bypass (v1.7.2):** jobs posted with `queue:false` never wait in the FIFO above — they start immediately. `/health` reports `"queue_bypass": true` when the hub supports it.
+
 The queue is **DB-driven** (SQLite): pending jobs survive hub restarts, and jobs stuck in `printing` after a crash are re-queued at startup.
 
 ---
@@ -146,102 +150,14 @@ python hub/printhub.py printers       # list printers
 python hub/printhub.py history 20     # last 20 jobs
 python hub/printhub.py reprint 17     # reprint job 17
 python hub/printhub.py queue          # paused? pending? current?
+python hub/printhub.py service-install  # install as Windows service (UAC)
+python hub/printhub.py service-remove   # remove the Windows service (UAC)
+python hub/printhub.py service-status   # services.msc state of 'PrintHub'
+python hub/printhub.py update-check     # compare against GitHub Releases
+python hub/tool.py                      # friendly control menu (all of it)
 python hub/printhub.py doctor         # environment self-check
 ```
 
 ## Browser fallback form
 
 Strict CSP environments can POST `application/x-www-form-urlencoded` with a single field `payload` containing the JSON — same endpoints, same responses.
-
----
-
-## v1.7.0 — Sharing, queue retry & failover
-
-### GET /share *(token required)*
-
-Current sharing state. The full token/connect code is only returned to **loopback** callers; remote callers see `****`.
-
-```json
-{ "ok": true, "sharing": false, "host": "127.0.0.1", "port": 9235,
-  "lan_ip": "192.168.1.20", "address": "http://192.168.1.20:9235",
-  "token": "PrintHub-2024", "connect_code": "http://192.168.1.20:9235|PrintHub-2024",
-  "peers": [], "auto_retry": true, "retry_max": 3, "retry_interval": 60,
-  "forward_on_fail": true, "retention_days": 7,
-  "config_file": "~/.printhub/config.json" }
-```
-
-### POST /share (alias `POST /config`)
-
-One call to enable/disable LAN sharing and tune the queue. Changing `host`/`port` **re-binds the HTTP server live** — no restart, queue and history untouched.
-
-| body field | effect |
-|---|---|
-| `{"enabled": true}` | bind `0.0.0.0` (all LAN adapters); auto-generates a random token if none is set |
-| `{"enabled": false}` | back to localhost-only |
-| `{"host": "192.168.1.20"}` | bind that specific IP instead |
-| `{"port": 9235}` | change port |
-| `{"token": "..."}` / `{"regenerate_token": true}` | set / rotate the token |
-| `{"peers": ["http://192.168.1.30:9235|TOKEN2"]}` | failover targets (first accepting peer wins) |
-| `{"auto_retry": true, "retry_max": 3, "retry_interval": 60}` | queue retry policy (delay grows per attempt) |
-| `{"forward_on_fail": true}` | hand the PDF to a peer hub after the final local failure |
-| `{"retention_days": 7}` | delete finished job PDF files older than N days (history rows stay) |
-
-The response always includes the fresh `connect_code` to paste into other PCs' extensions (`http://192.168.x.x:9235|TOKEN`).
-
-**Security:** the token is ALWAYS required. Non-loopback callers get `token: "****"` and an empty `connect_code`.
-
-### POST /jobs/{id}/retry
-
-Requeue a `failed`, `forwarded` or `canceled` job whose file still exists. Returns `{"ok": true, "status": "queued"}`. `409` for finished jobs, `410` when the stored file was cleaned up.
-
-### POST /jobs/clear  `{"scope": "failed" | "completed" | "all"}`
-
-Delete history rows **and** their stored PDF files. `completed` = printed + saved + canceled + forwarded. `all` also cancels any printing/queued jobs. Returns `{"ok": true, "scope": "...", "deleted": n, "files": m}`.
-
-### `fit` print parameter
-
-`POST /print` accepts `fit` (also via query string on raw uploads): `""` auto by kind, `"fit"` always scale to page, `"noscale"` 1:1, `"shrink"` only shrink oversized pages (SumatraPDF `shrinkfit`). The value is stored per job and honored on every attempt/retry.
-
-### Failover forwarding
-
-After the final local failure (auto-retry exhausted) the worker POSTs the stored PDF to each configured peer (`POST peer/print?title=...&source=peer` with `X-PrintHub-Token` of the peer). First `{"ok": true}` wins: the local job becomes `forwarded` with `forwarded_to` set; the peer records a normal job with `source: "peer"`. Jobs arriving from peers are **never re-forwarded** (loop protection).
-
-## v1.7.1 — Windows service (Windows only)
-
-- `GET /health` adds `"service": {"installed": bool, "running": bool}`
-  (null off-Windows) and `"service_mode": bool` (this process IS the service).
-- `POST /service/install` / `POST /service/remove` (token-gated): the hub writes
-  `service\service.json`, pops ONE UAC prompt (PowerShell RunAs), and the elevated
-  child compiles `hub/service/PrintHubProService.cs` with the machine's own `csc.exe`,
-  registers + starts "PrintHub Pro Service" (auto start, failure recovery 60 s) and
-  turns the Startup-app shortcut OFF. Returns `{"ok": bool, "detail": "..."}`.
-  Refused with 400 on non-Windows.
-- CLI: `python printhub.py service install|remove|status` (self-elevates).
-
-## v1.7.2 — Extension enable/disable + Queue Mode switch
-
-Extension (chrome.storage.local, enterprise-lockable via managed.json):
-
-- `DEFAULTS.enabled: true` — master switch. While `enabled:false` the
-  background refuses every print message (`hookPrint`, `printTab`,
-  `printPdfUrl`, `printSelection`, `printScreenshot`) and the page API
-  print functions with
-  `"PrintHub Pro is disabled - turn it ON from the toolbar popup"`;
-  auto-print on tab open is skipped; the `window.print()` hook is
-  unregistered; the toolbar badge shows a persistent red **OFF**.
-  Read-only queries (status/jobs/share/service) keep working so any UI
-  can turn it back on.
-- New messages: `setEnabled {value}` (persist + re-apply hooks + badge).
-
-Hub settings (persisted in config.json, v1.7.2):
-
-- `queue_mode: true|false` — **ON (default)**: jobs that cannot print
-  stay queued and auto-retry with backoff, final failure can be handed
-  to a peer hub. **OFF**: a job that cannot print is marked `failed`
-  immediately — no retry, no peer forwarding — with error text
-  `queue mode OFF: <reason>`. Manual Retry from the history still works.
-- Endpoints: `GET /health` and `GET /queue` add `"queue_mode": bool`;
-  `GET /share` adds it; `POST /share` (alias `/config`) accepts
-  `{"queue_mode": true|false}` alongside the other settings.
-- CLI: `python printhub.py queue [on|off|status]`.
-- Tray menu: "Queue mode (keep + retry failed jobs)" check item.

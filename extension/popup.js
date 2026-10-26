@@ -1,40 +1,6 @@
-/* PrintHub Pro v1.7.2 - popup logic */
+/* PrintHub Pro - popup logic */
 const $ = (id) => document.getElementById(id);
 let paused = false;
-let curTabUrl = "";
-
-/* ---- v1.7.2 master enable/disable ---- */
-async function reflectEnabled(on) {
-  document.body.classList.toggle("off", !on);
-  $("mstate").textContent = on ? "ON" : "OFF";
-  $("mstate").classList.toggle("off", !on);
-  $("enabledToggle").checked = !!on;
-  ["bPage", "bFile", "bShot", "bTest"].forEach((id) => { $(id).disabled = !on; });
-  if (!on) msg("PrintHub is disabled - silent printing is OFF", "err");
-}
-
-async function loadEnabled() {
-  const cfg = await send({ type: "getCfg" });
-  await reflectEnabled(cfg.ok ? cfg.cfg.enabled !== false : true);
-}
-
-$("enabledToggle").addEventListener("change", async () => {
-  const r = await send({ type: "setEnabled", value: $("enabledToggle").checked });
-  if (r.ok) {
-    await reflectEnabled(r.enabled);
-    msg(r.enabled ? "PrintHub enabled - printing is back ON"
-                  : "PrintHub disabled - nothing will print", "info");
-  } else {
-    msg("Failed: " + r.error, "err");
-    $("enabledToggle").checked = !$("enabledToggle").checked;
-  }
-});
-
-function siteLabel(blocked) {
-  return blocked
-    ? "Auto-print on this site: BLOCKED (click to allow)"
-    : "Auto-print on this site: ON (click to block)";
-}
 
 function msg(text, cls) {
   const el = $("msg");
@@ -48,6 +14,41 @@ function send(m) {
   });
 }
 
+/* ---------- master switches (Enable / Queue Mode) ---------- */
+function renderEnabledState(off) {
+  document.body.classList.toggle("off", off);
+  $("swEnabledRow").classList.toggle("off", off);
+  $("swEnabledSub").textContent = off ? "printing is OFF - nothing prints" : "printing is on";
+  ["bPage", "bFile", "bShot", "bTest"].forEach((id) => { $(id).disabled = off; });
+  $("bPause").disabled = off;
+}
+
+async function loadSwitches() {
+  const cfg = await send({ type: "getCfg" });
+  if (!cfg.ok) return;
+  const off = cfg.cfg.enabled === false;
+  $("swEnabled").checked = !off;
+  $("swQueue").checked = cfg.cfg.queueMode !== false;
+  renderEnabledState(off);
+}
+
+$("swEnabled").addEventListener("change", async () => {
+  const on = $("swEnabled").checked;
+  await send({ type: "saveCfg", patch: { enabled: on } });
+  renderEnabledState(!on);
+  msg(on ? "PrintHub enabled" : "PrintHub disabled - nothing will print", "info");
+});
+
+$("swQueue").addEventListener("change", async () => {
+  const on = $("swQueue").checked;
+  await send({ type: "saveCfg", patch: { queueMode: on } });
+  $("swQueueSub").textContent = on
+    ? "jobs wait in order + pause works"
+    : "every job prints immediately (skips the line)";
+  msg(on ? "Queue mode ON - jobs are printed in FIFO order"
+         : "Queue mode OFF - jobs print immediately", "info");
+});
+
 async function refresh() {
   const st = await send({ type: "hubStatus" });
   if (st.ok) {
@@ -58,19 +59,12 @@ async function refresh() {
     $("qstate").textContent = paused ? "PAUSED" : "running";
     $("bPause").textContent = paused ? "Resume" : "Pause";
     $("qpend").textContent = st.pending ? st.pending + " pending" : "";
-    // v1.7.2 queue mode chip
-    const qm = st.queue_mode !== false;
-    $("qmode").textContent = qm ? "(queue mode)" : "(direct mode)";
-    $("qmode").title = qm
-      ? "Queue mode ON - failed jobs stay queued and are retried"
-      : "Queue mode OFF - jobs that cannot print fail immediately (Options > Queue)";
   } else {
     $("dot").classList.remove("on");
     $("stat").textContent = "Hub offline";
     $("connect").textContent = "Connect";
     $("qstate").textContent = "-";
     $("qpend").textContent = "";
-    $("qmode").textContent = "";
     msg("Hub not reachable. Start it:  python printhub.py serve", "err");
   }
 
@@ -84,7 +78,7 @@ async function refresh() {
       const t = document.createElement("span");
       t.className = "t";
       t.textContent = j.title || ("job #" + j.id);
-      t.title = (j.title || "") + (j.error ? " - " + j.error : "");
+      t.title = j.title || "";
       const s = document.createElement("span");
       s.className = "st " + j.status;
       s.textContent = j.status;
@@ -98,32 +92,6 @@ async function refresh() {
     box.innerHTML = '<div class="empty">No jobs yet - print something!</div>';
   }
 }
-
-/* ---- site auto-print block/unblock (v1.7.0) ---- */
-chrome.tabs.query({ active: true, currentWindow: true }, ([t]) => {
-  curTabUrl = (t && t.url) || "";
-  const btn = $("bSiteBlock");
-  if (!/^https?:/i.test(curTabUrl)) {
-    btn.disabled = true;
-    btn.textContent = "Auto-print toggle (not available on this page)";
-    return;
-  }
-  send({ type: "siteBlockState", url: curTabUrl }).then((r) => {
-    btn.textContent = siteLabel(r.ok && r.blocked);
-  });
-});
-
-$("bSiteBlock").addEventListener("click", async () => {
-  if (!/^https?:/i.test(curTabUrl)) return;
-  const st = await send({ type: "siteBlockState", url: curTabUrl });
-  const r = await send({ type: "setSiteBlocked", url: curTabUrl,
-                         blocked: !(st.ok && st.blocked) });
-  if (r.ok) {
-    $("bSiteBlock").textContent = siteLabel(r.blocked);
-    msg(r.blocked ? ("Auto-print blocked on " + r.host)
-                  : ("Auto-print allowed again on " + r.host), "info");
-  } else msg("Failed: " + r.error, "err");
-});
 
 $("bPage").addEventListener("click", async () => {
   msg("Sending page to printer...", "info");
@@ -170,11 +138,7 @@ $("lnkApi").addEventListener("click", (e) => {
   e.preventDefault();
   chrome.tabs.create({ url: chrome.runtime.getURL("options.html#api") });
 });
-$("lnkBrand").addEventListener("click", (e) => {
-  e.preventDefault();
-  chrome.tabs.create({ url: "https://www.bitdreamit.com" });
-});
 $("connect").addEventListener("click", (e) => { e.preventDefault(); refresh(); });
 
+loadSwitches();
 refresh();
-loadEnabled();   // v1.7.2: reflect the master switch on open

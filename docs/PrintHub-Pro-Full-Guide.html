@@ -245,7 +245,31 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
   <div class="step"><div class="num">2</div><div class="st"><b>Remove the Windows block.</b>
     Windows marks downloaded files as "from the internet" and may show
     <i>"Windows cannot access the specified device, path, or file"</i>. Right-click the file
-    <code>installer\PrintHub-Pro-Setup-1.5.0.exe</code> → <b>Properties</b> → tick
+    <code>installer\<div class="card" style="border-left:6px solid #1d4ed8;">
+<div class="step-num">N</div>
+<h3>What's new in v1.7.2 (one page)</h3>
+<div class="body-text" style="margin-top:6px;">
+<b>PrintHub Tool</b> — Start Menu shortcut with a numbered menu: start, stop, status,
+test page, <b>Windows service install/remove</b>, auto-run on/off, <b>GitHub update
+check</b>, recent jobs, uninstall. Non-technical users never need the command line.<br><br>
+<b>Real Windows service (optional)</b> — tick "Install as Windows Service (advanced)"
+in the installer (or Tool → 5). It then appears in <b>services.msc</b> as
+"PrintHub Pro Service" and can be started/stopped there. Uninstall removes it too.<br><br>
+<b>Silent install</b> — run <code>PrintHub-Pro-Setup-1.7.2.exe /S</code> (and
+<code>uninstall.exe /S</code>) for scripted setup.<br><br>
+<b>Extension master switch</b> — popup switch "PrintHub enabled": OFF = nothing prints,
+no auto-print, no print() hook, gray OFF badge — without uninstalling.<br><br>
+<b>Queue Mode ON/OFF</b> — popup switch: ON = jobs print in FIFO order (Pause works);
+OFF = every job prints immediately, skipping the line.<br><br>
+<b>Tabbed options</b> — Options now has <b>Queue | History | Settings | About</b> tabs.
+It opens on <b>Queue</b> automatically when jobs are waiting, otherwise on Settings.
+About tab has a <b>Check for update</b> button (GitHub Releases).<br><br>
+<b>Update through GitHub</b> — new versions: https://github.com/bitdreamit/PrintHub-Pro/releases/latest
+(Tool → 8 checks it for you). Install the new Setup.exe over the old one —
+settings and history are kept.
+</div>
+</div>
+PrintHub-Pro-Setup-1.7.2.exe</code> → <b>Properties</b> → tick
     <b>Unblock</b> → OK. Or run the PowerShell line below once&nbsp;— it unblocks the whole folder:
     <div class="inline-code" style="display:block; margin-top:7px; padding:8px 11px;">Get-ChildItem 'D:\printer\PrintHub-Pro-1.7.2' -Recurse -File | Unblock-File</div></div></div>
   <div class="step"><div class="num">3</div><div class="st"><b>Double-click the Setup EXE.</b>
@@ -472,7 +496,7 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
   <div class="fix"><div class="fx">#2 <span class="q">"Python 3 was not found on this PC"</span></div>
     <p>This message belongs to version 1.3.0 or older. Version 1.7.2 <b>carries its own Python
     runtime inside the installer</b>&nbsp;— the message can no longer appear. Download
-    <code>PrintHub-Pro-Setup-1.5.0.exe</code> (9.5 MB) and install it. No Python install from
+    <code>PrintHub-Pro-Setup-1.7.2.exe</code> (9.5 MB) and install it. No Python install from
     python.org is ever needed.</p></div>
 
   <div class="fix"><div class="fx">#3 <span class="q">Nothing prints&nbsp;— no paper, no error</span></div>
@@ -519,7 +543,7 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
       <tr><td>Health page</td><td><code>http://127.0.0.1:9235/health</code></td></tr>
       <tr><td>Security token</td><td><code>PrintHub-2024</code></td></tr>
       <tr><td>Windows install folder</td><td><code>%LOCALAPPDATA%\PrintHubPro</code></td></tr>
-      <tr><td>Bundled Python runtime</td><td><code>%LOCALAPPDATA%\PrintHubPro\runtime</code> (v1.5.0)</td></tr>
+      <tr><td>Bundled Python runtime</td><td><code>%LOCALAPPDATA%\PrintHubPro\runtime</code> (v1.7.2)</td></tr>
       <tr><td>Linux install folder</td><td><code>/opt/printhub</code></td></tr>
       <tr><td>Print data &amp; history</td><td><code>%USERPROFILE%\.printhub</code> / <code>~/.printhub</code></td></tr>
       <tr><td>Log file</td><td><code>.printhub\hub.log</code>&nbsp;— every job and error</td></tr>

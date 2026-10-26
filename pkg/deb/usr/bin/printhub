@@ -1,3 +1,0 @@
-#!/bin/sh
-# PrintHub Pro - CLI wrapper: printhub serve|doctor|printers|history|...
-exec /usr/bin/python3 /opt/printhub/hub/printhub.py "$@"
