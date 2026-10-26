@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  PrintHub Pro v1.6.0  -  Print from any web page to any printer
-#  AdvMedi by Bit Dream IT  -  https://www.bitdreamit.com
-#  Innovative Healthcare Solutions - MIT licensed, 100% local
+#  PrintHub Pro v1.7.0  -  Print from any web page to any printer
+#  AdvMedi by Bit Dream IT  -  Innovative Healthcare Solutions
+#  MIT licensed, 100% local & open source
 # ------------------------------------------------------------
-#  Chrome extension <-> this hub (localhost) -> ANY printer
+#  Chrome extension <-> this hub (localhost or LAN) -> ANY printer
 #  NO print dialog. NO subscription. NO cloud. NO data collection.
 #
 #  * ZERO pip dependencies - pure Python 3.8+ standard library
 #  * Cross-platform: Windows (SumatraPDF) / Linux & macOS (CUPS lp)
 #  * Any printer: thermal, receipt, label, A4 - hub sees it, you print
 #  * Print queue with pause / resume / cancel (survives restarts)
-#  * Job history: last 100+ jobs in SQLite, reprint anytime
+#  * Job history: unlimited in SQLite, reprint / retry / clear anytime
 #  * Screenshot printing (JPEG -> PDF, pure Python)
 #  * HTML / web page printing via headless Chrome or Edge
 #  * Token auth, CORS + Private-Network headers, localhost by default
+#  * v1.7.0 NETWORK SHARING: one-click share the hub on the LAN
+#    (0.0.0.0 or your 192.168.x.x IP) so every PC prints through ONE
+#    hub + ONE printer. Token-protected, connect-code pairing.
+#  * v1.7.0 INDUSTRIAL QUEUE: auto-retry with backoff, failed jobs
+#    stay in the list (Retry / Clear), failover forwarding to peer
+#    hubs - if this PC cannot print, another PC's hub takes the job.
 #
 #  Quick start:   python printhub.py serve
 #  Health check:  http://127.0.0.1:9235/health
@@ -28,7 +34,9 @@ import hmac
 import json
 import os
 import re
+import secrets
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -39,12 +47,12 @@ import urllib.request
 import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs, parse_qsl
+from urllib.parse import urlparse, parse_qs, parse_qsl, quote
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 APP_NAME = "PrintHub Pro"
 VENDOR = "Bit Dream IT"
-BRAND = "AdvMedi by Bit Dream IT - Innovative Healthcare Solutions"
+BRAND_LINE = "AdvMedi by Bit Dream IT - Innovative Healthcare Solutions"
 BRAND_URL = "https://www.bitdreamit.com"
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
@@ -52,9 +60,6 @@ HIDE = 0x08000000 if IS_WIN else 0          # no console window flash on Windows
 MAX_BODY = 40 * 1024 * 1024                 # 40 MB hard cap on request body
 MAX_PDF = 25 * 1024 * 1024                  # 25 MB cap for downloaded pdf_url
 HISTORY_DEFAULT = 100                       # Ultraprint-style: last 100 jobs
-# v1.6.0: stored job PDFs older than this are auto-deleted (0 = keep forever).
-# Keeps the data folder small on PCs that print thousands of reports.
-KEEP_DAYS = float(os.environ.get("PRINTHUB_KEEP_DAYS", "14") or 14)
 
 # ------------------------------------------------------------
 # Configuration (environment variables override defaults)
@@ -85,6 +90,125 @@ def default_file_dir():
         return os.path.join(CFG["data_dir"], "files")
 SUMATRA_HINT = "winget install SumatraPDF.SumatraPDF   (or download from kjkpub.sf.net/sumatrapdf)"
 
+# ------------------------------------------------------------
+# v1.7.0: persistent settings (config.json in the data dir).
+# The hub can be SHARED on the LAN in one click: listen on 0.0.0.0
+# (or a specific 192.168.x.x IP) so every PC in the office prints
+# through this ONE hub + ONE printer. A token is ALWAYS required;
+# when sharing is enabled an empty token is replaced by a random one
+# so "just anyone" on the network cannot use the shared IP.
+# ------------------------------------------------------------
+DEFAULT_SETTINGS = {
+    "auto_retry": True,        # failed jobs are re-queued automatically
+    "retry_max": 3,            # ...up to this many print attempts
+    "retry_interval": 60,      # seconds before the 1st retry (grows per attempt)
+    "forward_on_fail": True,   # final local failure: offer the job to peer hubs
+    "peers": [],               # ["http://192.168.1.20:9235|TOKEN2", ...]
+    "retention_days": 7,       # delete finished job PDF files after N days
+}
+SETTINGS = dict(DEFAULT_SETTINGS)
+
+def config_path():
+    return os.path.join(CFG["data_dir"], "config.json")
+
+def load_settings():
+    """Read config.json (written by POST /share, the tray menu or the CLI).
+    PRINTHUB_HOST/PORT/TOKEN environment variables keep priority."""
+    global SETTINGS
+    try:
+        with open(config_path(), "r", encoding="utf-8") as f:
+            saved = json.load(f)
+    except Exception:
+        saved = {}
+    for k, dv in DEFAULT_SETTINGS.items():
+        v = saved.get(k, dv)
+        if isinstance(dv, list):
+            SETTINGS[k] = [x for x in v] if isinstance(v, list) else [x for x in dv]
+        elif isinstance(dv, bool):
+            SETTINGS[k] = bool(v)
+        else:
+            SETTINGS[k] = v
+    if not os.environ.get("PRINTHUB_HOST"):
+        h = saved.get("host")
+        if isinstance(h, str) and h.strip():
+            CFG["host"] = h.strip()
+    if not os.environ.get("PRINTHUB_PORT"):
+        p = saved.get("port")
+        if isinstance(p, int) and 0 < p < 65536:
+            CFG["port"] = p
+    if not os.environ.get("PRINTHUB_TOKEN"):
+        t = saved.get("token")
+        if isinstance(t, str) and t.strip():
+            CFG["token"] = t.strip()
+
+def save_settings():
+    """Persist host/port/token + queue settings to config.json (atomic)."""
+    ensure_dirs()
+    data = dict(SETTINGS)
+    data["host"] = CFG["host"]
+    data["port"] = CFG["port"]
+    data["token"] = CFG["token"]
+    tmp = config_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, config_path())
+
+def generate_token():
+    return "PH-" + secrets.token_hex(9).upper()    # 18 hex chars, PH- prefix
+
+def is_loopback_host(host):
+    return str(host or "").lower() in ("127.0.0.1", "localhost", "::1")
+
+def sharing_enabled():
+    return not is_loopback_host(CFG["host"])
+
+def get_lan_ip():
+    """Best-effort primary LAN IPv4. UDP connect sends NO traffic."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+    try:
+        for inf in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = inf[4][0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except Exception:
+        pass
+    return "127.0.0.1"
+
+def share_address():
+    ip = CFG["host"]
+    if ip in ("0.0.0.0", "::", ""):
+        ip = get_lan_ip()
+    return "http://%s:%d" % (ip, CFG["port"])
+
+def connect_code():
+    """One line to paste into the extension on ANOTHER PC:
+    http://192.168.x.x:9235|TOKEN"""
+    return "%s|%s" % (share_address(), CFG["token"])
+
+def normalize_peer(p):
+    """Accept 'http://ip:port|token', 'http://ip:port' or {url, token}."""
+    if isinstance(p, dict):
+        url = str(p.get("url") or "").strip().rstrip("/")
+        tok = str(p.get("token") or "").strip()
+        return {"url": url, "token": tok} if url else None
+    s = str(p or "").strip()
+    if not s:
+        return None
+    if "|" in s:
+        url, tok = s.rsplit("|", 1)
+        return {"url": url.strip().rstrip("/"), "token": tok.strip()}
+    return {"url": s.rstrip("/"), "token": ""}
+
 def ensure_dirs():
     os.makedirs(CFG["data_dir"], exist_ok=True)
     os.makedirs(os.path.join(CFG["data_dir"], "jobs"), exist_ok=True)
@@ -111,18 +235,32 @@ def log(msg):
         pass
 
 # ------------------------------------------------------------
-# Print history + queue state (SQLite) - thread-safe via one lock
+# Print history + queue state (SQLite)
+# v1.7.0: one thread-local connection per thread (no reopen cost) +
+# WAL mode; writes stay serialized through _DB_LOCK.
 # ------------------------------------------------------------
+_TLS = threading.local()
 _DB_LOCK = threading.Lock()
 
 def db():
-    conn = sqlite3.connect(db_path(), timeout=10)
-    conn.row_factory = sqlite3.Row
+    """Thread-local connection: one per thread, reused; busy_timeout
+    guards against cross-thread contention."""
+    conn = getattr(_TLS, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(db_path(), timeout=15)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=15000")
+        except sqlite3.Error:
+            pass
+        _TLS.conn = conn
     return conn
 
 def db_init():
     ensure_dirs()
-    with _DB_LOCK, db() as conn:
+    with _DB_LOCK:
+        conn = db()
         conn.execute(
             """CREATE TABLE IF NOT EXISTS jobs (
                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,95 +269,131 @@ def db_init():
                    title      TEXT,
                    printer    TEXT,
                    copies     INTEGER DEFAULT 1,
-                   status     TEXT NOT NULL,            -- queued|printing|printed|failed|canceled
+                   status     TEXT NOT NULL,            -- queued|printing|printed|failed|canceled|saved|forwarded
                    error      TEXT,
                    file_path  TEXT,
-                   source     TEXT DEFAULT 'api',      -- extension | website | api | cli
+                   source     TEXT DEFAULT 'api',       -- extension | website | api | cli | peer
                    origin_ip  TEXT,
                    duration_ms INTEGER DEFAULT 0
                )"""
         )
-        # v1.6.0: page-scaling preference ('' | noscale | shrinkfit | fit)
-        try:
-            conn.execute("ALTER TABLE jobs ADD COLUMN fit TEXT DEFAULT ''")
-        except Exception:
-            pass  # column already exists
-        # v1.6.0 PERF: WAL journal = faster writes, fewer fsync stalls while
-        # the HTTP threads and the print worker hit the DB at the same time
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-        except Exception:
-            pass
+        # v1.7.0 columns (safe on an existing 1.x database)
+        for col in ("attempts INTEGER DEFAULT 0",
+                    "next_retry_at REAL",
+                    "forwarded_to TEXT",
+                    "fit TEXT DEFAULT ''"):
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN %s" % col)
+            except sqlite3.OperationalError:
+                pass        # column already exists
+        conn.commit()
 
 def db_add(kind, title, printer, copies, file_path, source, origin_ip,
            status="queued", fit=""):
-    with _DB_LOCK, db() as conn:
-        cur = conn.execute(
+    with _DB_LOCK:
+        cur = db().execute(
             "INSERT INTO jobs (created_at, kind, title, printer, copies, status,"
             " file_path, source, origin_ip, fit)"
             " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (datetime.now().isoformat(timespec="seconds"), kind, title, printer,
-             copies, status, file_path, source, origin_ip, fit or ""),
-        )
+             copies, status, file_path, source, origin_ip, fit or ""))
+        db().commit()
         return cur.lastrowid
 
 def db_update(job_id, **fields):
     sets = ", ".join("%s=?" % k for k in fields)
-    with _DB_LOCK, db() as conn:
-        conn.execute("UPDATE jobs SET %s WHERE id=?" % sets, (*fields.values(), job_id))
+    with _DB_LOCK:
+        db().execute("UPDATE jobs SET %s WHERE id=?" % sets,
+                     (*fields.values(), job_id))
+        db().commit()
 
 def db_get(job_id):
-    with _DB_LOCK, db() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-        return dict(row) if row else None
+    row = db().execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    return dict(row) if row else None
 
 def db_list(limit=HISTORY_DEFAULT, status=None):
-    with _DB_LOCK, db() as conn:
-        if status:
-            rows = conn.execute(
-                "SELECT * FROM jobs WHERE status=? ORDER BY id DESC LIMIT ?",
-                (status, int(limit))).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (int(limit),)
-            ).fetchall()
-        return [dict(r) for r in rows]
+    if status:
+        rows = db().execute(
+            "SELECT * FROM jobs WHERE status=? ORDER BY id DESC LIMIT ?",
+            (status, int(limit))).fetchall()
+    else:
+        rows = db().execute(
+            "SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (int(limit),)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 def db_next_queued():
-    """Oldest queued job (FIFO). The worker is DB-driven so the queue
-    survives hub restarts and can be paused / cancelled live."""
-    with _DB_LOCK, db() as conn:
-        row = conn.execute(
-            "SELECT * FROM jobs WHERE status='queued' ORDER BY id ASC LIMIT 1"
-        ).fetchone()
-        return dict(row) if row else None
+    """Oldest queued job whose retry timer (if any) has expired - FIFO.
+    The worker is DB-driven so the queue survives hub restarts and can
+    be paused / cancelled / retried live."""
+    row = db().execute(
+        "SELECT * FROM jobs WHERE status='queued' AND (next_retry_at IS NULL"
+        " OR next_retry_at<=?) ORDER BY id ASC LIMIT 1",
+        (time.time(),)).fetchone()
+    return dict(row) if row else None
+
+def db_next_retry_time():
+    row = db().execute(
+        "SELECT MIN(next_retry_at) AS t FROM jobs WHERE status='queued'"
+        " AND next_retry_at IS NOT NULL").fetchone()
+    return row["t"] if row else None
 
 def db_count_pending():
-    with _DB_LOCK, db() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) AS n FROM jobs WHERE status IN ('queued','printing')"
-        ).fetchone()
-        return int(row["n"])
+    row = db().execute(
+        "SELECT COUNT(*) AS n FROM jobs WHERE status IN ('queued','printing')"
+    ).fetchone()
+    return int(row["n"])
+
+def db_count_failed():
+    row = db().execute(
+        "SELECT COUNT(*) AS n FROM jobs WHERE status='failed'").fetchone()
+    return int(row["n"])
 
 def db_count_today():
     today = datetime.now().strftime("%Y-%m-%d")
-    with _DB_LOCK, db() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) AS n FROM jobs WHERE created_at LIKE ?",
-            (today + "%",)).fetchone()
-        return int(row["n"])
+    row = db().execute(
+        "SELECT COUNT(*) AS n FROM jobs WHERE created_at LIKE ?",
+        (today + "%",)).fetchone()
+    return int(row["n"])
+
+def db_clear_jobs(scope="failed"):
+    """Delete job rows (and their stored PDF files) by scope:
+       failed | completed | all. History is otherwise UNLIMITED -
+       this is only housekeeping. Returns (rows_deleted, files_deleted)."""
+    scopes = {
+        "failed": ("failed",),
+        "forwarded": ("forwarded",),
+        "completed": ("printed", "saved", "canceled", "forwarded"),
+    }
+    if scope == "all":
+        rows = db_list(limit=1000000)
+        with _DB_LOCK:
+            db().execute("DELETE FROM jobs")
+            db().commit()
+    else:
+        sts = scopes.get(scope)
+        if not sts:
+            return 0, 0
+        ph = ",".join("?" * len(sts))
+        with _DB_LOCK:
+            rows = [dict(r) for r in db().execute(
+                "SELECT * FROM jobs WHERE status IN (%s)" % ph, sts).fetchall()]
+            db().execute("DELETE FROM jobs WHERE status IN (%s)" % ph, sts)
+            db().commit()
+    files = 0
+    for r in rows:
+        p = r.get("file_path")
+        if p and os.path.exists(p):
+            try:
+                os.unlink(p)
+                files += 1
+            except OSError:
+                pass
+    return len(rows), files
 
 # ------------------------------------------------------------
 # Printer + browser discovery (best effort, pure stdlib)
 # ------------------------------------------------------------
-# v1.6.0 PERF: every /health and /printers call used to spawn PowerShell
-# (0.3-1.5 s each on Windows). Results are cached for 30 s now - the popup
-# and status page feel instant and idle CPU drops to almost zero.
-_PRINTER_TTL = 30.0
-_PRINTER_CACHE = {"at": 0.0, "list": None}
-_DEFAULT_CACHE = {"at": 0.0, "name": None}
-
 def find_sumatra():
     """Locate SumatraPDF.exe on common Windows paths."""
     if not IS_WIN:
@@ -268,12 +442,14 @@ def find_browser():
             return p
     return None
 
+_PR_CACHE = {"t": 0.0, "printers": []}      # v1.7.0: 15 s cache - the
+_PR_TTL = 15.0                              # Options page polls /printers
+
 def list_printers(force=False):
-    """Return list of installed printer names (best effort, 30 s cache)."""
+    """Return list of installed printer names (best effort, cached 15 s)."""
     now = time.time()
-    if (not force and _PRINTER_CACHE["list"] is not None
-            and now - _PRINTER_CACHE["at"] < _PRINTER_TTL):
-        return _PRINTER_CACHE["list"]
+    if not force and _PR_CACHE["printers"] and now - _PR_CACHE["t"] < _PR_TTL:
+        return _PR_CACHE["printers"]
     try:
         if IS_WIN:
             ps = "Get-CimInstance Win32_Printer | Select-Object -ExpandProperty Name"
@@ -281,6 +457,7 @@ def list_printers(force=False):
                                  capture_output=True, text=True, timeout=20,
                                  creationflags=HIDE)
             names = [l.strip() for l in (out.stdout or "").splitlines() if l.strip()]
+            return names
         else:
             out = subprocess.run(["lpstat", "-e"], capture_output=True,
                                  text=True, timeout=10)
@@ -291,20 +468,22 @@ def list_printers(force=False):
                 for l in (out.stdout or "").splitlines():
                     if l.startswith("printer "):
                         names.append(l.split()[1])
-        if names:   # v1.6.0: never cache a transient empty result
-            _PRINTER_CACHE["list"] = names
-            _PRINTER_CACHE["at"] = now
-        return names
+            return names
     except Exception as e:
         log("[WARN] list_printers failed: %s" % e)
-        return []
+        return _PR_CACHE["printers"]
+    _PR_CACHE["printers"] = names
+    _PR_CACHE["t"] = now
+    return names
+
+_DP_CACHE = {"t": 0.0, "value": None, "set": False}   # None = no default
 
 def default_printer(force=False):
-    """Return the OS default printer name (best effort, 30 s cache)."""
+    """Return the OS default printer name (best effort, cached 15 s)."""
     now = time.time()
-    if (not force and _DEFAULT_CACHE["name"] is not None
-            and now - _DEFAULT_CACHE["at"] < _PRINTER_TTL):
-        return _DEFAULT_CACHE["name"]
+    if not force and _DP_CACHE["set"] and now - _DP_CACHE["t"] < _PR_TTL:
+        return _DP_CACHE["value"]
+    name = None
     try:
         if IS_WIN:
             ps = ("(Get-CimInstance Win32_Printer | Where-Object Default)"
@@ -312,20 +491,20 @@ def default_printer(force=False):
             out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
                                  capture_output=True, text=True, timeout=20,
                                  creationflags=HIDE)
-            name = (out.stdout or "").strip()
+            name = (out.stdout or "").strip() or None
         else:
-            name = None
             out = subprocess.run(["lpstat", "-d"], capture_output=True,
                                  text=True, timeout=10)
             for l in (out.stdout or "").splitlines():
                 if "system default destination" in l:
                     name = l.split(":")[-1].strip()
                     break
-        _DEFAULT_CACHE["name"] = name or None
-        _DEFAULT_CACHE["at"] = now
-        return name or None
     except Exception:
-        return None
+        name = None
+    _DP_CACHE["value"] = name
+    _DP_CACHE["set"] = True
+    _DP_CACHE["t"] = now
+    return name
 
 # ------------------------------------------------------------
 # Minimal PDF builders (pure Python): text receipts/pages + JPEG images
@@ -552,7 +731,6 @@ def html_to_pdf_bytes(source, is_url=True, title="page"):
         cmd = [exe, headless_flag, "--disable-gpu", "--no-first-run",
                "--disable-extensions", "--user-data-dir=" + profile,
                "--no-pdf-header-footer",
-               "--virtual-time-budget=8000",
                "--print-to-pdf=" + out_path, target]
         if IS_WIN:
             return subprocess.run(cmd, capture_output=True, timeout=120,
@@ -595,10 +773,14 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None, fit=""):
     Print a PDF file SILENTLY (no dialog) to the given printer
     or the OS default. Raises RuntimeError with a friendly message.
     The spawned process is registered so /jobs/{id}/cancel can kill it.
-    fit: '' (kind default) | 'noscale' | 'shrinkfit' | 'fit' (v1.6.0).
+    fit: "" (auto), "fit" (always scale to page), "noscale" (1:1),
+    "shrink" (only shrink large pages - SumatraPDF shrinkfit).
     """
     copies = max(1, min(int(copies or 1), 50))
     target = printer or CFG["printer"] or default_printer() or ""
+    fit = (fit or "").lower()
+    if fit not in ("fit", "noscale", "shrink"):
+        fit = ""
 
     def register(proc):
         with _CURRENT_LOCK:
@@ -612,9 +794,12 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None, fit=""):
             if not sumatra:
                 raise RuntimeError(
                     "SumatraPDF not found. Install it first: %s" % SUMATRA_HINT)
-            fitv = (fit or "").lower()
-            if fitv in ("noscale", "shrinkfit", "fit"):
-                settings = fitv
+            if fit == "fit":
+                settings = "fit"
+            elif fit == "noscale":
+                settings = "noscale"
+            elif fit == "shrink":
+                settings = "shrinkfit"
             else:
                 settings = ("noscale" if kind in ("thermal", "image-thermal")
                             else "shrinkfit")
@@ -639,7 +824,13 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None, fit=""):
                 cmd += ["-d", target]
             if copies > 1:
                 cmd += ["-n", str(copies)]
-            cmd += ["-o", "fit-to-page" if kind in ("a4", "image") else "noscale", path]
+            if fit == "noscale":
+                lp_opt = "noscale"
+            elif fit in ("fit", "shrink"):
+                lp_opt = "fit-to-page"
+            else:
+                lp_opt = "fit-to-page" if kind in ("a4", "image") else "noscale"
+            cmd += ["-o", lp_opt, path]
             log("[PRINT] lp -> %s (%s, %d copy/copies)"
                 % (target or "OS default", kind, copies))
             proc = register(subprocess.Popen(cmd, stdout=subprocess.PIPE,
@@ -677,10 +868,58 @@ def cancel_current_print():
 
 # ------------------------------------------------------------
 # Print queue: DB-driven FIFO worker with global pause
+# v1.7.0: event-driven wake (no 0.35 s polling), auto-retry with
+# backoff, failed jobs STAY in the queue list (Retry / Clear), and
+# final failures can be forwarded to peer hubs on the LAN (failover).
 # ------------------------------------------------------------
 RESUME_EVENT = threading.Event()   # set = queue running, clear = paused
 RESUME_EVENT.set()
-WAKE_EVENT = threading.Event()     # v1.6.0: instant wake-up when a job arrives
+JOB_WAKE = threading.Event()       # set = "wake up, there is queue work"
+
+def wake_worker():
+    JOB_WAKE.set()
+
+def forward_job_to_peers(job):
+    """Shared-queue failover: after the FINAL local failure, offer the PDF
+    to peer hubs configured in Settings > peers. The first peer that
+    accepts prints it (its history shows the job with source 'peer').
+    Jobs that arrived FROM a peer are never re-forwarded (no loops)."""
+    if not SETTINGS.get("forward_on_fail"):
+        return None
+    if (job.get("source") or "") == "peer":
+        return None
+    if not (job.get("file_path") and os.path.exists(job["file_path"])):
+        return None
+    peers = [normalize_peer(p) for p in (SETTINGS.get("peers") or [])]
+    peers = [p for p in peers if p and p["url"]]
+    if not peers:
+        return None
+    try:
+        with open(job["file_path"], "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    q = "title=%s&printer=%s&copies=%d&source=peer" % (
+        quote(job.get("title") or "document"),
+        quote(job.get("printer") or ""),
+        int(job.get("copies") or 1))
+    for p in peers:
+        try:
+            req = urllib.request.Request(
+                p["url"] + "/print?" + q, data=data, method="POST",
+                headers={"Content-Type": "application/pdf",
+                         "X-PrintHub-Token": p["token"] or CFG["token"],
+                         "X-PrintHub-Forwarded-By": share_address(),
+                         "User-Agent": "PrintHubPro/%s" % VERSION})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                resp = json.loads((r.read() or b"{}").decode("utf-8", "replace"))
+            if resp.get("ok"):
+                log("[FORWARD] job #%d -> %s (peer job #%s)"
+                    % (job["id"], p["url"], resp.get("job_id")))
+                return p["url"]
+        except Exception as e:
+            log("[FORWARD] peer %s refused job #%d: %s" % (p["url"], job["id"], e))
+    return None
 
 def worker():
     # recover jobs stuck in 'printing' from a previous crash/restart
@@ -692,11 +931,15 @@ def worker():
         RESUME_EVENT.wait()                     # pause support
         job = db_next_queued()
         if not job:
-            # v1.6.0: sleep until a new job signals WAKE (instant start)
-            # or a 1 s heartbeat passes - no more busy 0.35 s polling
-            WAKE_EVENT.wait(timeout=1.0)
-            WAKE_EVENT.clear()
+            # sleep until a new job arrives or the earliest retry is due
+            nxt = db_next_retry_time()
+            delay = 2.0
+            if nxt is not None:
+                delay = max(0.2, min(2.0, nxt - time.time()))
+            JOB_WAKE.wait(timeout=delay)
+            JOB_WAKE.clear()
             continue
+        JOB_WAKE.clear()
         t0 = time.time()
         db_update(job["id"], status="printing", error=None)
         try:
@@ -705,7 +948,7 @@ def worker():
                                 job_id=job["id"], fit=job.get("fit") or "")
             ms = int((time.time() - t0) * 1000)
             db_update(job["id"], status="printed", error=None,
-                      duration_ms=ms, printer=target)
+                      duration_ms=ms, printer=target, next_retry_at=None)
             log("[OK] job #%d printed on %s in %d ms"
                 % (job["id"], target, ms))
         except Exception as e:
@@ -713,8 +956,37 @@ def worker():
             if latest.get("status") == "canceled":
                 log("[CANCELED] job #%d killed mid-print" % job["id"])
             else:
-                db_update(job["id"], status="failed", error=str(e)[:500])
-                log("[FAIL] job #%d: %s" % (job["id"], e))
+                attempts = (latest.get("attempts") or 0) + 1
+                rmax = max(1, int(SETTINGS.get("retry_max", 3) or 3))
+                if SETTINGS.get("auto_retry", True) and attempts < rmax:
+                    delay = max(5, int(SETTINGS.get("retry_interval", 60)
+                                       or 60)) * attempts
+                    db_update(job["id"], status="queued", attempts=attempts,
+                              error="attempt %d/%d failed: %s"
+                                    % (attempts, rmax, str(e)[:300]),
+                              next_retry_at=time.time() + delay)
+                    log("[RETRY] job #%d failed (attempt %d/%d) - retry in %ds"
+                        % (job["id"], attempts, rmax, delay))
+                else:
+                    peer = None
+                    try:
+                        peer = forward_job_to_peers(job)
+                    except Exception as fe:
+                        log("[FORWARD] error while handing off: %s" % fe)
+                    if peer:
+                        db_update(job["id"], status="forwarded",
+                                  attempts=attempts, next_retry_at=None,
+                                  forwarded_to=peer,
+                                  error="printed by peer hub %s after local"
+                                        " failure: %s" % (peer, str(e)[:200]))
+                        log("[FAIL->PEER] job #%d handed to %s"
+                            % (job["id"], peer))
+                    else:
+                        db_update(job["id"], status="failed",
+                                  attempts=attempts, next_retry_at=None,
+                                  error="%s (kept in queue - Retry or Clear"
+                                        " it)" % str(e)[:400])
+                        log("[FAIL] job #%d: %s" % (job["id"], e))
         finally:
             # keep the file for reprint (unless keep_files is off)
             if not CFG["keep_files"] and job.get("file_path") \
@@ -726,6 +998,37 @@ def worker():
 
 def start_worker():
     threading.Thread(target=worker, daemon=True, name="printhub-worker").start()
+
+def housekeeping():
+    """v1.7.0: free disk - delete stored job PDFs older than
+    retention_days. DB rows (the history) are kept forever, only the
+    files are cleaned; reprinting an old job then reports 410."""
+    while True:
+        time.sleep(3600)
+        try:
+            days = max(1, int(SETTINGS.get("retention_days", 7) or 7))
+            cutoff = time.time() - days * 86400
+            jdir = os.path.join(CFG["data_dir"], "jobs")
+            if not os.path.isdir(jdir):
+                continue
+            n = 0
+            for fn in os.listdir(jdir):
+                p = os.path.join(jdir, fn)
+                try:
+                    if os.path.isfile(p) and os.path.getmtime(p) < cutoff:
+                        os.unlink(p)
+                        n += 1
+                except OSError:
+                    pass
+            if n:
+                log("[CLEANUP] removed %d job file(s) older than %d day(s)"
+                    % (n, days))
+        except Exception as e:
+            log("[CLEANUP] error: %s" % e)
+
+def start_housekeeping():
+    threading.Thread(target=housekeeping, daemon=True,
+                     name="printhub-housekeeping").start()
 
 def save_job_file(kind, title, data):
     """Write payload bytes into the jobs dir; returns full path."""
@@ -747,7 +1050,7 @@ def enqueue_print(kind, title, data, printer="", copies=1,
                     fit=fit)
     log("[QUEUE] job #%d queued (%s, %s) from %s"
         % (job_id, kind, title or "untitled", source))
-    WAKE_EVENT.set()          # v1.6.0: print starts immediately, no poll delay
+    wake_worker()
     return job_id
 
 def save_file_job(kind, title, data, source="api", origin_ip="-"):
@@ -775,43 +1078,6 @@ def save_file_job(kind, title, data, source="api", origin_ip="-"):
                     status="saved")
     log("[FILE] job #%d saved -> %s" % (job_id, path))
     return job_id, path
-
-# ------------------------------------------------------------
-# Disk hygiene (v1.6.0): auto-delete old stored job files
-# ------------------------------------------------------------
-def cleanup_old_job_files():
-    """Delete stored job PDFs older than KEEP_DAYS days (0 = keep forever).
-    History rows stay in SQLite; reprinting a cleaned job answers with the
-    usual friendly 'file no longer stored' error."""
-    if KEEP_DAYS <= 0:
-        return
-    cutoff = time.time() - KEEP_DAYS * 86400
-    removed = 0
-    try:
-        with _DB_LOCK, db() as conn:
-            rows = conn.execute(
-                "SELECT file_path FROM jobs WHERE file_path IS NOT NULL"
-            ).fetchall()
-    except Exception:
-        return
-    for r in rows:
-        fp = r["file_path"]
-        if not fp or not os.path.exists(fp):
-            continue
-        try:
-            if os.path.getmtime(fp) < cutoff:
-                os.unlink(fp)
-                removed += 1
-        except OSError:
-            pass
-    if removed:
-        log("[CLEANUP] removed %d job file(s) older than %g day(s)"
-            % (removed, KEEP_DAYS))
-
-def _cleanup_loop():
-    while True:
-        time.sleep(6 * 3600)
-        cleanup_old_job_files()
 
 # ------------------------------------------------------------
 # Auto-start at logon (visible, user-controllable)
@@ -1059,6 +1325,12 @@ class Handler(BaseHTTPRequestHandler):
             log("[HTTP] %s %s" % (self.address_string(), fmt % args))
 
     # ---- auth ----
+    def _is_local(self):
+        try:
+            return self.client_address[0] in ("127.0.0.1", "::1", "localhost")
+        except Exception:
+            return False
+
     def _token_ok(self, qtoken=None, body=None):
         given = (self.headers.get("X-PrintHub-Token")
                  or qtoken
@@ -1083,18 +1355,21 @@ class Handler(BaseHTTPRequestHandler):
             dp = default_printer()
             return self._send(200, {
                 "ok": True, "app": APP_NAME, "version": VERSION,
+                "brand": BRAND_LINE, "vendor_url": BRAND_URL,
                 "os": "windows" if IS_WIN else ("macos" if IS_MAC else "linux"),
                 "default_printer": dp,
                 "sumatra_found": (find_sumatra() is not None) if IS_WIN else None,
                 "browser_found": find_browser() is not None,
                 "paused": not RESUME_EVENT.is_set(),
                 "pending": db_count_pending(),
+                "failed": db_count_failed(),
                 "jobs_today": db_count_today(),
                 "file_dir": default_file_dir(),
                 "token_set": bool(CFG["token"]),
                 "autostart": autostart_enabled(),
-                "brand": BRAND,
-                "brand_url": BRAND_URL,
+                "sharing": sharing_enabled(),
+                "address": share_address(),
+                "lan_ip": get_lan_ip(),
             })
 
         if not self._token_ok(qt):
@@ -1104,11 +1379,13 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/":
             return self._send(200, {
                 "app": APP_NAME, "version": VERSION, "by": VENDOR,
-                "brand": BRAND, "brand_url": BRAND_URL,
-                "endpoints": ["/health", "/printers", "/jobs", "/jobs/clear (POST)", "/jobs/{id}/file",
+                "brand": BRAND_LINE,
+                "endpoints": ["/health", "/printers", "/jobs", "/jobs/{id}/file",
                               "/jobs/{id}/reprint (POST)", "/jobs/{id}/cancel (POST)",
+                              "/jobs/{id}/retry (POST)", "/jobs/clear (POST)",
                               "/print (POST)", "/queue (GET)",
                               "/queue/pause|resume|clear (POST)",
+                              "/share (GET/POST)", "/config (POST = /share)",
                               "/autostart (GET) + /autostart (POST)",
                               "/testprint?kind=a4|thermal"],
             })
@@ -1134,17 +1411,47 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "paused": not RESUME_EVENT.is_set(),
                 "pending": db_count_pending(),
+                "failed": db_count_failed(),
                 "current": cur})
         if route == "/jobs":
-            limit = (q.get("limit") or [str(HISTORY_DEFAULT)])[0]
+            raw = (q.get("limit") or [str(HISTORY_DEFAULT)])[0]
+            if str(raw).lower() in ("all", "0"):
+                limit = 1000000
+            else:
+                try:
+                    limit = max(1, min(1000000, int(raw)))
+                except ValueError:
+                    limit = HISTORY_DEFAULT
             return self._send(200, {"ok": True, "jobs": db_list(limit)})
+        if route == "/share":
+            local = self._is_local()
+            return self._send(200, {
+                "ok": True,
+                "sharing": sharing_enabled(),
+                "host": CFG["host"], "port": CFG["port"],
+                "lan_ip": get_lan_ip(),
+                "address": share_address(),
+                "token": CFG["token"] if local else "****",
+                "connect_code": connect_code() if local else "",
+                "peers": SETTINGS.get("peers") or [],
+                "auto_retry": bool(SETTINGS.get("auto_retry")),
+                "retry_max": SETTINGS.get("retry_max"),
+                "retry_interval": SETTINGS.get("retry_interval"),
+                "forward_on_fail": bool(SETTINGS.get("forward_on_fail")),
+                "retention_days": SETTINGS.get("retention_days"),
+                "config_file": config_path(),
+                "brand": BRAND_LINE,
+                "hint": "POST {\"enabled\": true} to share on the LAN;"
+                        " other PCs connect with the connect code"
+                        " (Options > Sharing)",
+            })
         if route == "/testprint":
             kind = (q.get("kind") or ["a4"])[0]
             if kind not in ("a4", "thermal"):
                 kind = "a4"
             if kind == "thermal":
                 data, _ = thermal_pdf_bytes(
-                    "#big PrintHub Pro\n|center|Bitdream IT - TEST RECEIPT\n"
+                    "#big PrintHub Pro\n|center|Bit Dream IT - TEST RECEIPT\n"
                     "--------------------------------\n"
                     "Item 1              10.00\nItem 2              25.50\n"
                     "--------------------------------\n"
@@ -1201,14 +1508,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(401, {"ok": False,
                                     "error": "invalid or missing token"})
 
-        # POST /jobs/clear  (v1.6.0: wipe the job history - files stay on
-        # disk, the popup and Options 'Clear' buttons call this)
-        if route == "/jobs/clear":
-            with _DB_LOCK, db() as conn:
-                n = conn.execute("DELETE FROM jobs").rowcount
-            log("[HISTORY] cleared %d job(s) by request" % n)
-            return self._send(200, {"ok": True, "cleared": n})
-
         # POST /jobs/{id}/reprint
         if route.startswith("/jobs/") and route.endswith("/reprint"):
             jid = route.strip("/").split("/")[1]
@@ -1227,8 +1526,7 @@ class Handler(BaseHTTPRequestHandler):
                 rpt_printer = ""
             job_id = enqueue_print(j["kind"], (j["title"] or "reprint") + "-reprint",
                                    data, rpt_printer, j["copies"] or 1,
-                                   "api", self.client_address[0],
-                                   fit=j.get("fit") or "")
+                                   "api", self.client_address[0])
             return self._send(200, {"ok": True, "job_id": job_id,
                                     "reprint_of": j["id"]})
 
@@ -1248,6 +1546,39 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "canceled": j["id"],
                                     "was_printing": killed == j["id"]})
 
+        # POST /jobs/{id}/retry  (failed | forwarded | canceled -> queued)
+        if route.startswith("/jobs/") and route.endswith("/retry"):
+            jid = route.strip("/").split("/")[1]
+            j = db_get(int(jid) if jid.isdigit() else 0)
+            if not j:
+                return self._send(404, {"ok": False, "error": "job not found"})
+            if j["status"] not in ("failed", "forwarded", "canceled"):
+                return self._send(409, {"ok": False,
+                    "error": "only failed/forwarded/canceled jobs can be"
+                             " retried (this one is %s)" % j["status"]})
+            if not (j.get("file_path") and os.path.exists(j["file_path"])):
+                return self._send(410, {"ok": False,
+                                        "error": "original file no longer stored"})
+            db_update(j["id"], status="queued", attempts=0,
+                      next_retry_at=None, error=None, forwarded_to=None)
+            wake_worker()
+            log("[RETRY] job #%d requeued by request" % j["id"])
+            return self._send(200, {"ok": True, "job_id": j["id"],
+                                    "status": "queued",
+                                    "message": "job requeued - the worker picks it up now"})
+
+        # POST /jobs/clear  {"scope": "failed"|"completed"|"all"}
+        if route == "/jobs/clear":
+            scope = str(body.get("scope")
+                        or (q.get("scope") or ["failed"])[0] or "failed").lower()
+            if scope == "all":
+                cancel_current_print()
+            n, files = db_clear_jobs(scope)
+            log("[JOBS] cleared scope=%s: %d row(s), %d file(s)"
+                % (scope, n, files))
+            return self._send(200, {"ok": True, "scope": scope,
+                                    "deleted": n, "files": files})
+
         # POST /queue/pause | /queue/resume | /queue/clear
         if route in ("/queue/pause", "/queue/resume", "/queue/clear"):
             if route == "/queue/pause":
@@ -1255,7 +1586,6 @@ class Handler(BaseHTTPRequestHandler):
                 log("[QUEUE] paused by request")
             elif route == "/queue/resume":
                 RESUME_EVENT.set()
-                WAKE_EVENT.set()      # v1.6.0: wake the worker right away
                 log("[QUEUE] resumed by request")
             else:
                 n = 0
@@ -1267,6 +1597,87 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"ok": True, "canceled": n})
             return self._send(200, {"ok": True,
                                     "paused": not RESUME_EVENT.is_set()})
+
+        # POST /share (alias /config) - v1.7.0 easy network sharing:
+        #   {"enabled": true}         -> listen on 0.0.0.0 (token ensured)
+        #   {"enabled": false}        -> back to localhost only
+        #   {"host": "192.168.1.10"}  -> bind a specific LAN IP
+        #   {"port": 9235}            -> change port
+        #   {"token": "..."} / {"regenerate_token": true}
+        #   {"peers": ["http://192.168.1.20:9235|TOKEN2"]}  -> failover targets
+        #   {"auto_retry": true, "retry_max": 3, "retry_interval": 60,
+        #    "forward_on_fail": true, "retention_days": 7}
+        # Changing host/port re-binds the HTTP server live (no restart).
+        if route in ("/share", "/config"):
+            rebind = False
+            if "enabled" in body:
+                if body["enabled"]:
+                    CFG["host"] = "0.0.0.0"
+                    if not CFG["token"]:
+                        CFG["token"] = generate_token()
+                else:
+                    CFG["host"] = "127.0.0.1"
+                rebind = True
+            if isinstance(body.get("host"), str) and body["host"].strip():
+                CFG["host"] = body["host"].strip()
+                if not is_loopback_host(CFG["host"]) and not CFG["token"]:
+                    CFG["token"] = generate_token()
+                rebind = True
+            if isinstance(body.get("port"), int) and 0 < body["port"] < 65536 \
+                    and body["port"] != CFG["port"]:
+                CFG["port"] = body["port"]
+                rebind = True
+            if body.get("regenerate_token"):
+                CFG["token"] = generate_token()
+            if isinstance(body.get("token"), str) and body["token"].strip():
+                CFG["token"] = body["token"].strip()
+            for k in ("auto_retry", "forward_on_fail"):
+                if k in body:
+                    SETTINGS[k] = bool(body[k])
+            if "retry_max" in body:
+                try:
+                    SETTINGS["retry_max"] = max(1, min(20, int(body["retry_max"])))
+                except (TypeError, ValueError):
+                    pass
+            if "retry_interval" in body:
+                try:
+                    SETTINGS["retry_interval"] = max(5, min(3600, int(body["retry_interval"])))
+                except (TypeError, ValueError):
+                    pass
+            if "retention_days" in body:
+                try:
+                    SETTINGS["retention_days"] = max(1, min(365, int(body["retention_days"])))
+                except (TypeError, ValueError):
+                    pass
+            if "peers" in body and isinstance(body["peers"], list):
+                peers = [normalize_peer(p) for p in body["peers"]]
+                SETTINGS["peers"] = [p for p in peers if p and p["url"]]
+            save_settings()
+            wake_worker()
+            if rebind:
+                _rebind_server()
+                time.sleep(0.3)      # give the new listener a moment
+            sharing = sharing_enabled()
+            log("[SHARE] %s on %s:%d (peers: %d)"
+                % ("ON" if sharing else "OFF", CFG["host"], CFG["port"],
+                   len(SETTINGS.get("peers") or [])))
+            return self._send(200, {
+                "ok": True,
+                "sharing": sharing,
+                "host": CFG["host"], "port": CFG["port"],
+                "address": share_address(),
+                "lan_ip": get_lan_ip(),
+                "token": CFG["token"] if self._is_local() else "****",
+                "connect_code": connect_code() if self._is_local() else "",
+                "peers": SETTINGS.get("peers") or [],
+                "auto_retry": bool(SETTINGS.get("auto_retry")),
+                "retry_max": SETTINGS.get("retry_max"),
+                "retry_interval": SETTINGS.get("retry_interval"),
+                "forward_on_fail": bool(SETTINGS.get("forward_on_fail")),
+                "message": ("sharing ON - other PCs connect to %s with the"
+                            " connect code" % share_address()) if sharing
+                           else "sharing OFF - this hub answers on localhost only",
+            })
 
         # POST /autostart  {"enabled": true|false}
         if route == "/autostart":
@@ -1298,10 +1709,9 @@ class Handler(BaseHTTPRequestHandler):
                 copies = max(1, min(int(copies), 50))
             except (TypeError, ValueError):
                 copies = 1
-            # v1.6.0: page scaling - 'noscale' | 'shrinkfit' | 'fit'
-            # ('' = per-kind default: thermal noscale, A4 shrinkfit)
-            fit = str(bget("fit") or "").lower()
-            if fit not in ("", "noscale", "shrinkfit", "fit"):
+            # v1.7.0 fit: "" (auto by kind) | fit | noscale | shrink
+            fit = str(bget("fit") or "").strip().lower()
+            if fit not in ("fit", "noscale", "shrink"):
                 fit = ""
             # destination: "printer" (default) | "file" (save as PDF, no paper)
             # printer value "__file__" is the extension's alias for destination file
@@ -1412,41 +1822,91 @@ BANNER = r"""
  |  __/| | (_| | | | | |  __/  __/| |  | | (_| | | | | (_|  __/
  |_|   |_|\__,_|_| |_|_|\___|_|   |_|  |_|\__,_|_| |_|\___\___|
             v%s  by %s  -  open source (MIT)
-   %s
-   %s
-""" % (VERSION, VENDOR, BRAND, BRAND_URL)
+""" % (VERSION, VENDOR)
 
 def cmd_serve():
+    load_settings()
+    if sharing_enabled() and not CFG["token"]:
+        CFG["token"] = generate_token()
+        save_settings()
     db_init()
     start_worker()
-    threading.Thread(target=_cleanup_loop, daemon=True,
-                     name="printhub-cleanup").start()
-    threading.Thread(target=cleanup_old_job_files, daemon=True,
-                     name="printhub-cleanup-start").start()
-    addr = (CFG["host"], CFG["port"])
-    try:
-        httpd = ThreadingHTTPServer(addr, Handler)
-    except OSError as e:
-        # second instance guard: hub already running? do not scare the user
-        log("FATAL: cannot bind %s:%d (%s)" % (CFG["host"], CFG["port"], e))
-        log("PrintHub Pro is probably ALREADY running (check the tray icon"
-            " near the clock, or Task Manager -> 'PrintHubPro'). Exiting.")
-        time.sleep(1.2)
-        return
-    httpd.daemon_threads = True
+    start_housekeeping()
     print(BANNER)
-    log("PrintHub Pro v%s listening on http://%s:%d" % (VERSION, CFG["host"], CFG["port"]))
-    log("Health check -> http://127.0.0.1:%d/health   (token: %s)"
-        % (CFG["port"], CFG["token"]))
-    log("Open the extension popup and click Connect. Press Ctrl+C to stop.")
-    _start_tray(httpd)
+    t = threading.Thread(target=_server_loop, daemon=True,
+                         name="printhub-http")
+    t.start()
+    _start_tray()
     try:
-        httpd.serve_forever()
+        while t.is_alive():
+            time.sleep(0.5)
     except KeyboardInterrupt:
         log("stopped by user (Ctrl+C)")
 
+# v1.7.0: the listener runs in its own loop thread so POST /share and the
+# tray menu can re-bind to a new host/port LIVE (stop old server -> new
+# ThreadingHTTPServer) without killing the process or losing the queue.
+STOP_EVENT = threading.Event()
+REBIND_EVENT = threading.Event()
+_HTTPD = None
 
-def _start_tray(httpd):
+def _rebind_server():
+    """Ask the server loop to close the current listener and open a new
+    one with the current CFG host/port."""
+    REBIND_EVENT.set()
+    srv = _HTTPD
+    if srv:
+        try:
+            threading.Thread(target=srv.shutdown, daemon=True).start()
+        except Exception:
+            pass
+
+def _server_loop():
+    global _HTTPD
+    while not STOP_EVENT.is_set():
+        try:
+            srv = ThreadingHTTPServer((CFG["host"], CFG["port"]), Handler)
+        except OSError as e:
+            log("FATAL: cannot bind %s:%d (%s)"
+                % (CFG["host"], CFG["port"], e))
+            if sharing_enabled():
+                log("Sharing is ON (%s). The port may be in use, or another"
+                    " PrintHub instance is running - check the tray icon."
+                    " Fix config.json or the extension Options > Sharing."
+                    % CFG["host"])
+            else:
+                log("PrintHub Pro is probably ALREADY running (check the"
+                    " tray icon near the clock, or Task Manager ->"
+                    " 'PrintHubPro'). Exiting.")
+            time.sleep(1.2)
+            return
+        srv.daemon_threads = True
+        _HTTPD = srv
+        REBIND_EVENT.clear()
+        log("PrintHub Pro v%s listening on http://%s:%d  (%s)"
+            % (VERSION, CFG["host"], CFG["port"],
+               "SHARED on the LAN - token required"
+               if sharing_enabled() else "localhost only"))
+        if sharing_enabled():
+            log("[SHARE] other PCs connect with:  %s" % connect_code())
+        try:
+            srv.serve_forever(poll_interval=0.5)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            try:
+                srv.server_close()
+            except Exception:
+                pass
+        _HTTPD = None
+        if REBIND_EVENT.is_set() and not STOP_EVENT.is_set():
+            log("[SHARE] re-binding to %s:%d ..." % (CFG["host"], CFG["port"]))
+            time.sleep(0.2)
+            continue
+        break
+
+
+def _start_tray():
     """Windows tray icon ('PrintHub Pro' next to the clock) with a control
     menu. 100% optional: any failure just means no tray icon."""
     if not IS_WIN:
@@ -1483,16 +1943,43 @@ def _start_tray(httpd):
 
     def _exit():
         log("PrintHub Pro stopped from the tray icon menu")
+        STOP_EVENT.set()
         threading.Timer(0.5, os._exit, args=(0,)).start()
+        _rebind_server()          # breaks the serve_forever loop
+
+    def _share_toggle():
+        if sharing_enabled():
+            CFG["host"] = "127.0.0.1"
+            save_settings()
+            _rebind_server()
+            log("[SHARE] disabled via tray menu - localhost only")
+            return False
+        CFG["host"] = "0.0.0.0"
+        if not CFG["token"]:
+            CFG["token"] = generate_token()
+        save_settings()
+        _rebind_server()
+        log("[SHARE] enabled via tray menu - %s (token: %s)"
+            % (share_address(), CFG["token"]))
+        return True
+
+    def _copy_share():
+        code = connect_code()
         try:
-            threading.Thread(target=httpd.shutdown, daemon=True).start()
-        except Exception:
-            pass
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Set-Clipboard -Value '%s'" % code.replace("'", "''")],
+                creationflags=HIDE, timeout=10,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log("[SHARE] connect code copied to clipboard: %s" % code)
+        except Exception as e:
+            log("[SHARE] clipboard failed (%s) - connect code: %s" % (e, code))
 
     tray_windows.start(
         icon=hub_icon_path(),
-        tooltip="PrintHub Pro v%s - running on http://127.0.0.1:%d"
-                % (VERSION, CFG["port"]),
+        tooltip="PrintHub Pro v%s - running on http://%s:%d"
+                % (VERSION, CFG["host"] if not sharing_enabled()
+                   else get_lan_ip(), CFG["port"]),
         callbacks={
             "on_open": _open_status,
             "on_test": _test,
@@ -1500,6 +1987,9 @@ def _start_tray(httpd):
             "on_pause_toggle": _pause_toggle,
             "is_autostart": autostart_enabled,
             "on_autostart_toggle": _auto_toggle,
+            "is_shared": sharing_enabled,
+            "on_share_toggle": _share_toggle,
+            "on_copy_share": _copy_share,
             "on_exit": _exit,
         },
         logf=log)
@@ -1509,7 +1999,7 @@ def cmd_testprint(kind):
     kind = kind if kind in ("a4", "thermal") else "a4"
     if kind == "thermal":
         data, _ = thermal_pdf_bytes(
-            "#big PrintHub Pro\n|center|Bitdream IT - TEST RECEIPT\n"
+            "#big PrintHub Pro\n|center|Bit Dream IT - TEST RECEIPT\n"
             "--------------------------------\n"
             "Item 1              10.00\nItem 2              25.50\n"
             "--------------------------------\nTOTAL               35.50\n"
@@ -1558,11 +2048,43 @@ def cmd_queue():
     with _CURRENT_LOCK:
         if _CURRENT["id"]:
             cur = db_get(_CURRENT["id"])
-    print("Queue: %s | pending: %d" % ("PAUSED" if paused else "running",
-                                       db_count_pending()))
+    print("Queue: %s | pending: %d | failed: %d"
+          % ("PAUSED" if paused else "running", db_count_pending(),
+             db_count_failed()))
     if cur:
         print("Current: job #%d %s -> %s" % (cur["id"], cur["title"],
                                              cur["printer"] or "default"))
+
+def cmd_share(arg=""):
+    """CLI for easy network sharing:  python printhub.py share [on|off|status]"""
+    load_settings()
+    a = (arg or "status").lower()
+    if a in ("on", "share", "enable", "true", "1"):
+        CFG["host"] = "0.0.0.0"
+        if not CFG["token"]:
+            CFG["token"] = generate_token()
+        save_settings()
+        print("Sharing ON  - the hub will listen on 0.0.0.0:%d (all network" % CFG["port"])
+        print("  adapters, reachable as %s)" % share_address())
+        print()
+        print("  CONNECT CODE for the extension on other PCs:")
+        print("    %s" % connect_code())
+        print()
+        print("  On each other PC: open the extension Options > Sharing >")
+        print("  paste the code > Use. The token protects the hub - share it")
+        print("  only with people who may print. Restart the hub to apply.")
+    elif a in ("off", "local", "disable", "false", "0"):
+        CFG["host"] = "127.0.0.1"
+        save_settings()
+        print("Sharing OFF - localhost only (http://127.0.0.1:%d)."
+              " Restart the hub to apply." % CFG["port"])
+    else:
+        print("Sharing: %s" % ("ON  - %s" % share_address()
+                                if sharing_enabled() else "OFF (localhost only)"))
+        print("  connect code: %s" % connect_code())
+        print("  peers (failover): %s" % (", ".join(
+            p["url"] for p in SETTINGS.get("peers") or []) or "none"))
+        print("usage: python printhub.py share [on|off]")
 
 def cmd_doctor():
     print(BANNER)
@@ -1615,24 +2137,29 @@ def cmd_help():
   printers                  List installed printers
   history [n]               Show last n print jobs (default 100)
   reprint <job_id>          Print a previous job again
-  queue                     Show queue status (paused / pending / current)
+  queue                     Show queue status (paused / pending / failed)
+  share [on|off]            Share the hub on the LAN / go localhost-only
   doctor                    Check everything and report [OK]/[!!]
   help                      This help
 
-Options (environment variables):
+Settings live in %s (host, port, token, retry, peers).
+The extension Options > Sharing page edits the same file via /share.
+
+Environment overrides (win over config.json):
   PRINTHUB_TOKEN    API token   (default PrintHub-2024)
   PRINTHUB_PORT     HTTP port   (default 9235)
-  PRINTHUB_HOST     Bind addr   (default 127.0.0.1 = this PC only)
+  PRINTHUB_HOST     Bind addr   (default 127.0.0.1 = this PC only;
+                                0.0.0.0 = share with the whole LAN)
   PRINTHUB_PRINTER  Force printer name (default: OS default)
   PRINTHUB_FILE_DIR Where "destination:file" PDFs are saved
                     (default ~/Downloads/PrintHub)
   PRINTHUB_DATA     Data folder (default ~/.printhub)
-  PRINTHUB_KEEP_DAYS  Auto-delete stored job PDFs older than N days
-                    (default 14, set 0 to keep everything forever)
 
-Chrome extension: see extension/ folder - load it unpacked in Chrome,
-then click the PrintHub icon and press Connect.
-""" % CFG["port"])
+Network sharing (v1.7.0): share ON makes this PC the print server for
+the office - every other PC just installs the extension and pastes the
+connect code. Failed jobs auto-retry, stay in the queue list, and can
+fail over to peer hubs. Token always required.
+""" % (CFG["port"], config_path()))
 
 def main():
     args = sys.argv[1:]
@@ -1653,6 +2180,8 @@ def main():
             cmd_reprint(args[1])
         elif cmd == "queue":
             cmd_queue()
+        elif cmd == "share":
+            cmd_share(args[1] if len(args) > 1 else "status")
         elif cmd == "doctor":
             cmd_doctor()
         elif cmd in ("help", "--help", "-h"):

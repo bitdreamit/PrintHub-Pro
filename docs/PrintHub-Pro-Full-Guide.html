@@ -161,7 +161,7 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
     Linux or macOS, connect the Chrome extension, print any PDF or web page silently,
     and fix every common problem. Everything stays on your computer&nbsp;— no cloud, no accounts.</div>
   <div class="meta">
-    <span class="chip">VERSION 1.6.0</span>
+    <span class="chip">VERSION 1.5.0</span>
     <span class="chip">WINDOWS</span>
     <span class="chip">LINUX</span>
     <span class="chip">MACOS</span>
@@ -366,7 +366,7 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
     <thead><tr><th style="width:31%">Field</th><th>Healthy value</th><th>If it is wrong</th></tr></thead>
     <tbody>
       <tr><td><code>"ok"</code></td><td><code>true</code>&nbsp;— hub is alive</td><td>Hub not running: restart with the installer or BAT file</td></tr>
-      <tr><td><code>"version"</code></td><td><code>1.6.0</code></td><td>Old version&nbsp;— reinstall with the new package</td></tr>
+      <tr><td><code>"version"</code></td><td><code>1.4.0</code></td><td>Old version&nbsp;— reinstall with the new package</td></tr>
       <tr><td><code>"default_printer"</code></td><td>Your printer name</td><td><code>null</code>&nbsp;— set a default printer (fix #4)</td></tr>
       <tr><td><code>"sumatra_found"</code></td><td><code>true</code> on Windows</td><td><code>false</code>&nbsp;— install SumatraPDF (fix #3)</td></tr>
       <tr><td><code>"paused"</code></td><td><code>false</code></td><td><code>true</code>&nbsp;— press Pause/Resume in the popup</td></tr>
@@ -442,17 +442,10 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
       <tr><td><b>Behavior</b></td>
         <td><b>Print every PDF opened in the browser (simple mode)</b>&nbsp;— keep ON for the
         zero-click promise. "Open the URL in a new tab" vs "stay silent" controls what happens
-        with failed or non-PDF links. <b>Close tab after auto-print</b> is <b>OFF by default
-        since v1.6.0</b>&nbsp;— printed tabs stay open so you can see what was printed; turn it
-        back on for the zero-view workflow.</td></tr>
-      <tr><td><b>Auto-print sites (block / unblock)</b>
-        <td>Sites listed here never print automatically (rules + simple mode skip them);
-        explicit printing still works. Fast toggle: the popup button <b>"Auto-print here"</b>
-        or the right-click menu. Use <code>*</code> to pause auto-printing everywhere.</td></tr>
+        with failed or non-PDF links. Auto-close tabs keeps the browser clean.</td></tr>
       <tr><td><b>Job history (last 100)</b></td>
         <td>Every job with time, printer, status and a <b>Reprint</b> button. History lives on
-        your disk, not in the cloud. The <b>Clear</b> button (popup, or Options → "Clear hub
-        history") wipes it anytime; stored PDF files auto-delete after 14 days.</td></tr>
+        your disk, not in the cloud.</td></tr>
       <tr><td><b>Developer API</b></td>
         <td>Lets other pages or your own tools call <code>window.printhub.print()</code>
         directly. Safe to ignore if you only use the browser.</td></tr>
@@ -544,29 +537,6 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
 
 </div>
 
-  <!-- WHAT'S NEW IN 1.6.0 -->
-  <div class="chap">
-    <span class="tag">Appendix</span>
-    <h2>What's New in v1.6.0</h2>
-    <p class="lead">Faster, lighter, and easier to control&nbsp;— by AdvMedi, Bit Dream IT.</p>
-    <div class="divider"></div>
-  </div>
-  <div class="grid2">
-    <div class="card"><div class="ct">Auto-print here&nbsp;— one click</div>
-      <p>New popup button and right-click item switch automatic printing for the current
-      site ON or OFF instantly. The full block list lives in Options&nbsp;— blocked sites
-      never auto-print, but your print buttons always work.</p></div>
-    <div class="card"><div class="ct">Faster pipeline, less memory</div>
-      <p>PDFs travel to the hub as raw bytes (no base64), the hub responds instantly,
-      printer lists are cached, and the queue starts printing the moment a job arrives.</p></div>
-    <div class="card"><div class="ct">Close tab&nbsp;— now OFF by default</div>
-      <p>Auto-printed tabs stay open so you can see what was printed. Prefer the old
-      zero-view behaviour? Tick <b>Close tab after auto-print</b> in Options → Behavior.</p></div>
-    <div class="card"><div class="ct">History Clear + tidy disk</div>
-      <p>Clear the job history from the popup or Options anytime, and stored report files
-      clean themselves up after 14 days (adjustable via PRINTHUB_KEEP_DAYS).</p></div>
-  </div>
-
 <!-- ================= ENDING ================= -->
 <div class="ending">
   <div class="deco d1"></div><div class="deco d2"></div>
@@ -579,7 +549,7 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
     <div class="stat"><div class="sv">0</div><div class="sl">Data Sent Online</div></div>
     <div class="stat"><div class="sv">1×</div><div class="sl">One-Time Setup</div></div>
   </div>
-  <div class="bye">AdvMedi by Bit Dream IT &middot; www.bitdreamit.com &middot; Manual for version 1.6.0 &middot; MIT License</div>
+  <div class="bye">Bitdream IT &middot; Manual for version 1.5.0 &middot; MIT License</div>
 </div>
 </body>
 </html>

@@ -1,6 +1,13 @@
-/* PrintHub Pro - popup logic */
+/* PrintHub Pro v1.7.0 - popup logic */
 const $ = (id) => document.getElementById(id);
 let paused = false;
+let curTabUrl = "";
+
+function siteLabel(blocked) {
+  return blocked
+    ? "Auto-print on this site: BLOCKED (click to allow)"
+    : "Auto-print on this site: ON (click to block)";
+}
 
 function msg(text, cls) {
   const el = $("msg");
@@ -43,7 +50,7 @@ async function refresh() {
       const t = document.createElement("span");
       t.className = "t";
       t.textContent = j.title || ("job #" + j.id);
-      t.title = j.title || "";
+      t.title = (j.title || "") + (j.error ? " - " + j.error : "");
       const s = document.createElement("span");
       s.className = "st " + j.status;
       s.textContent = j.status;
@@ -57,6 +64,32 @@ async function refresh() {
     box.innerHTML = '<div class="empty">No jobs yet - print something!</div>';
   }
 }
+
+/* ---- site auto-print block/unblock (v1.7.0) ---- */
+chrome.tabs.query({ active: true, currentWindow: true }, ([t]) => {
+  curTabUrl = (t && t.url) || "";
+  const btn = $("bSiteBlock");
+  if (!/^https?:/i.test(curTabUrl)) {
+    btn.disabled = true;
+    btn.textContent = "Auto-print toggle (not available on this page)";
+    return;
+  }
+  send({ type: "siteBlockState", url: curTabUrl }).then((r) => {
+    btn.textContent = siteLabel(r.ok && r.blocked);
+  });
+});
+
+$("bSiteBlock").addEventListener("click", async () => {
+  if (!/^https?:/i.test(curTabUrl)) return;
+  const st = await send({ type: "siteBlockState", url: curTabUrl });
+  const r = await send({ type: "setSiteBlocked", url: curTabUrl,
+                         blocked: !(st.ok && st.blocked) });
+  if (r.ok) {
+    $("bSiteBlock").textContent = siteLabel(r.blocked);
+    msg(r.blocked ? ("Auto-print blocked on " + r.host)
+                  : ("Auto-print allowed again on " + r.host), "info");
+  } else msg("Failed: " + r.error, "err");
+});
 
 $("bPage").addEventListener("click", async () => {
   msg("Sending page to printer...", "info");
@@ -98,76 +131,15 @@ $("bPause").addEventListener("click", async () => {
   if (r.ok) refresh(); else msg("Failed: " + r.error, "err");
 });
 
-/* v1.6.0: one-click auto-print ON/OFF for the site in the active tab */
-async function refreshSiteToggle() {
-  const r = await send({ type: "siteAutoState" });
-  const b = $("bSite");
-  if (!r.ok || !r.host) {
-    b.textContent = "Auto-print here";
-    b.className = "";
-    b.disabled = true;
-    return;
-  }
-  b.disabled = false;
-  b.textContent = r.blocked ? "Auto-print here: OFF" : "Auto-print here: ON";
-  b.className = r.blocked ? "off" : "on";
-}
-
-$("bSite").addEventListener("click", async () => {
-  const r = await send({ type: "toggleSiteAuto" });
-  if (r.ok) {
-    msg(r.blocked
-      ? "Auto-print turned OFF for " + r.host
-      : "Auto-print turned ON for " + r.host, "info");
-    refreshSiteToggle();
-  } else msg("Failed: " + r.error, "err");
-});
-
-/* v1.6.0: clear the hub job history right from the popup */
-$("bClear").addEventListener("click", async () => {
-  const r = await send({ type: "hubJobsClear" });
-  if (r.ok) { msg("History cleared (" + (r.cleared || 0) + " jobs)", "info"); refresh(); }
-  else msg("Failed: " + r.error, "err");
-});
-
-/* v1.6.0: one-click auto-print ON/OFF for the site in the active tab */
-async function refreshSiteToggle() {
-  const r = await send({ type: "siteAutoState" });
-  const b = $("bSite");
-  if (!r.ok || !r.host) {
-    b.textContent = "Auto-print here";
-    b.className = "";
-    b.disabled = true;
-    return;
-  }
-  b.disabled = false;
-  b.textContent = r.blocked ? "Auto-print here: OFF" : "Auto-print here: ON";
-  b.className = r.blocked ? "off" : "on";
-}
-
-$("bSite").addEventListener("click", async () => {
-  const r = await send({ type: "toggleSiteAuto" });
-  if (r.ok) {
-    msg(r.blocked
-      ? "Auto-print turned OFF for " + r.host
-      : "Auto-print turned ON for " + r.host, "info");
-    refreshSiteToggle();
-  } else msg("Failed: " + r.error, "err");
-});
-
-/* v1.6.0: clear the hub job history right from the popup */
-$("bClear").addEventListener("click", async () => {
-  const r = await send({ type: "hubJobsClear" });
-  if (r.ok) { msg("History cleared (" + (r.cleared || 0) + " jobs)", "info"); refresh(); }
-  else msg("Failed: " + r.error, "err");
-});
-
 $("bOpts").addEventListener("click", () => chrome.runtime.openOptionsPage());
 $("lnkApi").addEventListener("click", (e) => {
   e.preventDefault();
   chrome.tabs.create({ url: chrome.runtime.getURL("options.html#api") });
 });
+$("lnkBrand").addEventListener("click", (e) => {
+  e.preventDefault();
+  chrome.tabs.create({ url: "https://www.bitdreamit.com" });
+});
 $("connect").addEventListener("click", (e) => { e.preventDefault(); refresh(); });
 
 refresh();
-refreshSiteToggle();

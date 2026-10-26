@@ -163,3 +163,20 @@ await fetch("http://127.0.0.1:9235/print", {
 ```
 
 Prefer `window.printhub` in normal pages — it never exposes the token in page code.
+
+---
+
+## 6. Universal auto-print for any website (v1.7.0)
+
+`download/PrintHub-Pro-Page-Kit/printhub-auto.js` is a one-tag drop-in for sites you do not control the code of:
+
+```html
+<script src="printhub-auto.js"></script>                      <!-- pdf <a> links print silently -->
+<script src="printhub-auto.js" data-printhub-scan></script>   <!-- + auto-print all pdf links on load -->
+<button data-printhub="https://site/render/42" data-printhub-title="Invoice 42">Print</button>
+```
+
+- Clicks on `a[href$=".pdf"]` are intercepted and sent via `printPdfLink(url, title, {fallback:false})`; **without the extension the link behaves exactly as before** (fail-safe).
+- `data-printhub-skip` excludes one link; `data-printhub-selector="a.report"` restricts interception to matches.
+- Manual API: `printhubAuto.print(url, title)` (Promise), `printhubAuto.printLink(el)`, `printhubAuto.scanNow()`.
+- 15/15 behaviour tests: `node scripts/test_printhub_auto.js`; interactive demo: `printhub-auto-demo.html`.

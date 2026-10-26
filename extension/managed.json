@@ -33,11 +33,11 @@
     },
     "closeAfterPrint": {
       "type": "boolean",
-      "description": "Close the tab automatically after a rule auto-prints its URL (no browser view). Default: false since v1.6.0."
+      "description": "Close the tab automatically after a rule auto-prints its URL (no browser view). Default OFF since v1.7.0 - tabs stay open unless enabled."
     },
     "blockedSites": {
       "type": "array",
-      "description": "Host globs where AUTOMATIC printing is off (auto rules + simple mode). Explicit prints still work. Examples: example.com, *.example.com, * (all sites).",
+      "description": "Hosts where auto-print (rules + print-every-PDF) is switched off. One host per entry, subdomains included.",
       "items": {
         "type": "string"
       }

@@ -152,3 +152,56 @@ python hub/printhub.py doctor         # environment self-check
 ## Browser fallback form
 
 Strict CSP environments can POST `application/x-www-form-urlencoded` with a single field `payload` containing the JSON — same endpoints, same responses.
+
+---
+
+## v1.7.0 — Sharing, queue retry & failover
+
+### GET /share *(token required)*
+
+Current sharing state. The full token/connect code is only returned to **loopback** callers; remote callers see `****`.
+
+```json
+{ "ok": true, "sharing": false, "host": "127.0.0.1", "port": 9235,
+  "lan_ip": "192.168.1.20", "address": "http://192.168.1.20:9235",
+  "token": "PrintHub-2024", "connect_code": "http://192.168.1.20:9235|PrintHub-2024",
+  "peers": [], "auto_retry": true, "retry_max": 3, "retry_interval": 60,
+  "forward_on_fail": true, "retention_days": 7,
+  "config_file": "~/.printhub/config.json" }
+```
+
+### POST /share (alias `POST /config`)
+
+One call to enable/disable LAN sharing and tune the queue. Changing `host`/`port` **re-binds the HTTP server live** — no restart, queue and history untouched.
+
+| body field | effect |
+|---|---|
+| `{"enabled": true}` | bind `0.0.0.0` (all LAN adapters); auto-generates a random token if none is set |
+| `{"enabled": false}` | back to localhost-only |
+| `{"host": "192.168.1.20"}` | bind that specific IP instead |
+| `{"port": 9235}` | change port |
+| `{"token": "..."}` / `{"regenerate_token": true}` | set / rotate the token |
+| `{"peers": ["http://192.168.1.30:9235|TOKEN2"]}` | failover targets (first accepting peer wins) |
+| `{"auto_retry": true, "retry_max": 3, "retry_interval": 60}` | queue retry policy (delay grows per attempt) |
+| `{"forward_on_fail": true}` | hand the PDF to a peer hub after the final local failure |
+| `{"retention_days": 7}` | delete finished job PDF files older than N days (history rows stay) |
+
+The response always includes the fresh `connect_code` to paste into other PCs' extensions (`http://192.168.x.x:9235|TOKEN`).
+
+**Security:** the token is ALWAYS required. Non-loopback callers get `token: "****"` and an empty `connect_code`.
+
+### POST /jobs/{id}/retry
+
+Requeue a `failed`, `forwarded` or `canceled` job whose file still exists. Returns `{"ok": true, "status": "queued"}`. `409` for finished jobs, `410` when the stored file was cleaned up.
+
+### POST /jobs/clear  `{"scope": "failed" | "completed" | "all"}`
+
+Delete history rows **and** their stored PDF files. `completed` = printed + saved + canceled + forwarded. `all` also cancels any printing/queued jobs. Returns `{"ok": true, "scope": "...", "deleted": n, "files": m}`.
+
+### `fit` print parameter
+
+`POST /print` accepts `fit` (also via query string on raw uploads): `""` auto by kind, `"fit"` always scale to page, `"noscale"` 1:1, `"shrink"` only shrink oversized pages (SumatraPDF `shrinkfit`). The value is stored per job and honored on every attempt/retry.
+
+### Failover forwarding
+
+After the final local failure (auto-retry exhausted) the worker POSTs the stored PDF to each configured peer (`POST peer/print?title=...&source=peer` with `X-PrintHub-Token` of the peer). First `{"ok": true}` wins: the local job becomes `forwarded` with `forwarded_to` set; the peer records a normal job with `source: "peer"`. Jobs arriving from peers are **never re-forwarded** (loop protection).

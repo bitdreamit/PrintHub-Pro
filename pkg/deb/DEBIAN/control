@@ -1,14 +1,16 @@
 Package: printhub-pro
-Version: 1.6.0
+Version: 1.7.0
 Section: utils
 Priority: optional
 Architecture: all
 Depends: python3
 Recommends: cups-client, curl
 Suggests: chromium | google-chrome-stable | microsoft-edge
-Maintainer: Bitdream IT <bitdreamit@localhost>
+Maintainer: Bit Dream IT (AdvMedi) <bitdreamit@localhost>
 Installed-Size: 300
-Description: PrintHub Pro - silent print bridge for browsers and Laravel
+Description: PrintHub Pro (AdvMedi by Bit Dream IT) - silent print hub
+ AdvMedi by Bit Dream IT - Innovative Healthcare Solutions. Silent print
+ bridge for browsers and Laravel with LAN sharing and queue failover.
  Local HTTP hub (127.0.0.1:9235) that silently prints PDFs and web
  pages to the default printer via Chrome headless or CUPS lp.
  Ships a systemd user service (auto-run at login, no root needed)

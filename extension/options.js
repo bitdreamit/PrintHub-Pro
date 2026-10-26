@@ -1,4 +1,4 @@
-/* PrintHub Pro - options page logic */
+/* PrintHub Pro v1.7.0 - options page logic */
 const $ = (id) => document.getElementById(id);
 let PRINTERS = [];
 
@@ -75,43 +75,6 @@ function collect() {
   return rules;
 }
 
-/* ---------- blocked sites table (v1.6.0) ---------- */
-function siteRow(host) {
-  const tr = document.createElement("tr");
-  const td = document.createElement("td");
-  const inP = document.createElement("input");
-  inP.type = "text";
-  inP.value = host || "";
-  inP.placeholder = "example.com  or  *.example.com";
-  inP.addEventListener("change", collect);
-  td.appendChild(inP);
-  const tdX = document.createElement("td");
-  const bx = document.createElement("button");
-  bx.className = "mini danger";
-  bx.textContent = "Unblock";
-  bx.title = "Remove from the block list (auto-print works again)";
-  bx.addEventListener("click", () => { tr.remove(); collect(); });
-  tdX.appendChild(bx);
-  tr.append(td, tdX);
-  return tr;
-}
-
-function renderSites(list) {
-  const body = $("sitesBody");
-  body.innerHTML = "";
-  (list || []).forEach((h) => body.appendChild(siteRow(h)));
-}
-
-function collectSites() {
-  const out = [];
-  $("sitesBody").querySelectorAll("input[type=text]").forEach((inp) => {
-    let v = inp.value.trim().toLowerCase()
-      .replace(/^[a-z][a-z0-9+.-]*:\/\//, "").split("/")[0].split(":")[0];
-    if (v && out.indexOf(v) === -1) out.push(v);
-  });
-  return out;
-}
-
 /* ---------- load / save ---------- */
 async function loadPrinters() {
   const r = await send({ type: "hubPrinters" });
@@ -135,14 +98,15 @@ async function loadAll() {
   $("token").value = c.token || "";
   $("autoPrintAllPdfs").checked = c.autoPrintAllPdfs !== false;
   $("hookPrint").checked = !!c.hookPrint;
-  $("closeAfterPrint").checked = !!c.closeAfterPrint;   // v1.6.0: OFF by default
+  $("closeAfterPrint").checked = c.closeAfterPrint === true;   // v1.7.0: default OFF
   $("failFallback").value = c.failFallback === "none" ? "none" : "tab";
   $("contextMenu").checked = !!c.contextMenu;
   $("badge").checked = !!c.badge;
-  renderSites(c.blockedSites || []);
+  $("blockedSites").value = (c.blockedSites || []).join("\n");
   await loadPrinters();
   $("defaultPrinter").value = c.defaultPrinter || "";
   testHub(false);
+  loadShare();
 }
 
 async function saveAll() {
@@ -158,7 +122,8 @@ async function saveAll() {
       failFallback: $("failFallback").value,
       contextMenu: $("contextMenu").checked,
       badge: $("badge").checked,
-      blockedSites: collectSites(),
+      blockedSites: $("blockedSites").value.split(/\n+/)
+        .map((s) => s.trim().toLowerCase()).filter(Boolean),
       rules: collect()
     }
   });
@@ -184,9 +149,46 @@ async function testHub(verbose = true) {
   if (verbose) await loadAll();
 }
 
+/* ---------- sharing (v1.7.0) ---------- */
+async function loadShare() {
+  const r = await send({ type: "hubShare" });
+  const st = $("shareState");
+  if (!r.ok) {
+    st.textContent = "hub offline";
+    st.style.color = "#dc2626";
+    return;
+  }
+  st.textContent = r.sharing ? "SHARED on the LAN" : "Local only (this PC)";
+  st.style.color = r.sharing ? "#16a34a" : "#64748b";
+  $("shareAddr").textContent = r.address || "-";
+  $("shareLan").textContent = r.lan_ip ? ("(LAN IP: " + r.lan_ip + ")") : "";
+  $("connectCode").textContent = r.connect_code || "(enable sharing to get the code)";
+  $("shareToken").value = (r.token && r.token !== "****") ? r.token : "";
+  $("forwardOnFail").checked = !!r.forward_on_fail;
+  $("autoRetry").checked = !!r.auto_retry;
+  $("retryMax").value = (r.retry_max != null) ? r.retry_max : 3;
+  $("retryInt").value = (r.retry_interval != null) ? r.retry_interval : 60;
+  $("peersBox").value = (r.peers || [])
+    .map((p) => p.token ? (p.url + "|" + p.token) : p.url).join("\n");
+}
+
+async function sharePatch(patch, okMsg) {
+  const r = await send({ type: "shareAction", patch });
+  saved(r.ok ? okMsg : "Failed: " + r.error);
+  if (r.ok) {
+    await testHub(false);
+    await loadShare();
+  }
+  return r;
+}
+
+function parsePeers(text) {
+  return text.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+}
+
 /* ---------- jobs ---------- */
 async function loadJobs() {
-  const r = await send({ type: "hubJobs", limit: 100 });
+  const r = await send({ type: "hubJobs", limit: 200 });
   const body = $("jobsBody");
   body.innerHTML = "";
   if (!r.ok) {
@@ -195,10 +197,14 @@ async function loadJobs() {
   }
   for (const j of r.jobs || []) {
     const tr = document.createElement("tr");
+    const status = j.status || "queued";
+    const tip = ((j.error || "") + (j.forwarded_to ? " -> " + j.forwarded_to : ""))
+      .replace(/"/g, "").slice(0, 200);
     tr.innerHTML =
       `<td>${j.id}</td><td class="mono">${(j.created_at || "").replace("T", " ")}</td>` +
       `<td>${(j.title || "-").slice(0, 42)}</td><td>${(j.printer || "default").slice(0, 28)}</td>` +
-      `<td>${j.kind}</td><td><span class="st ${j.status}">${j.status}</span></td>`;
+      `<td>${j.kind}</td><td><span class="st ${status}" title="${tip}">${status}` +
+      (j.attempts > 1 ? " x" + j.attempts : "") + `</span></td>`;
     const tdBtn = document.createElement("td");
     if (j.status === "queued" || j.status === "printing") {
       const bc = document.createElement("button");
@@ -208,6 +214,17 @@ async function loadJobs() {
         loadJobs();
       });
       tdBtn.appendChild(bc);
+    } else if (j.status === "failed" || j.status === "forwarded" ||
+               j.status === "canceled") {
+      const br = document.createElement("button");
+      br.className = "mini"; br.textContent = "Retry";
+      br.title = "Put this job back into the queue";
+      br.addEventListener("click", async () => {
+        const rr = await send({ type: "jobAction", id: j.id, action: "retry" });
+        saved(rr.ok ? "Job #" + j.id + " requeued" : "Failed: " + rr.error);
+        loadJobs();
+      });
+      tdBtn.appendChild(br);
     } else {
       const br = document.createElement("button");
       br.className = "mini"; br.textContent = "Reprint";
@@ -225,18 +242,64 @@ async function loadJobs() {
   }
 }
 
+async function clearJobs(scope, ask) {
+  if (ask && !confirm(ask)) return;
+  const r = await send({ type: "jobsClear", scope });
+  saved(r.ok ? "Cleared " + r.deleted + " job(s)" : "Failed: " + r.error);
+  loadJobs();
+}
+
 /* ---------- wire up ---------- */
 $("bTestHub").addEventListener("click", () => testHub(true));
 $("bReloadPrinters").addEventListener("click", loadPrinters);
 $("bAddRule").addEventListener("click", () => {
   $("rulesBody").appendChild(ruleRow({ pattern: "", printer: "", action: "auto", auto: false }));
 });
-$("bAddSite").addEventListener("click", () => {
-  $("sitesBody").appendChild(siteRow(""));
-  const inputs = $("sitesBody").querySelectorAll("input[type=text]");
-  if (inputs.length) inputs[inputs.length - 1].focus();
-});
 $("bSave").addEventListener("click", saveAll);
+
+/* sharing */
+$("bShareOn").addEventListener("click", () =>
+  sharePatch({ enabled: true }, "Sharing enabled - other PCs use the connect code"));
+$("bShareOff").addEventListener("click", () =>
+  sharePatch({ enabled: false }, "Sharing stopped - hub is localhost-only again"));
+$("bCopyCode").addEventListener("click", async () => {
+  const code = $("connectCode").textContent.trim();
+  if (!code || code.indexOf("|") < 0) return saved("Enable sharing first");
+  try { await navigator.clipboard.writeText(code); saved("Connect code copied"); }
+  catch (_) { saved("Copy failed - select the code manually"); }
+});
+$("bJoin").addEventListener("click", async () => {
+  const code = $("joinCode").value.trim();
+  const i = code.lastIndexOf("|");
+  if (!/^https?:\/\//i.test(code) || i < 0) {
+    return saved("Format: http://192.168.x.x:9235|TOKEN");
+  }
+  const url = code.slice(0, i).replace(/\/+$/, "");
+  const tok = code.slice(i + 1).trim();
+  await send({ type: "saveCfg", patch: { hubUrl: url, token: tok } });
+  saved("Connected to " + url);
+  await testHub(true);
+});
+$("bRegenToken").addEventListener("click", async () => {
+  const r = await send({ type: "shareAction", patch: { regenerate_token: true } });
+  if (r.ok) {
+    // keep the extension's own token in sync with the hub
+    await send({ type: "saveCfg", patch: { token: r.token } });
+    $("token").value = r.token;
+    saved("New token generated - update other PCs!");
+    await testHub(false);
+    await loadShare();
+  } else saved("Failed: " + r.error);
+});
+$("bSaveShare").addEventListener("click", () =>
+  sharePatch({
+    forward_on_fail: $("forwardOnFail").checked,
+    auto_retry: $("autoRetry").checked,
+    retry_max: parseInt($("retryMax").value, 10) || 3,
+    retry_interval: parseInt($("retryInt").value, 10) || 60,
+    peers: parsePeers($("peersBox").value)
+  }, "Queue settings saved"));
+
 $("bTestPage").addEventListener("click", async () => {
   const cfg = await send({ type: "getCfg" });
   if (!cfg.ok) return;
@@ -254,19 +317,25 @@ $("bPrintPdf").addEventListener("click", async () => {
   saved(r.ok ? "Queued as job #" + r.job_id : "Failed: " + r.error);
   loadJobs();
 });
+
+/* jobs */
 $("bReloadJobs").addEventListener("click", loadJobs);
+$("bClearFailed").addEventListener("click", () => clearJobs("failed"));
+$("bClearCompleted").addEventListener("click", () =>
+  clearJobs("completed", "Delete every printed/saved/canceled job from the hub history?"));
+$("bClearAll").addEventListener("click", () =>
+  clearJobs("all", "Delete the WHOLE hub job history (including queued jobs)? This cannot be undone."));
 $("bClearHist").addEventListener("click", async () => {
   await chrome.storage.local.set({ history: [] });
   saved("Extension history copy cleared (hub history untouched)");
 });
-$("bClearHub").addEventListener("click", async () => {
-  const r = await send({ type: "hubJobsClear" });
-  saved(r.ok ? "Hub history cleared (" + (r.cleared || 0) + " jobs)"
-             : "Failed: " + r.error);
-  loadJobs();
-});
+
 ["autoPrintAllPdfs", "hookPrint", "closeAfterPrint", "failFallback", "contextMenu", "badge", "defaultPrinter"].forEach((id) =>
   $(id).addEventListener("change", saveAll));
+
+try {
+  $("aboutVer").textContent = chrome.runtime.getManifest().version;
+} catch (_) {}
 
 loadAll();
 loadJobs();

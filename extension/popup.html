@@ -45,17 +45,12 @@
   .st.saved { background:#fef9c3; color:#854d0e; }
   .st.failed, .st.canceled { background:#fee2e2; color:#991b1b; }
   .empty { color:var(--mut); font-size:12px; padding:10px; text-align:center; }
+  .siterow { padding:8px 14px 0; }
+  .siterow button { width:100%; font-size:11.5px; }
   footer { padding:8px 14px; border-top:1px solid #eef2f7; display:flex;
-           flex-wrap:wrap; justify-content:space-between; align-items:center;
-           font-size:11px; color:var(--mut); }
+           justify-content:space-between; gap:8px; font-size:11px; color:var(--mut);
+           align-items:center; }
   footer a { color:var(--blue); text-decoration:none; font-weight:600; }
-  footer .brandline { width:100%; text-align:center; padding-top:5px; margin-top:5px;
-           border-top:1px dashed #eef2f7; font-size:10px; color:#94a3b8; }
-  footer .brandline a { color:#64748b; font-weight:700; }
-  .rowhead { display:flex; align-items:center; justify-content:space-between; padding-right:14px; }
-  .rowhead button { padding:2px 8px; font-size:10px; border-radius:6px; margin-right:0; }
-  #bSite.on { border-color:var(--ok); color:var(--ok); }
-  #bSite.off { border-color:var(--bad); color:var(--bad); }
   #msg { margin:0 14px 8px; font-size:11px; border-radius:6px; padding:6px 9px; display:none; }
   #msg.err { display:block; background:#fee2e2; color:#991b1b; }
   #msg.info { display:block; background:#dbeafe; color:#1e40af; }
@@ -65,7 +60,7 @@
   <header>
     <div class="logo">P</div>
     <h1>PrintHub Pro</h1>
-    <span class="ver" id="ver">v1.6.0</span>
+    <span class="ver" id="ver">v1.7.0</span>
   </header>
 
   <div class="status">
@@ -80,7 +75,6 @@
     <button id="bFile" title="Save the page as a PDF file - no paper, no dialog">Save as PDF</button>
     <button id="bShot">Print screenshot</button>
     <button id="bTest">Test page</button>
-    <button id="bSite" title="Turn automatic printing ON or OFF for this website">Auto-print here</button>
     <button id="bOpts">Options</button>
   </div>
 
@@ -90,20 +84,17 @@
     <button id="bPause">Pause</button>
   </div>
 
-  <div class="rowhead">
-    <h2>Recent jobs</h2>
-    <button id="bClear" class="mini" title="Clear the hub job history">Clear</button>
+  <div class="siterow">
+    <button id="bSiteBlock" title="Auto-print (rules + print-every-PDF) is switched off on this site">Auto-print on this site: -</button>
   </div>
+
+  <h2>Recent jobs</h2>
   <div id="jobs"><div class="empty">No jobs yet.</div></div>
 
   <footer>
+    <a href="#" id="lnkBrand" title="AdvMedi by Bit Dream IT - Innovative Healthcare Solutions">AdvMedi &middot; Bit Dream IT</a>
     <span>100% local &middot; no cloud</span>
-    <a href="#" id="lnkApi">window.printhub API</a>
-    <div class="brandline">
-      <a href="https://www.bitdreamit.com" target="_blank" rel="noopener">AdvMedi</a>
-      by <a href="https://www.bitdreamit.com" target="_blank" rel="noopener">Bit Dream IT</a>
-      &middot; Innovative Healthcare Solutions
-    </div>
+    <a href="#" id="lnkApi">API</a>
   </footer>
 
   <script src="popup.js"></script>

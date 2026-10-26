@@ -6,7 +6,8 @@ Gives the hub a REAL identity on Windows:
   * a printer-badge icon in the tray area (bottom-right corner)
   * tooltip "PrintHub Pro vX.Y - running on http://127.0.0.1:PORT"
   * right-click menu:  Open status page / Print test page /
-    Pause queue (check) / Start at Windows logon (check) / Exit
+    Pause queue (check) / Share on network (check) /
+    Copy connect code / Start at Windows logon (check) / Exit
   * double-click opens the status (health) page
 
 Everything here is fail-safe: ANY error simply disables the tray and the
@@ -22,6 +23,9 @@ Callbacks (all optional):
     on_pause_toggle()    -> user clicked Pause/Resume; returns new paused state
     is_autostart()->bool -> checkmark when menu is built
     on_autostart_toggle()-> user clicked Start at logon; returns new state
+    is_shared()->bool    -> checkmark for "Share on network (LAN)" (v1.7.0)
+    on_share_toggle()    -> user clicked Share on network; returns new state
+    on_copy_share()      -> user clicked "Copy connect code (for other PCs)"
     on_exit()            -> "Exit"
 """
 
@@ -56,6 +60,7 @@ SW_HIDE = 0
 
 # menu item ids (high word safety: keep < 0x8000)
 M_OPEN, M_TEST, M_PAUSE, M_AUTO, M_EXIT = 1001, 1002, 1003, 1004, 1005
+M_SHARE, M_COPY = 1006, 1007             # v1.7.0 network sharing
 
 # ---- win32 types -----------------------------------------------------
 user32   = ctypes.WinDLL("user32", use_last_error=True)
@@ -228,6 +233,12 @@ class Tray(object):
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
         user32.AppendMenuW(menu, MF_STRING | (MF_CHECKED if paused else 0),
                            M_PAUSE, "Pause queue")
+        shared = bool(self._cb("is_shared"))
+        user32.AppendMenuW(menu,
+                           MF_STRING | (MF_CHECKED if shared else 0),
+                           M_SHARE, "Share on network (LAN)")
+        user32.AppendMenuW(menu, MF_STRING, M_COPY,
+                           "Copy connect code (for other PCs)")
         user32.AppendMenuW(menu, MF_STRING | (MF_CHECKED if auto else 0),
                            M_AUTO, "Start at Windows logon")
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
@@ -251,6 +262,12 @@ class Tray(object):
         elif cmd == M_AUTO:
             new_auto = bool(self._cb("on_autostart_toggle"))
             self._log("autostart %s (tray)" % ("ON" if new_auto else "OFF"))
+        elif cmd == M_SHARE:
+            new_shared = bool(self._cb("on_share_toggle"))
+            self._log("network sharing %s (tray)"
+                      % ("ON" if new_shared else "OFF"))
+        elif cmd == M_COPY:
+            self._cb("on_copy_share")
         elif cmd == M_EXIT:
             self._log("exit requested from tray")
             self.stop()
