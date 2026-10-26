@@ -1,7 +1,34 @@
-/* PrintHub Pro v1.7.1 - popup logic */
+/* PrintHub Pro v1.7.2 - popup logic */
 const $ = (id) => document.getElementById(id);
 let paused = false;
 let curTabUrl = "";
+
+/* ---- v1.7.2 master enable/disable ---- */
+async function reflectEnabled(on) {
+  document.body.classList.toggle("off", !on);
+  $("mstate").textContent = on ? "ON" : "OFF";
+  $("mstate").classList.toggle("off", !on);
+  $("enabledToggle").checked = !!on;
+  ["bPage", "bFile", "bShot", "bTest"].forEach((id) => { $(id).disabled = !on; });
+  if (!on) msg("PrintHub is disabled - silent printing is OFF", "err");
+}
+
+async function loadEnabled() {
+  const cfg = await send({ type: "getCfg" });
+  await reflectEnabled(cfg.ok ? cfg.cfg.enabled !== false : true);
+}
+
+$("enabledToggle").addEventListener("change", async () => {
+  const r = await send({ type: "setEnabled", value: $("enabledToggle").checked });
+  if (r.ok) {
+    await reflectEnabled(r.enabled);
+    msg(r.enabled ? "PrintHub enabled - printing is back ON"
+                  : "PrintHub disabled - nothing will print", "info");
+  } else {
+    msg("Failed: " + r.error, "err");
+    $("enabledToggle").checked = !$("enabledToggle").checked;
+  }
+});
 
 function siteLabel(blocked) {
   return blocked
@@ -31,12 +58,19 @@ async function refresh() {
     $("qstate").textContent = paused ? "PAUSED" : "running";
     $("bPause").textContent = paused ? "Resume" : "Pause";
     $("qpend").textContent = st.pending ? st.pending + " pending" : "";
+    // v1.7.2 queue mode chip
+    const qm = st.queue_mode !== false;
+    $("qmode").textContent = qm ? "(queue mode)" : "(direct mode)";
+    $("qmode").title = qm
+      ? "Queue mode ON - failed jobs stay queued and are retried"
+      : "Queue mode OFF - jobs that cannot print fail immediately (Options > Queue)";
   } else {
     $("dot").classList.remove("on");
     $("stat").textContent = "Hub offline";
     $("connect").textContent = "Connect";
     $("qstate").textContent = "-";
     $("qpend").textContent = "";
+    $("qmode").textContent = "";
     msg("Hub not reachable. Start it:  python printhub.py serve", "err");
   }
 
@@ -143,3 +177,4 @@ $("lnkBrand").addEventListener("click", (e) => {
 $("connect").addEventListener("click", (e) => { e.preventDefault(); refresh(); });
 
 refresh();
+loadEnabled();   // v1.7.2: reflect the master switch on open

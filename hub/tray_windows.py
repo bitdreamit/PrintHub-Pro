@@ -61,6 +61,7 @@ SW_HIDE = 0
 # menu item ids (high word safety: keep < 0x8000)
 M_OPEN, M_TEST, M_PAUSE, M_AUTO, M_EXIT = 1001, 1002, 1003, 1004, 1005
 M_SHARE, M_COPY = 1006, 1007             # v1.7.0 network sharing
+M_QMODE = 1008                           # v1.7.2 queue mode on/off
 
 # ---- win32 types -----------------------------------------------------
 user32   = ctypes.WinDLL("user32", use_last_error=True)
@@ -239,6 +240,10 @@ class Tray(object):
                            M_SHARE, "Share on network (LAN)")
         user32.AppendMenuW(menu, MF_STRING, M_COPY,
                            "Copy connect code (for other PCs)")
+        qmode = bool(self._cb("is_queue_mode"))
+        user32.AppendMenuW(menu,
+                           MF_STRING | (MF_CHECKED if qmode else 0),
+                           M_QMODE, "Queue mode (keep + retry failed jobs)")
         user32.AppendMenuW(menu, MF_STRING | (MF_CHECKED if auto else 0),
                            M_AUTO, "Start at Windows logon")
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
@@ -268,6 +273,10 @@ class Tray(object):
                       % ("ON" if new_shared else "OFF"))
         elif cmd == M_COPY:
             self._cb("on_copy_share")
+        elif cmd == M_QMODE:
+            new_qm = bool(self._cb("on_queue_mode_toggle"))
+            self._log("queue mode %s (tray)"
+                      % ("ON" if new_qm else "OFF"))
         elif cmd == M_EXIT:
             self._log("exit requested from tray")
             self.stop()

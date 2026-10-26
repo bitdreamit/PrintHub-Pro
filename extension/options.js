@@ -1,8 +1,8 @@
-/* PrintHub Pro v1.7.1 - options page logic (tabbed UI) */
+/* PrintHub Pro v1.7.2 - options page logic (tabbed UI) */
 const $ = (id) => document.getElementById(id);
 let PRINTERS = [];
 
-/* ---------- tabs (v1.7.1) ----------
+/* ---------- tabs (v1.7.2) ----------
    Opens on the QUEUE tab when the hub already has jobs, otherwise on
    SETTINGS. Any tab can be deep-linked: options.html#sharing etc. */
 const TABS = ["queue", "settings", "sharing", "service", "api", "about"];
@@ -140,6 +140,7 @@ async function loadAll() {
   const c = cfg.cfg;
   $("hubUrl").value = c.hubUrl || "";
   $("token").value = c.token || "";
+  $("enabledToggle").checked = c.enabled !== false;   // v1.7.2 master switch
   $("autoPrintAllPdfs").checked = c.autoPrintAllPdfs !== false;
   $("hookPrint").checked = !!c.hookPrint;
   $("closeAfterPrint").checked = c.closeAfterPrint === true;   // v1.7.0: default OFF
@@ -159,6 +160,7 @@ async function saveAll() {
     patch: {
       hubUrl: $("hubUrl").value.trim() || "http://127.0.0.1:9235",
       token: $("token").value.trim() || "PrintHub-2024",
+      enabled: $("enabledToggle").checked,          // v1.7.2 master switch
       defaultPrinter: $("defaultPrinter").value,
       autoPrintAllPdfs: $("autoPrintAllPdfs").checked,
       hookPrint: $("hookPrint").checked,
@@ -210,6 +212,17 @@ async function loadShare() {
   $("shareToken").value = (r.token && r.token !== "****") ? r.token : "";
   $("forwardOnFail").checked = !!r.forward_on_fail;
   $("autoRetry").checked = !!r.auto_retry;
+  // v1.7.2 Queue Mode switch (also shown on the Queue tab)
+  const qm = r.queue_mode !== false;
+  const qBox = $("queueMode");
+  if (qBox) {
+    qBox.checked = qm;
+    const st = $("qModeState");
+    if (st) {
+      st.textContent = qm ? "ON" : "OFF";
+      st.style.color = qm ? "#16a34a" : "#dc2626";
+    }
+  }
   $("retryMax").value = (r.retry_max != null) ? r.retry_max : 3;
   $("retryInt").value = (r.retry_interval != null) ? r.retry_interval : 60;
   $("peersBox").value = (r.peers || [])
@@ -230,7 +243,7 @@ function parsePeers(text) {
   return text.split(/\n+/).map((s) => s.trim()).filter(Boolean);
 }
 
-/* ---------- windows service (v1.7.1) ---------- */
+/* ---------- windows service (v1.7.2) ---------- */
 async function loadService() {
   const st = await send({ type: "hubService", action: "status" });
   const el = $("svcState"), det = $("svcDetail");
@@ -405,7 +418,7 @@ $("bPrintPdf").addEventListener("click", async () => {
   loadJobs();
 });
 
-/* windows service + autostart (v1.7.1) */
+/* windows service + autostart (v1.7.2) */
 $("bSvcInstall").addEventListener("click", async () => {
   $("svcDetail").textContent = "waiting for the Windows admin (UAC) prompt...";
   const r = await send({ type: "hubService", action: "install" });
@@ -447,14 +460,29 @@ $("bClearHist").addEventListener("click", async () => {
   saved("Extension history copy cleared (hub history untouched)");
 });
 
-["autoPrintAllPdfs", "hookPrint", "closeAfterPrint", "failFallback", "contextMenu", "badge", "defaultPrinter"].forEach((id) =>
+["enabledToggle", "autoPrintAllPdfs", "hookPrint", "closeAfterPrint", "failFallback", "contextMenu", "badge", "defaultPrinter"].forEach((id) =>
   $(id).addEventListener("change", saveAll));
+
+/* v1.7.2 Queue Mode switch on the Queue tab - saves to the hub at once */
+$("queueMode").addEventListener("change", async () => {
+  const on = $("queueMode").checked;
+  const r = await send({ type: "shareAction", patch: { queue_mode: on } });
+  saved(r.ok ? (on ? "Queue mode ON - failed jobs stay queued and retry"
+                   : "Queue mode OFF - jobs fail immediately if they cannot print")
+             : "Failed: " + r.error);
+  const st = $("qModeState");
+  if (st) {
+    st.textContent = on ? "ON" : "OFF";
+    st.style.color = on ? "#16a34a" : "#dc2626";
+  }
+  if (r.ok) loadJobs();
+});
 
 try {
   $("aboutVer").textContent = chrome.runtime.getManifest().version;
 } catch (_) {}
 
-/* v1.7.1: refresh the queue list every 4 s while the Queue tab is visible */
+/* v1.7.2: refresh the queue list every 4 s while the Queue tab is visible */
 setInterval(() => {
   if (ACTIVE_TAB === "queue" && !document.hidden) loadJobs();
 }, 4000);

@@ -1,4 +1,4 @@
-// PrintHub Pro v1.7.1 - Windows service wrapper
+// PrintHub Pro v1.7.2 - Windows service wrapper
 // AdvMedi by Bit Dream IT - Innovative Healthcare Solutions (MIT)
 //
 // Compiled ON THE PC by Windows' own csc.exe (nothing downloaded):

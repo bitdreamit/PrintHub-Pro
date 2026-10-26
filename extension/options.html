@@ -21,7 +21,7 @@
             padding:20px 22px; margin-bottom:16px; }
   h2 { font-size:15px; margin-bottom:4px; }
   .sub { color:var(--mut); font-size:12px; margin-bottom:14px; }
-  /* v1.7.1: tab bar - every area is its own tab */
+  /* v1.7.2: tab bar - every area is its own tab */
   .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
   .tab { border:1px solid var(--line); background:#fff; border-radius:10px;
          padding:9px 15px; font:600 13px "Segoe UI",system-ui,sans-serif;
@@ -85,13 +85,13 @@
 <header>
   <div class="logo">P</div>
   <div>
-    <h1>PrintHub Pro <span style="font-size:12px;opacity:.85">v1.7.1</span></h1>
+    <h1>PrintHub Pro <span style="font-size:12px;opacity:.85">v1.7.2</span></h1>
     <p>AdvMedi by Bit Dream IT - Innovative Healthcare Solutions &middot; silent &middot; 100% local &middot; MIT</p>
   </div>
 </header>
 
 <main>
-  <!-- v1.7.1: tab bar - opens on Queue when jobs exist, otherwise Settings -->
+  <!-- v1.7.2: tab bar - opens on Queue when jobs exist, otherwise Settings -->
   <nav class="tabs" id="tabBar">
     <button class="tab" data-tab="queue" id="tab-queue">Queue
       <span class="badge zero" id="qBadge">0</span></button>
@@ -118,6 +118,14 @@
       <button class="mini danger" id="bClearCompleted">Clear completed</button>
       <button class="mini danger" id="bClearAll">Clear ALL history</button>
       <button class="mini" id="bClearHist">Clear extension copy</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label>Queue mode</label>
+      <input type="checkbox" id="queueMode" style="margin:0 6px 0 0">
+      <span style="font-size:12.5px"><b>ON</b> = jobs that cannot print stay queued and auto-retry (recommended).
+        <b>OFF</b> = a job that cannot print fails immediately - no retry, no forwarding to peer hubs.
+        Failed jobs can always be retried by hand.</span>
+      <span id="qModeState" class="mono"></span>
     </div>
     <div class="row" style="margin-top:6px">
       <label>Print a PDF now</label>
@@ -176,6 +184,11 @@
 
   <section>
     <h2>Behavior</h2>
+    <div class="toggle">
+      <input type="checkbox" id="enabledToggle">
+      <div><b>PrintHub Pro enabled (master switch)</b>
+        <p>Same switch as the toolbar popup. When OFF nothing prints at all: no auto-print, no window.print() interception, no popup / right-click / API printing - and the toolbar icon shows a red OFF badge. Turn it back on any time; every other setting is kept.</p></div>
+    </div>
     <div class="toggle">
       <input type="checkbox" id="autoPrintAllPdfs">
       <div><b>Print every PDF opened in the browser (simple mode)</b>
@@ -350,7 +363,7 @@
   <section class="brand">
     <h2>About</h2>
     <p><b>AdvMedi</b> by <b>Bit Dream IT</b> - Innovative Healthcare Solutions</p>
-    <p class="sub" style="margin-top:4px">PrintHub Pro v<span id="aboutVer">1.7.1</span> &middot;
+    <p class="sub" style="margin-top:4px">PrintHub Pro v<span id="aboutVer">1.7.2</span> &middot;
       MIT open source &middot; 100% local &middot; no cloud &middot; no subscription</p>
     <div class="row" style="margin-top:8px">
       <a href="https://www.bitdreamit.com" target="_blank" rel="noreferrer">www.bitdreamit.com</a>

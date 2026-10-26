@@ -217,3 +217,31 @@ After the final local failure (auto-retry exhausted) the worker POSTs the stored
   turns the Startup-app shortcut OFF. Returns `{"ok": bool, "detail": "..."}`.
   Refused with 400 on non-Windows.
 - CLI: `python printhub.py service install|remove|status` (self-elevates).
+
+## v1.7.2 — Extension enable/disable + Queue Mode switch
+
+Extension (chrome.storage.local, enterprise-lockable via managed.json):
+
+- `DEFAULTS.enabled: true` — master switch. While `enabled:false` the
+  background refuses every print message (`hookPrint`, `printTab`,
+  `printPdfUrl`, `printSelection`, `printScreenshot`) and the page API
+  print functions with
+  `"PrintHub Pro is disabled - turn it ON from the toolbar popup"`;
+  auto-print on tab open is skipped; the `window.print()` hook is
+  unregistered; the toolbar badge shows a persistent red **OFF**.
+  Read-only queries (status/jobs/share/service) keep working so any UI
+  can turn it back on.
+- New messages: `setEnabled {value}` (persist + re-apply hooks + badge).
+
+Hub settings (persisted in config.json, v1.7.2):
+
+- `queue_mode: true|false` — **ON (default)**: jobs that cannot print
+  stay queued and auto-retry with backoff, final failure can be handed
+  to a peer hub. **OFF**: a job that cannot print is marked `failed`
+  immediately — no retry, no peer forwarding — with error text
+  `queue mode OFF: <reason>`. Manual Retry from the history still works.
+- Endpoints: `GET /health` and `GET /queue` add `"queue_mode": bool`;
+  `GET /share` adds it; `POST /share` (alias `/config`) accepts
+  `{"queue_mode": true|false}` alongside the other settings.
+- CLI: `python printhub.py queue [on|off|status]`.
+- Tray menu: "Queue mode (keep + retry failed jobs)" check item.

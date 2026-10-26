@@ -1,5 +1,5 @@
 @echo off
-REM  PrintHub Pro v1.7.1 - install as a Windows service ("PrintHub Pro Service"
+REM  PrintHub Pro v1.7.2 - install as a Windows service ("PrintHub Pro Service"
 REM  in services.msc, starts at boot, auto-restarts). One UAC prompt.
 REM  Installed layout: <root>\install\*.bat, <root>\runtime\PrintHubPro.exe,
 REM  <root>\hub\printhub.py

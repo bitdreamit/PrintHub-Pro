@@ -1,4 +1,4 @@
-# PrintHub Pro v1.7.1 - install the Windows service (one UAC prompt)
+# PrintHub Pro v1.7.2 - install the Windows service (one UAC prompt)
 # Runs from install\INSTALL-WINDOWS-SERVICE.bat or directly:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File service-install.ps1
 $ErrorActionPreference = "Stop"

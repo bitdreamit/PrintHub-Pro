@@ -190,3 +190,15 @@ Prefer `window.printhub` in normal pages — it never exposes the token in page 
 - New background messages: `hubService` (`status` via /health, `install`/`remove`
   via POST /service/*), `hubAutostart` (GET /autostart), `hubAutostartToggle`.
 - Windows service: see README 'Run PrintHub Pro as a Windows service'.
+
+## 8. Master enable/disable + queue mode (v1.7.2)
+
+- Popup has a **Silent printing** master switch (`setEnabled` message);
+  Options > Settings repeats it ("PrintHub Pro enabled"). When OFF:
+  nothing prints from anywhere, the icon shows a red OFF badge, and
+  `printPdfLink()` on pages rejects with the "disabled" error - pages
+  should treat a rejection as a normal failure (the fallback behaviour
+  configured in Options still applies to callers that asked for one).
+- Options > Queue tab has a **Queue mode** switch writing
+  `POST /share {"queue_mode": bool}` to the hub; the popup queue bar
+  shows `(queue mode)` or `(direct mode)` from `/health`.

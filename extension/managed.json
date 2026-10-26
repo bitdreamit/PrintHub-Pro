@@ -1,6 +1,11 @@
 {
   "type": "object",
   "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "v1.7.2 master switch: false = the extension prints nothing (no auto-print, no window.print() interception, no popup/context/API printing)."
+    },
     "hubUrl": {
       "type": "string",
       "description": "PrintHub Pro hub base URL, e.g. http://127.0.0.1:9235"

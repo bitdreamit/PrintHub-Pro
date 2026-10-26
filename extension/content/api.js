@@ -93,7 +93,7 @@
   }
 
   window.printhub = {
-    version: "1.7.1",
+    version: "1.7.2",
     status: () => call({ fn: "status" }),
     printers: () => call({ fn: "printers" }),
     history: (limit) => call({ fn: "history", limit: limit || 20 }),

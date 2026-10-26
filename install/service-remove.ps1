@@ -1,4 +1,4 @@
-# PrintHub Pro v1.7.1 - remove the Windows service (one UAC prompt)
+# PrintHub Pro v1.7.2 - remove the Windows service (one UAC prompt)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $py   = Join-Path $root "runtime\PrintHubPro.exe"

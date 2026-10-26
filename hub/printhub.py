@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  PrintHub Pro v1.7.1  -  Print from any web page to any printer
+#  PrintHub Pro v1.7.2  -  Print from any web page to any printer
 #  AdvMedi by Bit Dream IT  -  Innovative Healthcare Solutions
 #  MIT licensed, 100% local & open source
 # ------------------------------------------------------------
@@ -22,10 +22,10 @@
 #  * v1.7.0 INDUSTRIAL QUEUE: auto-retry with backoff, failed jobs
 #    stay in the list (Retry / Clear), failover forwarding to peer
 #    hubs - if this PC cannot print, another PC's hub takes the job.
-#  * v1.7.1 WINDOWS SERVICE: 'PrintHub Pro Service' in services.msc -
+#  * v1.7.2 WINDOWS SERVICE: 'PrintHub Pro Service' in services.msc -
 #    starts at boot before logon, auto-restarts on crash; one click
 #    to install (Options > Windows service) or CLI service install.
-#  * v1.7.1 TABBED OPTIONS: Queue (default when jobs exist) /
+#  * v1.7.2 TABBED OPTIONS: Queue (default when jobs exist) /
 #    Settings / Sharing / Windows service / API / About.
 #
 #  Quick start:   python printhub.py serve
@@ -54,7 +54,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl, quote
 
-VERSION = "1.7.1"
+VERSION = "1.7.2"
 APP_NAME = "PrintHub Pro"
 VENDOR = "Bit Dream IT"
 BRAND_LINE = "AdvMedi by Bit Dream IT - Innovative Healthcare Solutions"
@@ -110,6 +110,10 @@ DEFAULT_SETTINGS = {
     "forward_on_fail": True,   # final local failure: offer the job to peer hubs
     "peers": [],               # ["http://192.168.1.20:9235|TOKEN2", ...]
     "retention_days": 7,       # delete finished job PDF files after N days
+    # v1.7.2 Queue Mode switch: ON = jobs that cannot print now stay in the
+    # queue and are retried (office mode). OFF = a job that cannot print
+    # fails IMMEDIATELY - no retry, no peer forwarding (direct mode).
+    "queue_mode": True,
 }
 SETTINGS = dict(DEFAULT_SETTINGS)
 
@@ -962,8 +966,16 @@ def worker():
                 log("[CANCELED] job #%d killed mid-print" % job["id"])
             else:
                 attempts = (latest.get("attempts") or 0) + 1
+                # v1.7.2 Queue Mode OFF: fail right away - no retry,
+                # no peer forwarding. The job stays in the history and
+                # can still be retried manually from Options / popup.
                 rmax = max(1, int(SETTINGS.get("retry_max", 3) or 3))
-                if SETTINGS.get("auto_retry", True) and attempts < rmax:
+                if not SETTINGS.get("queue_mode", True):
+                    db_update(job["id"], status="failed",
+                              attempts=attempts, next_retry_at=None,
+                              error="queue mode OFF: %s" % str(e)[:380])
+                    log("[FAIL] job #%d (queue mode OFF): %s" % (job["id"], e))
+                elif SETTINGS.get("auto_retry", True) and attempts < rmax:
                     delay = max(5, int(SETTINGS.get("retry_interval", 60)
                                        or 60)) * attempts
                     db_update(job["id"], status="queued", attempts=attempts,
@@ -1210,7 +1222,7 @@ def autostart_set(enable):
 
 
 # ------------------------------------------------------------
-# v1.7.1: WINDOWS SERVICE - "PrintHub Pro Service" in services.msc
+# v1.7.2: WINDOWS SERVICE - "PrintHub Pro Service" in services.msc
 # Starts at BOOT before anyone logs in, auto-restarts on crash, and
 # is managed from services.msc, the extension Options > Windows
 # service tab, or the CLI below. The hub stays a plain python
@@ -1591,14 +1603,15 @@ class Handler(BaseHTTPRequestHandler):
                 "pending": db_count_pending(),
                 "failed": db_count_failed(),
                 "jobs_today": db_count_today(),
+                "queue_mode": bool(SETTINGS.get("queue_mode", True)),
                 "file_dir": default_file_dir(),
                 "token_set": bool(CFG["token"]),
                 "autostart": autostart_enabled(),
                 "sharing": sharing_enabled(),
                 "address": share_address(),
                 "lan_ip": get_lan_ip(),
-                "service": _svc_query(),          # v1.7.1 Windows service state
-                "service_mode": service_mode(),   # v1.7.1 running AS the service
+                "service": _svc_query(),          # v1.7.2 Windows service state
+                "service_mode": service_mode(),   # v1.7.2 running AS the service
             })
 
         if not self._token_ok(qt):
@@ -1642,6 +1655,7 @@ class Handler(BaseHTTPRequestHandler):
                 "paused": not RESUME_EVENT.is_set(),
                 "pending": db_count_pending(),
                 "failed": db_count_failed(),
+                "queue_mode": bool(SETTINGS.get("queue_mode", True)),
                 "current": cur})
         if route == "/jobs":
             raw = (q.get("limit") or [str(HISTORY_DEFAULT)])[0]
@@ -1668,6 +1682,7 @@ class Handler(BaseHTTPRequestHandler):
                 "retry_max": SETTINGS.get("retry_max"),
                 "retry_interval": SETTINGS.get("retry_interval"),
                 "forward_on_fail": bool(SETTINGS.get("forward_on_fail")),
+                "queue_mode": bool(SETTINGS.get("queue_mode", True)),
                 "retention_days": SETTINGS.get("retention_days"),
                 "config_file": config_path(),
                 "brand": BRAND_LINE,
@@ -1837,6 +1852,7 @@ class Handler(BaseHTTPRequestHandler):
         #   {"peers": ["http://192.168.1.20:9235|TOKEN2"]}  -> failover targets
         #   {"auto_retry": true, "retry_max": 3, "retry_interval": 60,
         #    "forward_on_fail": true, "retention_days": 7}
+        #   {"queue_mode": true}  -> v1.7.2: OFF = failed jobs fail at once
         # Changing host/port re-binds the HTTP server live (no restart).
         if route in ("/share", "/config"):
             rebind = False
@@ -1864,6 +1880,10 @@ class Handler(BaseHTTPRequestHandler):
             for k in ("auto_retry", "forward_on_fail"):
                 if k in body:
                     SETTINGS[k] = bool(body[k])
+            if "queue_mode" in body:                 # v1.7.2 Queue Mode switch
+                SETTINGS["queue_mode"] = bool(body["queue_mode"])
+                log("[QUEUE] queue mode %s via /share"
+                    % ("ON" if SETTINGS["queue_mode"] else "OFF (fail at once)"))
             if "retry_max" in body:
                 try:
                     SETTINGS["retry_max"] = max(1, min(20, int(body["retry_max"])))
@@ -1904,6 +1924,7 @@ class Handler(BaseHTTPRequestHandler):
                 "retry_max": SETTINGS.get("retry_max"),
                 "retry_interval": SETTINGS.get("retry_interval"),
                 "forward_on_fail": bool(SETTINGS.get("forward_on_fail")),
+                "queue_mode": bool(SETTINGS.get("queue_mode", True)),
                 "message": ("sharing ON - other PCs connect to %s with the"
                             " connect code" % share_address()) if sharing
                            else "sharing OFF - this hub answers on localhost only",
@@ -1918,7 +1939,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "enabled": state,
                                     "path": autostart_path()})
 
-        # POST /service/install | /service/remove  (v1.7.1, Windows)
+        # POST /service/install | /service/remove  (v1.7.2, Windows)
         # One click from Options > Windows service: the hub writes
         # service.json, pops ONE UAC prompt (PowerShell RunAs) and the
         # elevated child compiles the C# wrapper + registers the service.
@@ -2158,7 +2179,7 @@ def _start_tray():
     if not IS_WIN:
         return
     if service_mode():
-        # v1.7.1: services run in session 0 - a tray icon can never be
+        # v1.7.2: services run in session 0 - a tray icon can never be
         # shown there. Manage the service in services.msc / Options.
         log("[SERVICE] running as the Windows service - tray icon skipped")
         return
@@ -2214,6 +2235,15 @@ def _start_tray():
             % (share_address(), CFG["token"]))
         return True
 
+    def _queue_mode_toggle():                  # v1.7.2 Queue Mode switch
+        newv = not SETTINGS.get("queue_mode", True)
+        SETTINGS["queue_mode"] = newv
+        save_settings()
+        wake_worker()
+        log("[QUEUE] queue mode %s via tray menu"
+            % ("ON (retry failed jobs)" if newv else "OFF (fail at once)"))
+        return newv
+
     def _copy_share():
         code = connect_code()
         try:
@@ -2241,6 +2271,8 @@ def _start_tray():
             "is_shared": sharing_enabled,
             "on_share_toggle": _share_toggle,
             "on_copy_share": _copy_share,
+            "is_queue_mode": lambda: bool(SETTINGS.get("queue_mode", True)),
+            "on_queue_mode_toggle": _queue_mode_toggle,
             "on_exit": _exit,
         },
         logf=log)
@@ -2292,16 +2324,33 @@ def cmd_reprint(job_id):
                         data, j["printer"] or "", j["copies"] or 1, "cli", "cli")
     print("Reprinted as job #%d (copy of #%d)." % (nid, j["id"]))
 
-def cmd_queue():
+def cmd_queue(arg=""):
+    """CLI: python printhub.py queue [on|off|status]  (v1.7.2 Queue Mode)"""
+    load_settings()
     db_init()
+    a = (arg or "status").lower()
+    if a in ("on", "queue", "enable", "true", "1"):
+        SETTINGS["queue_mode"] = True
+        save_settings()
+        print("Queue mode ON - jobs that cannot print stay queued and are"
+              " retried automatically. Restart the hub to apply if it is"
+              " running.")
+    elif a in ("off", "direct", "disable", "false", "0"):
+        SETTINGS["queue_mode"] = False
+        save_settings()
+        print("Queue mode OFF - a job that cannot print fails immediately"
+              " (no retry, no forwarding). Restart the hub to apply if it"
+              " is running.")
     paused = not RESUME_EVENT.is_set()
     cur = None
     with _CURRENT_LOCK:
         if _CURRENT["id"]:
             cur = db_get(_CURRENT["id"])
-    print("Queue: %s | pending: %d | failed: %d"
-          % ("PAUSED" if paused else "running", db_count_pending(),
-             db_count_failed()))
+    print("Queue: %s | mode: %s | pending: %d | failed: %d"
+          % ("PAUSED" if paused else "running",
+             "ON (retry)" if SETTINGS.get("queue_mode", True)
+             else "OFF (direct)",
+             db_count_pending(), db_count_failed()))
     if cur:
         print("Current: job #%d %s -> %s" % (cur["id"], cur["title"],
                                              cur["printer"] or "default"))
@@ -2388,7 +2437,9 @@ def cmd_help():
   printers                  List installed printers
   history [n]               Show last n print jobs (default 100)
   reprint <job_id>          Print a previous job again
-  queue                     Show queue status (paused / pending / failed)
+  queue                     Show queue status (paused / mode / pending / failed)
+  queue on|off              v1.7.2 Queue Mode: ON keeps + retries failed jobs,
+                            OFF fails them immediately (no retry/forward)
   share [on|off]            Share the hub on the LAN / go localhost-only
   service [install|remove|status]
                             Windows service (services.msc): starts at boot,
@@ -2438,7 +2489,7 @@ def main():
                 print("usage: python printhub.py reprint <job_id>"); sys.exit(1)
             cmd_reprint(args[1])
         elif cmd == "queue":
-            cmd_queue()
+            cmd_queue(args[1] if len(args) > 1 else "status")
         elif cmd == "share":
             cmd_share(args[1] if len(args) > 1 else "status")
         elif cmd == "doctor":
