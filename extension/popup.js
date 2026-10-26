@@ -28,7 +28,7 @@ function showOffline(on, count) {
 function showTokenWarning(on, mode) {
   $("tokenBanner").classList.toggle("show", !!on);
   if (on) {
-    // v2.0.2: mode "token"=401, "locked"=429, "default"=legacy token
+    // v2.1.0: mode "token"=401, "locked"=429, "default"=legacy token
     $("tokenText").textContent = mode === "token"
       ? PrintHubI18n.t("popTokenBad")
       : mode === "locked"
@@ -98,7 +98,7 @@ async function refresh() {
                                      : PrintHubI18n.t("popPause");
     $("qpend").textContent = st.pending ? st.pending + " pending" : "";
     showOffline(false);
-    // v2.0.2: token rejected earlier (KEY state) -> red banner; once an
+    // v2.1.0: token rejected earlier (KEY state) -> red banner; once an
     // authed call succeeds below, the flag is cleared again
     const ap = await chrome.storage.local.get({ authProblem: null });
     if (ap.authProblem) {
@@ -127,7 +127,7 @@ async function refresh() {
   const box = $("jobs");
   box.innerHTML = "";
   if (jobs.ok) {
-    // v2.0.2: an authed call just succeeded -> the token works again;
+    // v2.1.0: an authed call just succeeded -> the token works again;
     // clear the KEY flag so the red banner disappears on next paint
     const ap = await chrome.storage.local.get({ authProblem: null });
     if (ap.authProblem) {

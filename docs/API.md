@@ -1,4 +1,4 @@
-# PrintHub Pro — Hub HTTP API (v2.0.2)
+# PrintHub Pro — Hub HTTP API (v2.1.0)
 
 Base URL: `http://127.0.0.1:9235` (default)
 

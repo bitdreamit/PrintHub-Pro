@@ -6,6 +6,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is
 
 ---
 
+## [2.1.0] — 2026-10-26 — "Every printer option, LAN sharing, Bangla receipts"
+
+### Added
+- **Full print-option surface** on `POST /print` (API + Laravel guide):
+  `pages` now accepts **"odd" / "even"** (SumatraPDF + CUPS `page-set`),
+  plus new `per_sheet` (2/4/6/9/16, CUPS `number-up`), `quality`
+  (draft/normal/high, CUPS `print-quality`), `scale_pct` + `margin_mm` +
+  `orientation` (applied when the hub renders text/HTML jobs; injected as
+  `@page`/zoom CSS for HTML). `copies`, `duplex`, `paper_size`, `tray`
+  were already there - all now pass through the queue and the bypass path.
+- **`GET /printers/{name}/capabilities`** - what THIS printer actually
+  supports (Windows: SumatraPDF capability map; Linux: live
+  `lpoptions -l`). Drives UIs/APIs to show only supported options.
+- **LAN printer sharing is back** (`share_lan`, default false = old
+  behaviour): listen on 0.0.0.0 so OTHER PCs print through this PC's
+  printers; `/health` reports `share_lan` + `lan_url`; token always
+  required, remote IPs keep the full lockout.
+- **`POST /queue/shift`** - move queued/held/failed jobs to another PC's
+  hub over the LAN: `scope:"all"` (full shift) or `scope:"job","ids":[..]`
+  (individual shift); jobs are re-uploaded and marked `forwarded`.
+  Queue on/off remains `/queue/pause` + `/queue/resume`.
+- **Bangla / Unicode receipts** (`thermal_text_engine: auto`): text that
+  cannot be encoded in Latin-1 is rendered through headless Chrome with
+  system Bangla fonts (Nirmala UI / Noto Sans Bengali) so it prints
+  correctly on 80 mm rolls instead of `????`. `escpos_codepage` (default
+  cp437) makes raw ESC/POS codepages configurable; unencodable lines
+  fall back safely with a warning.
+- **docs/LARAVEL.md** - complete server-side guide: PrintHubService,
+  scheduler recipes (daily 9:00 auto-print, 15-minute invoice sweep),
+  webhook printing, `run_at` hub-side scheduling, status polling with
+  backoff, ESC/POS receipts, capabilities discovery, multi-PC LAN setup.
+
+### Fixed
+- Queue-Mode-OFF (bypass) jobs now honour `pages`/`duplex`/`paper`/`tray`
+  and the new options too (2.0 dropped them on the immediate path).
+
+---
+
 ## [2.0.2] — 2026-10-26 — "One token opens every page"
 
 ### Fixed

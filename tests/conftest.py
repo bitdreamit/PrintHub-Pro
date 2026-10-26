@@ -104,10 +104,12 @@ def hub(tmp_path_factory):
 
     # ---- stub the OS print backends (no real printer in CI) ----
     def fake_print_file(path, kind="a4", printer="", copies=1, job_id=None,
-                        pages=None, duplex=None, paper_size=None, tray=None):
+                        pages=None, duplex=None, paper_size=None, tray=None,
+                        per_sheet=None, quality=None):
         h.printed.append(dict(path=path, kind=kind, printer=printer,
                               copies=copies, job_id=job_id, pages=pages,
                               duplex=duplex, paper_size=paper_size,
+                              per_sheet=per_sheet, quality=quality,
                               tray=tray))
         return printer or "StubPrinter"
 

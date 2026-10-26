@@ -108,7 +108,7 @@ async function updateCheck() {
   const out = $("updState"), live = $("updLive");
   out.textContent = "checking...";
   live.innerHTML = "";
-  let manifestVer = "2.0.2";
+  let manifestVer = "2.1.0";
   try { manifestVer = chrome.runtime.getManifest().version; } catch (_) {}
   try {
     const r = await fetch("https://api.github.com/repos/bitdreamit/PrintHub-Pro/releases/latest",

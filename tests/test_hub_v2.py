@@ -25,7 +25,7 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.0.2"
+    assert d["version"] == "2.1.0"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
@@ -494,11 +494,11 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert printhub.VERSION == "2.0.2"
+    assert printhub.VERSION == "2.1.0"
     ext = os.path.join(os.path.dirname(printhub.__file__), "..",
                        "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.0.2"
+        assert json.load(f)["version"] == "2.1.0"
 
 
 def test_log_rotation(tmp_path):
@@ -512,3 +512,128 @@ def test_log_rotation(tmp_path):
     finally:
         printhub.CFG["data_dir"] = old
         printhub.CFG["log_max_mb"] = old_max
+
+
+# ============================================================
+# v2.1.0: print options, capabilities, LAN share, queue shift
+# ============================================================
+
+@pytest.fixture(autouse=True)
+def _v21_sync_token(hub):
+    """Token rotation tests earlier in this module change CFG["token"] -
+    keep the client's token in sync for every test."""
+    hub.token = printhub.CFG["token"]
+    yield
+
+
+def test_v21_capabilities_endpoint(hub):
+    code, d = hub.get("/printers/FakeLaser/capabilities")
+    assert code == 200 and d["ok"] is True
+    assert d["backend"] in ("sumatra", "cups")
+    assert d["pages"]["odd_even"] is True
+
+
+def test_v21_per_sheet_quality_reach_backend(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "nup", "title": "nup",
+                                  "kind": "thermal", "printer": "P1",
+                                  "per_sheet": 2, "quality": "draft"})
+    assert code == 200
+    ok = wait_until(lambda: len(hub.printed) >= 1)
+    assert ok
+    rec = hub.printed[-1]
+    assert rec["per_sheet"] == 2 and rec["quality"] == "draft"
+
+
+def test_v21_odd_even_reach_backend(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "oe", "title": "oe",
+                                  "kind": "thermal", "printer": "P1",
+                                  "pages": "odd"})
+    assert code == 200
+    ok = wait_until(lambda: len(hub.printed) >= 1)
+    assert ok
+    assert hub.printed[-1]["pages"] == "odd"
+
+
+def test_v21_thermal_builder_overrides():
+    data, _ = printhub.thermal_pdf_bytes("A\nB", title="t",
+                                         margin_mm=10, scale_pct=200,
+                                         landscape=True)
+    assert data[:5] == b"%PDF-"
+    data2, _ = printhub.thermal_pdf_bytes("x")          # old signature works
+    assert data2[:5] == b"%PDF-"
+
+
+def test_v21_helpers():
+    assert printhub.text_needs_browser("বাংলা রসিদ") is True
+    assert printhub.text_needs_browser("COFFEE 35.50") is False
+    h = printhub.inject_page_css("<html><head></head><body>x</body></html>",
+                                 margin_mm=8, scale_pct=150, landscape=True)
+    assert "margin:8mm" in h and "zoom:150%" in h and "landscape" in h
+    assert h.index("<style") < h.index("<body")
+    assert printhub.pdf_page_count(b"%PDF-1.4 ... /Type /Page ... "
+                                   b"/Type /Page ...") == 2
+    assert printhub.pdf_page_count(b"not a pdf") is None
+
+
+def test_v21_queue_shift_to_fake_peer(hub, clean_queue, cfg_reset):
+    """Full-shift pending jobs to a fake peer hub over HTTP."""
+    import http.server, threading as th
+    got = {}
+
+    class FakePeer(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            ln = int(self.headers.get("Content-Length") or 0)
+            got["body"] = json.loads(self.rfile.read(ln) or b"{}")
+            got["token"] = self.headers.get("X-PrintHub-Token")
+            body = json.dumps({"ok": True, "job_id": 777}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    psrv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakePeer)
+    pport = psrv.server_address[1]
+    th.Thread(target=psrv.serve_forever, daemon=True).start()
+    try:
+        code, d = hub.post("/print", {"text": "shift me", "title": "sh",
+                                      "kind": "thermal", "printer": "P1"})
+        jid = d["job_id"]
+        printhub._PAUSED.clear() if hasattr(printhub, "_PAUSED") else None
+        code, d = hub.post("/queue/shift", {
+            "target": "http://127.0.0.1:%d" % pport,
+            "target_token": "peersecret", "scope": "all"})
+        assert code == 200 and d["ok"] is True, d
+        assert d["shifted_count"] == 1 and jid in d["shifted"]
+        assert got["token"] == "peersecret"
+        assert got["body"]["title"] == "sh"
+        assert (printhub.db_get(jid) or {}).get("status") == "forwarded"
+        # individual shift: unknown id list shifts nothing
+        code, d = hub.post("/queue/shift", {
+            "target": "http://127.0.0.1:%d" % pport, "scope": "job",
+            "ids": [424242]})
+        assert code == 200 and d["shifted_count"] == 0
+    finally:
+        psrv.shutdown()
+
+
+def test_v21_share_lan_config_roundtrip(hub, cfg_reset):
+    code, d = hub.post("/config", {"share_lan": True})
+    assert code == 200 and d["config"]["share_lan"] is True
+    code, d = hub.get("/health", token=None)
+    assert d["share_lan"] is True and d["lan_url"]
+    hub.post("/config", {"share_lan": False})
+    code, d = hub.get("/health", token=None)
+    assert d["share_lan"] is False and d["lan_url"] is None
+
+
+def test_v21_escpos_codepage_config(hub, cfg_reset, monkeypatch):
+    printhub.CFG["escpos_codepage"] = "cp850"
+    data = printhub.escpos_bytes("caf\xe9")       # \xe9 is 0x82 in cp850
+    assert b"caf\x82" in data
+    printhub.CFG["escpos_codepage"] = "cp437"
+    data = printhub.escpos_bytes("caf\xe9")
+    assert b"caf" in data                          # replaced, no crash

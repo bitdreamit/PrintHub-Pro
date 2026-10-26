@@ -57,7 +57,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "2.0.2"
+VERSION = "2.1.0"
 BRANDING = ("PrintHub Pro - Version %s - by Bitdream IT - MIT license - "
             "100%% local - no cloud, no tracking" % VERSION)
 APP_NAME = "PrintHub Pro"
@@ -119,6 +119,17 @@ CFG = {
     "reprint_reason_required": False,
     "peer_hubs": [],                  # [{"url": "http://ip:9235", "token": "..."}]
     "peer_forwarding": False,         # forward jobs to a live peer hub
+    "share_lan": False,               # v2.1: listen on 0.0.0.0 so OTHER PCs
+                                      #  on the LAN can print through this
+                                      #  PC's printers (token always required)
+    "escpos_codepage": "cp437",       # v2.1: raw ESC/POS text codepage
+                                      #  (cp437/cp850/cp866/... - Bangla is
+                                      #  NOT in any codepage: the hub auto-
+                                      #  routes such text via headless Chrome)
+    "thermal_text_engine": "auto",    # v2.1: auto|builtin|browser - "auto"
+                                      #  renders non-Latin text (Bangla etc.)
+                                      #  through headless Chrome so complex
+                                      #  scripts shape correctly on rolls
     "log_max_mb": 5,                  # hub.log rotates after this size
     "log_backups": 3,                 # ... keeping this many old logs
 }
@@ -134,6 +145,7 @@ CONFIG_KEYS = ("token", "token_header_only", "allowed_origins",
                "max_retries", "retry_base_seconds", "dedupe_minutes",
                "hold_offline", "audit_enabled", "reprint_watermark",
                "reprint_reason_required", "peer_hubs", "peer_forwarding",
+               "share_lan", "escpos_codepage", "thermal_text_engine",
                "log_max_mb", "log_backups", "printer", "file_dir")
 CONFIG_TYPES = {"token_header_only": bool, "allowed_origins": list,
                 "pdf_url_allowed_hosts": list, "max_auth_failures": int,
@@ -142,6 +154,7 @@ CONFIG_TYPES = {"token_header_only": bool, "allowed_origins": list,
                 "profiles": dict, "max_retries": int,
                 "retry_base_seconds": int, "dedupe_minutes": int,
                 "hold_offline": bool, "audit_enabled": bool,
+                "share_lan": bool,
                 "reprint_watermark": bool, "reprint_reason_required": bool,
                 "peer_hubs": list, "peer_forwarding": bool,
                 "log_max_mb": int, "log_backups": int}
@@ -302,6 +315,8 @@ JOB_COLUMNS = {
     "duplex":         "TEXT",
     "paper_size":     "TEXT",
     "tray":           "TEXT",
+    "per_sheet":      "INTEGER DEFAULT 1",    # v2.1 n-up (CUPS)
+    "quality":        "TEXT",                 # v2.1 draft|normal|high (CUPS)
     "watermarked":    "INTEGER DEFAULT 0",
     "held_reason":    "TEXT",                 # why the job is on hold
     "peer":           "TEXT",                 # peer hub the job was sent to
@@ -369,7 +384,8 @@ def db_add(kind, title, printer, copies, file_path, source, origin_ip,
     against the schema so old callers stay source-compatible)."""
     allowed = {"priority", "attempts", "next_attempt_at", "run_at",
                "dedupe_key", "content_hash", "site", "reason", "profile",
-               "pages", "duplex", "paper_size", "tray", "watermarked",
+               "pages", "duplex", "paper_size", "tray", "per_sheet",
+               "quality", "watermarked",
                "held_reason", "peer", "duration_ms", "error"}
     cols = ["created_at", "kind", "title", "printer", "copies", "status",
             "file_path", "source", "origin_ip"]
@@ -876,11 +892,118 @@ def image_pdf_bytes(jpeg, title="screenshot", paper="a4", landscape=None):
     fname = "%s-%s.pdf" % (title or "image", datetime.now().strftime("%Y%m%d%H%M%S"))
     return bytes(out), "".join(c for c in fname if c.isalnum() or c in "-._")
 
-def thermal_pdf_bytes(text, title="receipt", paper="thermal"):
+def pdf_page_count(data):
+    """Count /Type /Page objects in a PDF (v2.1). Best effort - None when
+    the structure is not recognisable."""
+    try:
+        if not data or data[:5] != b"%PDF-":
+            return None
+        return len(re.findall(rb"/Type\s*/Page\b", data)) or None
+    except Exception:
+        return None
+
+def text_needs_browser(text):
+    """True when text cannot be represented in Latin-1 (Bangla, Hindi,
+    CJK ...) - the builtin receipt renderer would replace it with '?'."""
+    try:
+        str(text or "").encode("latin-1")
+        return False
+    except UnicodeEncodeError:
+        return True
+
+def inject_page_css(html_src, margin_mm=None, scale_pct=None, landscape=None):
+    """v2.1: apply margin/scale/orientation to html/page_url jobs by
+    injecting @page + zoom CSS at render time (headless Chrome)."""
+    css = ""
+    if margin_mm not in (None, ""):
+        css += "@page{margin:%smm !important;}" % re.sub(r"[^0-9.]", "", str(margin_mm))
+    if landscape in (True, "1", "true", "yes", "on"):
+        css += "@page{size:A4 landscape !important;}"
+    if scale_pct not in (None, ""):
+        css += "body{zoom:%s%%;}" % re.sub(r"[^0-9.]", "", str(scale_pct))
+    if not css:
+        return html_src
+    style = "<style data-printhub=\"v21\">%s</style>" % css
+    m = re.search(r"<head[^>]*>", html_src or "", re.I)
+    if m:
+        i = m.end()
+        return html_src[:i] + style + html_src[i:]
+    return style + (html_src or "")
+
+def printer_capabilities(name=""):
+    """v2.1: what THIS printer + backend actually supports - drives the
+    extension/API so only supported options are offered. Windows uses the
+    SumatraPDF backend (driver-level extras noted); Linux queries CUPS
+    `lpoptions -p <name> -l` for the REAL capability list."""
+    if IS_WIN:
+        return {
+            "ok": True, "backend": "sumatra", "printer": name or None,
+            "pages": {"type": "ranges", "odd_even": True,
+                      "example": "1-3,5 | odd | even"},
+            "copies": {"min": 1, "max": 50},
+            "duplex": ["simplex", "duplex", "duplexlong", "duplexshort"],
+            "paper": ["A4", "A5", "A3", "Letter", "Legal", "Tabloid",
+                      "Executive", "Folio", "Statement"],
+            "tray": None,          # SumatraPDF cannot select a tray
+            "per_sheet": None,     # n-up needs CUPS
+            "quality": None,       # DPI/quality is driver-controlled
+            "scale": ["noscale", "shrinkfit"],
+            "margins": "render",   # honoured when the hub renders the PDF
+            "orientation": ["portrait", "landscape"],
+            "color": ["color", "monochrome"],
+            "note": "SumatraPDF backend - tray / n-up / DPI follow the"
+                    " Windows driver settings",
+        }
+    caps = {"ok": True, "backend": "cups", "printer": name or None,
+            "pages": {"type": "ranges", "odd_even": True},
+            "copies": {"min": 1, "max": 50},
+            "duplex": ["one-sided", "two-sided-long-edge",
+                       "two-sided-short-edge"],
+            "per_sheet": [1, 2, 4, 6, 9, 16],
+            "quality": ["draft", "normal", "high"],
+            "margins": "render", "orientation": ["portrait", "landscape"],
+            "tray": [], "paper": [], "raw_options": {}}
+    try:
+        exe = shutil.which("lpoptions")
+        if exe:
+            cmd = [exe] + (["-p", name] if name else []) + ["-l"]
+            out = subprocess.run(cmd, capture_output=True, timeout=10
+                                 ).stdout.decode("utf-8", "replace")
+            for line in out.splitlines():
+                m = re.match(r"^([A-Za-z0-9_\-]+)/[^:]*:\s*(.*)$", line)
+                if not m:
+                    continue
+                key = m.group(1)
+                choices = [c.rstrip("*") for c in m.group(2).split()]
+                caps["raw_options"][key] = choices
+                if key in ("media", "PageSize"):
+                    caps["paper"] = choices[:24]
+                elif key in ("InputSlot", "MediaSource"):
+                    caps["tray"] = choices[:12]
+                elif key == "Duplex":
+                    caps["duplex"] = choices
+                elif key == "number-up":
+                    nums = [int(v) for v in choices if v.isdigit()]
+                    if nums:
+                        caps["per_sheet"] = nums
+                elif key == "print-quality":
+                    caps["quality"] = choices
+                elif key == "page-set":
+                    caps["pages"] = {"type": "ranges",
+                                     "odd_even": bool(set(choices) &
+                                                      {"odd", "even"})}
+    except Exception as e:
+        caps["error"] = str(e)[:120]
+    return caps
+
+def thermal_pdf_bytes(text, title="receipt", paper="thermal",
+                      margin_mm=None, scale_pct=None, landscape=None):
     """
     Build a minimal PDF from plain text (pure Python, no dependencies):
       paper="thermal" -> 80mm receipt roll, Courier 8pt
       paper="a4"      -> 210x297mm page, Courier 11pt
+    v2.1 options: margin_mm (page margins), scale_pct (25-400%),
+    landscape (a4 only). Absent parameters keep the exact old layout.
     Markers: #big <line> = large bold heading, |center| <line> = centered.
     Returns (bytes, filename).
     """
@@ -898,6 +1021,23 @@ def thermal_pdf_bytes(text, title="receipt", paper="thermal"):
         big_pt, big_lead = 13, 6.5 * MM
         top_mm, bottom_pad = 8, 10
     LM = 4 * MM
+    # v2.1: optional landscape / scale / margin overrides (old layout when
+    # the parameters are absent)
+    if landscape in (True, "1", "true", "yes", "on") and paper == "a4":
+        W, PAGE_H = PAGE_H, W
+    if scale_pct not in (None, "", 1, "1", "100", 100):
+        try:
+            sc = max(25, min(400, int(float(scale_pct)))) / 100.0
+            font_pt, lead = font_pt * sc, lead * sc
+            big_pt, big_lead = big_pt * sc, big_lead * sc
+            max_cols = max(10, int(max_cols / sc))
+        except (TypeError, ValueError):
+            pass
+    if margin_mm not in (None, ""):
+        try:
+            LM = max(0.0, min(40.0, float(margin_mm))) * MM
+        except (TypeError, ValueError):
+            pass
     lines = []
     for raw in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         if raw.startswith("#big"):
@@ -1056,7 +1196,8 @@ _CURRENT_LOCK = threading.Lock()
 _CURRENT = {"id": None, "proc": None}
 
 def print_file(path, kind="a4", printer="", copies=1, job_id=None,
-               pages=None, duplex=None, paper_size=None, tray=None):
+               pages=None, duplex=None, paper_size=None, tray=None,
+               per_sheet=None, quality=None):
     """
     Print a PDF file SILENTLY (no dialog) to the given printer
     or the OS default. Raises RuntimeError with a friendly message.
@@ -1094,7 +1235,11 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None,
                     "SumatraPDF not found. Install it first: %s" % SUMATRA_HINT)
             parts = []
             if pages:
-                parts.append(re.sub(r"[^0-9,\-]", "", str(pages)))
+                ps = str(pages).strip().lower()
+                if ps in ("odd", "even"):
+                    parts.append(ps)      # SumatraPDF supports odd/even
+                else:
+                    parts.append(re.sub(r"[^0-9,\-]", "", str(pages)))
             df = duplex_flag()
             if df:
                 parts.append(df)
@@ -1104,6 +1249,12 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None,
             if tray:
                 log("[PRINT] note: SumatraPDF cannot select a paper tray"
                     " ('%s' ignored) - tray printing needs CUPS" % tray)
+            if per_sheet and int(per_sheet) > 1:
+                log("[PRINT] note: per-sheet %s is not supported by the"
+                    " SumatraPDF backend (needs CUPS) - ignored" % per_sheet)
+            if quality:
+                log("[PRINT] note: quality '%s' is controlled by the Windows"
+                    " driver - SumatraPDF has no quality switch" % quality)
             parts.append("noscale" if kind in ("thermal", "image-thermal")
                          else "shrinkfit")
             if copies > 1:
@@ -1130,8 +1281,19 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None,
             if copies > 1:
                 cmd += ["-n", str(copies)]
             if pages:
-                cmd += ["-o", "page-ranges=%s" % re.sub(r"[^0-9,\-]", "",
-                                                        str(pages))]
+                ps = str(pages).strip().lower()
+                if ps in ("odd", "even"):
+                    cmd += ["-o", "page-set=%s" % ps]
+                else:
+                    cmd += ["-o", "page-ranges=%s" %
+                            re.sub(r"[^0-9,\-]", "", str(pages))]
+            if per_sheet and int(per_sheet) > 1:
+                cmd += ["-o", "number-up=%d" % max(1, min(16, int(per_sheet)))]
+            if quality:
+                qv = {"draft": "3", "normal": "4",
+                      "high": "5"}.get(str(quality).lower())
+                if qv:
+                    cmd += ["-o", "print-quality=%s" % qv]
             df = duplex_flag()
             if df:
                 cmd += ["-o", {"duplex": "two-sided-long-edge",
@@ -1330,7 +1492,9 @@ def _execute_job(job, t0):
                                 job_id=job["id"], pages=job.get("pages"),
                                 duplex=job.get("duplex"),
                                 paper_size=job.get("paper_size"),
-                                tray=job.get("tray"))
+                                tray=job.get("tray"),
+                                per_sheet=job.get("per_sheet"),
+                                quality=job.get("quality"))
             ms = int((time.time() - t0) * 1000)
             db_update(job["id"], status="printed", error=None,
                       duration_ms=ms, printer=target)
@@ -1502,7 +1666,14 @@ def _print_now(job_id, path, kind, printer, copies):
                 data = f.read()
             target = print_raw(data, printer, job_id=job_id)
         else:
-            target = print_file(path, kind, printer, copies, job_id=job_id)
+            jrow = db_get(job_id) or {}
+            target = print_file(path, kind, printer, copies, job_id=job_id,
+                                pages=jrow.get("pages"),
+                                duplex=jrow.get("duplex"),
+                                paper_size=jrow.get("paper_size"),
+                                tray=jrow.get("tray"),
+                                per_sheet=jrow.get("per_sheet"),
+                                quality=jrow.get("quality"))
         ms = int((time.time() - t0) * 1000)
         db_update(job_id, status="printed", error=None,
                   duration_ms=ms, printer=target)
@@ -1883,6 +2054,9 @@ ESC_ESC = b"\x1b"
 def escpos_init():
     return ESC_ESC + b"@"                      # initialize
 
+def _escpos_cp():
+    return str(CFG.get("escpos_codepage") or "cp437")
+
 def escpos_align(mode):
     return ESC_ESC + b"a" + bytes([mode])      # 0 left, 1 center, 2 right
 
@@ -1950,7 +2124,14 @@ def escpos_bytes(text, cut=True, drawer=False):
         else:
             out += escpos_align(0)
         out += escpos_size(big)
-        out += line.encode("cp437", "replace") + b"\n"
+        try:
+            out += line.encode(_escpos_cp()) + b"\n"
+        except (UnicodeEncodeError, LookupError):
+            # configured codepage cannot represent this line (e.g. Bangla):
+            # fall back to cp437 + replacement chars AND warn once per job
+            out += line.encode("cp437", "replace") + b"\n"
+            log("[RAW] line not encodable in %s - replaced; use the"
+                " html/page path (or thermal_text_engine) for Bangla" % _escpos_cp())
         out += escpos_size(False)
     out += escpos_feed(4)
     if drawer:
@@ -2272,6 +2453,9 @@ class Handler(BaseHTTPRequestHandler):
                 "autostart": autostart_enabled(),
                 "service": service_state(),
                 "queue_bypass": True,
+                "share_lan": bool(CFG.get("share_lan")),
+                "lan_url": ("http://%s:%d" % (lan_ip(), CFG["port"]))
+                           if CFG.get("share_lan") else None,
                 "held": st.get("by_status", {}).get("held", 0) if st else 0,
                 "success_rate": st.get("success_rate") if st else None,
                 "printers_ready": ready,
@@ -2370,6 +2554,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {
                 "ok": True, "printers": items, "default": dp,
                 "groups": groups})
+        if route.startswith("/printers/") and route.endswith("/capabilities"):
+            name = urllib.parse.unquote(
+                route[len("/printers/"):-len("/capabilities")])
+            return self._send(200, printer_capabilities(name))
         if route == "/autostart":
             return self._send(200, {
                 "ok": True, "enabled": autostart_enabled(),
@@ -2767,6 +2955,17 @@ class Handler(BaseHTTPRequestHandler):
             duplex = str(bget("duplex") or "")[:20] or None
             paper_size = str(bget("paper_size") or "")[:20] or None
             tray = str(bget("tray") or "")[:40] or None
+            # v2.1 print options: n-up, quality, scale, margins, orientation
+            per_sheet = bget("per_sheet")
+            try:
+                per_sheet = max(1, min(16, int(per_sheet))) if per_sheet else 1
+            except (TypeError, ValueError):
+                per_sheet = 1
+            quality = str(bget("quality") or "")[:12].lower() or None
+            scale_pct = bget("scale_pct") or bget("scale") or None
+            margin_mm = bget("margin_mm") or bget("margins") or None
+            orientation = str(bget("orientation") or "").lower()
+            landscape = orientation in ("landscape", "land", "horizontal")
             reason = str(bget("reason") or "")[:200] or None
             profile_name = str(bget("profile") or "")[:60] or None
             lang = (bget("lang") or "").lower()
@@ -2898,24 +3097,60 @@ class Handler(BaseHTTPRequestHandler):
                 kind = "image-thermal" if paper == "thermal" else "image"
             elif body.get("html") is not None:
                 try:
-                    data, _ = html_to_pdf_bytes(body["html"], is_url=False,
-                                                title=title)
+                    data, _ = html_to_pdf_bytes(
+                        inject_page_css(body["html"], margin_mm=margin_mm,
+                                        scale_pct=scale_pct,
+                                        landscape=landscape),
+                        is_url=False, title=title)
                 except Exception as e:
                     return self._send(500, {"ok": False,
                                             "error": "html render failed: %s" % e})
                 kind = "page"
             elif body.get("page_url"):
                 try:
-                    data, _ = html_to_pdf_bytes(body["page_url"], is_url=True,
-                                                title=title)
+                    data, _ = html_to_pdf_bytes(
+                        body["page_url"], is_url=True, title=title)
+                    # CSS injection applies to html payloads, not live URLs
+                    if margin_mm or scale_pct or landscape:
+                        log("[PRINT] note: margin/scale/orientation are not"
+                            " applied to page_url jobs (server-rendered"
+                            " page) - send 'html' instead")
                 except Exception as e:
                     return self._send(500, {"ok": False,
                                             "error": "page render failed: %s" % e})
                 kind = "page"
             elif body.get("text") is not None:
-                data, _ = thermal_pdf_bytes(body["text"], title,
-                                            paper="thermal" if paper == "thermal" else "a4")
-                kind = "thermal" if paper == "thermal" else "a4"
+                txt = str(body["text"])
+                engine = str(CFG.get("thermal_text_engine") or "auto").lower()
+                want_browser = (
+                    engine == "browser"
+                    or (engine == "auto" and text_needs_browser(txt)))
+                if want_browser and find_browser():
+                    # v2.1: Bangla/Unicode text is shaped by Chrome with
+                    # system fonts (Nirmala UI / Noto Sans Bengali) so
+                    # receipts print correctly instead of '????'
+                    receipt_html = (
+                        "<html><head><meta charset='utf-8'>"
+                        "<style>@page{size:80mm auto;margin:2mm}"
+                        "pre{font:8pt/1.35 'Nirmala UI','Noto Sans Bengali',"
+                        "'Vrinda',monospace;white-space:pre-wrap;}"
+                        "</style></head><body><pre>%s</pre></body></html>"
+                        % html.escape(txt))
+                    data, _ = html_to_pdf_bytes(receipt_html, is_url=False,
+                                                title=title)
+                    kind = "thermal"
+                    log("[PRINT] Bangla/Unicode text rendered via browser"
+                        " engine (thermal roll)")
+                else:
+                    if want_browser:
+                        log("[PRINT] browser not found - builtin thermal"
+                            " renderer used; non-Latin text may show as '?'")
+                    data, _ = thermal_pdf_bytes(
+                        txt, title,
+                        paper="thermal" if paper == "thermal" else "a4",
+                        margin_mm=margin_mm, scale_pct=scale_pct,
+                        landscape=landscape)
+                    kind = "thermal" if paper == "thermal" else "a4"
             else:
                 return self._send(400, {"ok": False,
                                         "error": "provide pdf_base64, pdf_url,"
@@ -2956,6 +3191,7 @@ class Handler(BaseHTTPRequestHandler):
                 site=site, dedupe=dedupe_req, content_hash=content_hash,
                 reason=reason, profile=profile_name, pages=pages,
                 duplex=duplex, paper_size=paper_size, tray=tray,
+                per_sheet=per_sheet, quality=quality,
                 **({"watermarked": 1} if (wm_flag and kind != "raw") else {}))
             resp = {
                 "ok": True, "job_id": job, "kind": kind, "copies": copies,
@@ -2975,6 +3211,81 @@ class Handler(BaseHTTPRequestHandler):
             if lang:
                 resp["lang"] = lang
             return self._send(200, resp)
+
+        # POST /queue/shift - v2.1: move queued/held/failed jobs to ANOTHER
+        # PC's hub over the LAN ("individual shift" via ids, "full shift"
+        # via scope=all). Queue on/off stays /queue/pause + /queue/resume.
+        if route == "/queue/shift":
+            target = str(body.get("target") or "").strip().rstrip("/")
+            ids = [int(x) for x in (body.get("ids") or [])
+                   if str(x).isdigit()]
+            scope = str(body.get("scope") or
+                        ("job" if ids else "all")).lower()
+            peer_tok = str(body.get("target_token") or "")
+            if not target:
+                live = [p for p in probe_peers() if p.get("alive")]
+                if not live:
+                    return self._send(400, {"ok": False, "error":
+                        "no target given and no live peer_hubs configured"
+                        " (add peers in config.json first)"})
+                target = live[0]["url"]
+            if not peer_tok:
+                for p in CFG.get("peer_hubs") or []:
+                    if (p.get("url") or "").rstrip("/") == target:
+                        peer_tok = p.get("token") or ""
+                        break
+            picked = [j for j in db_list(500)
+                      if j.get("status") in ("pending", "queued", "held",
+                                             "failed", "dead", "retrying")]
+            if scope == "job":
+                picked = [j for j in picked if j["id"] in ids]
+            shifted, errors = [], []
+            for j in picked:
+                try:
+                    fpath = j.get("file_path")
+                    if not (fpath and os.path.exists(fpath)):
+                        raise RuntimeError("original file missing on this PC")
+                    with open(fpath, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    payload = {"pdf_base64": b64,
+                               "title": j.get("title") or "shifted job",
+                               "printer": j.get("printer") or "",
+                               "copies": j.get("copies") or 1,
+                               "pages": j.get("pages"),
+                               "duplex": j.get("duplex"),
+                               "paper_size": j.get("paper_size"),
+                               "tray": j.get("tray"),
+                               "per_sheet": j.get("per_sheet"),
+                               "quality": j.get("quality"),
+                               "source": "shift"}
+                    payload = {k: v for k, v in payload.items()
+                               if v not in (None, "")}
+                    req = urllib.request.Request(
+                        target + "/print",
+                        data=json.dumps(payload).encode(),
+                        headers={"Content-Type": "application/json",
+                                 "X-PrintHub-Token": peer_tok,
+                                 "User-Agent": "PrintHubPro/%s" % VERSION})
+                    with urllib.request.urlopen(req, timeout=25) as r:
+                        pr = json.loads(r.read().decode("utf-8", "replace"))
+                    if not pr.get("ok"):
+                        raise RuntimeError(str(pr.get("error"))[:120])
+                    db_update(j["id"], status="forwarded", peer=target,
+                              held_reason=None)
+                    db_audit("job.forwarded", job_id=j["id"],
+                             actor="queue.shift", ip=ip,
+                             details="shifted to %s (remote job %s)"
+                                     % (target, pr.get("job_id")))
+                    log("[SHIFT] job #%d -> %s (remote job %s)"
+                        % (j["id"], target, pr.get("job_id")))
+                    shifted.append(j["id"])
+                except Exception as e:
+                    errors.append({"id": j["id"], "error": str(e)[:120]})
+            return self._send(200, {
+                "ok": True, "target": target, "scope": scope,
+                "shifted": shifted, "shifted_count": len(shifted),
+                "errors": errors,
+                "message": "%d job(s) shifted to %s" % (len(shifted), target)})
 
         return self._send(404, {"ok": False, "error": "unknown endpoint"})
 
@@ -3502,10 +3813,27 @@ BANNER = r"""
   100%% local - no cloud, no tracking
 """ % (VERSION, VENDOR)
 
+def lan_ip():
+    """Best-effort LAN address of this PC (no packets are sent)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
 def cmd_serve():
     db_init()
     start_worker()
-    addr = (CFG["host"], CFG["port"])
+    host = CFG["host"]
+    if CFG.get("share_lan") and not os.environ.get("PRINTHUB_HOST"):
+        host = "0.0.0.0"
+        log("[LAN] printer sharing ENABLED - other PCs can print through"
+            " http://%s:%d (token required; allow TCP %d through the"
+            " firewall if needed)" % (lan_ip(), CFG["port"], CFG["port"]))
+    addr = (host, CFG["port"])
     try:
         httpd = ThreadingHTTPServer(addr, Handler)
     except OSError as e:

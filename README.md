@@ -1,6 +1,6 @@
 # PrintHub Pro — Print from Any Web Page to Any Printer
 
-**PrintHub Pro — Version 2.0.2 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.**
+**PrintHub Pro — Version 2.1.0 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.**
 
 PrintHub Pro prints from any web page to **any printer** — thermal, receipt, label, or standard — with **no print dialog and no confirmation**. It is a free, 100%-local, MIT-licensed alternative to paid products like Ultraprint Hub: a small **desktop hub** (single Python file, zero pip dependencies) plus a **Chrome extension** that talk to each other on `localhost` only.
 
@@ -18,6 +18,23 @@ Update anytime: run `PrintHub Tool` → **8: Check for updates**, or click
 new Setup.exe over the old one keeps all settings and history.
 
 ---
+
+## What's new in v2.1.0 — "Every printer option, LAN sharing, Bangla receipts"
+
+- **All printer options in the API**: `pages` accepts `odd`/`even`, plus
+  `per_sheet`, `quality` (draft/normal/high), `scale_pct`, `margin_mm`,
+  `orientation` — alongside the existing `copies`, `duplex`, `paper_size`,
+  `tray`. `GET /printers/{name}/capabilities` reports exactly what THIS
+  printer supports so UIs show only those options.
+- **LAN printer sharing** (`share_lan: true`): other PCs print through
+  this PC's printers over `http://<lan-ip>:9235` (token required);
+  `POST /queue/shift` moves individual jobs (`ids`) or the whole queue
+  (`scope:"all"`) to another PC; pause/resume unchanged.
+- **Bangla receipts that actually print**: non-Latin thermal text is
+  auto-rendered via headless Chrome (Nirmala UI / Noto Sans Bengali)
+  instead of turning into `????`; `escpos_codepage` configurable.
+- **New: docs/LARAVEL.md** — scheduled & webhook printing from Laravel
+  (PrintHubService + scheduler recipes + retry/backoff pattern).
 
 ## What's new in v2.0.2 — "One token opens every page"
 

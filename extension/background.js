@@ -102,7 +102,7 @@ async function flushRetries(reason) {
       sent++;
     } catch (e) {
       if (e && (e.auth || e.locked)) {
-        // v2.0.2 circuit breaker: STOP immediately. Every extra request
+        // v2.1.0 circuit breaker: STOP immediately. Every extra request
         // just feeds the hub's failure counter and (with several Chrome
         // windows on one IP) locks everyone out longer. Tries are NOT
         // burned - this is a config problem, not a dead job.
@@ -143,7 +143,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-/* v2.0.2: the moment the user fixes the token or hub URL (Options page,
+/* v2.1.0: the moment the user fixes the token or hub URL (Options page,
  * popup Connect) clear the KEY state, reset the backoff and retry at
  * once - no need to wait for the next alarm tick. */
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -161,7 +161,7 @@ async function updateRetryBadge() {
   if (!cfg.badge || cfg.enabled === false) return;
   try {
     const st = await chrome.storage.local.get({ authProblem: null });
-    if (st.authProblem) {           // v2.0.2: token problem outranks count
+    if (st.authProblem) {           // v2.1.0: token problem outranks count
       await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
       await chrome.action.setBadgeText({ text: "KEY" });
       return;
@@ -193,7 +193,7 @@ async function hubFetch(path, opts = {}) {
   let data = {};
   try { data = await res.json(); } catch (_) {}
   if (!res.ok || data.ok === false) {
-    // v2.0.2: tag auth/lock errors so callers can stop hammering the
+    // v2.1.0: tag auth/lock errors so callers can stop hammering the
     // hub (every wrong request feeds its IP failure counter)
     const err = new HubError(data.error || ("HTTP " + res.status));
     err.status = res.status;
@@ -204,7 +204,7 @@ async function hubFetch(path, opts = {}) {
   return data;
 }
 
-/* ---------------- auth problem state (v2.0.2) ------------------- */
+/* ---------------- auth problem state (v2.1.0) ------------------- */
 /* When the hub answers 401 (token rejected) or 429 (IP temporarily
  * locked) the extension must NOT keep retrying - with several Chrome
  * windows sharing one IP that would lock the dashboard and the other
@@ -322,7 +322,7 @@ function hubPrint(payload) {
     if (cfg.queueMode === false) payload.queue = false;
     return hubFetch("/print", { method: "POST", body: payload })
       .catch(async (e) => {
-        // v2.0.2: 401 = the token is wrong. Flag it (KEY badge + popup
+        // v2.1.0: 401 = the token is wrong. Flag it (KEY badge + popup
         // banner) and say so plainly; do NOT park the job - printing
         // cannot succeed until the token is fixed.
         if (e && e.auth) {
@@ -331,7 +331,7 @@ function hubPrint(payload) {
                              "PrintHub Pro options (Hub token field)");
         }
         if (e && e.locked) {
-          // v2.0.2: 429 = this IP is temporarily locked (too many bad
+          // v2.1.0: 429 = this IP is temporarily locked (too many bad
           // tokens from SOME client). Transient -> park and auto-retry.
           if (cfg.retryOffline !== false && payload.destination !== "file") {
             await queueForRetry(payload);
