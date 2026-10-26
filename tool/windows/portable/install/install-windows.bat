@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  PrintHub Pro - ONE-CLICK Windows setup  (v1.7.2)
+REM  PrintHub Pro - ONE-CLICK Windows setup  (v2.0.0)
 REM  Just double-click this file. Zero questions:
 REM    1. removes Mark-of-the-Web from all files
 REM       (fixes "Access is denied" on downloaded zips)

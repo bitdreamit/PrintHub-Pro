@@ -1,0 +1,438 @@
+"""PrintHub Pro v2.0.0 - pytest suite (pure stdlib hub, no real printer).
+
+Covers the 22 feature areas: security (random token, header-only, origins,
+SSRF guard, lockout, rotate), printer (status, groups, raw ESC/POS+ZPL,
+profiles, page ranges), queue (retry, priority, dedupe, schedule,
+dead-letter, peers), audit (log, reason, watermark, CSV, diagnostics,
+dashboard) plus repo sanity (version anchors, migrations).
+"""
+import json
+import os
+import sqlite3
+import time
+import urllib.request
+
+import pytest
+
+import printhub
+from conftest import wait_until  # noqa: E402
+
+
+# ============================================================
+# 1. health / security
+# ============================================================
+
+def test_health_open_no_token(hub):
+    code, d = hub.get("/health", token=None)
+    assert code == 200 and d["ok"] is True
+    assert d["version"] == "2.0.0"
+    assert d["v2"] is True
+    assert "100% local" in d["branding"]
+
+
+def test_new_install_random_token(hub):
+    assert hub.token and hub.token != "PrintHub-2024"
+    assert printhub.CFG["token_header_only"] is True     # fresh install = strict
+
+
+def test_auth_required_without_token(hub):
+    code, _ = hub.get("/jobs", token=None)
+    assert code == 401
+
+
+def test_header_token_works_query_token_rejected(hub):
+    code, d = hub.get("/jobs")
+    assert code == 200 and d["ok"] is True
+    code, _ = hub.get("/jobs?token=" + hub.token, token=None)
+    assert code == 401          # header-only mode: query tokens are refused
+
+
+def test_browser_navigation_exception(hub):
+    # /dashboard, /export/*.csv must accept ?token= (browsers cannot
+    # send headers on navigation - documented exception)
+    code, body = hub.get("/export/history.csv?token=" + hub.token)
+    assert code == 200 and b"id,created_at" in body
+    code, body = hub.get("/dashboard?token=" + hub.token)
+    assert code == 200 and b"PrintHub Pro" in body
+
+
+def test_wrong_token_counts_and_lockout(hub, cfg_reset):
+    printhub._AUTH_FAILS.clear()
+    codes = []
+    for i in range(printhub.CFG["max_auth_failures"]):
+        code, _ = hub.get("/jobs", token="wrong-%d" % i)
+        codes.append(code)
+    assert codes[: printhub.CFG["max_auth_failures"] - 1] == [401] * (
+        printhub.CFG["max_auth_failures"] - 1)
+    code, d = hub.get("/jobs")          # even the CORRECT token is locked now
+    assert code == 429
+    printhub._AUTH_FAILS.clear()
+
+
+def test_origin_allowlist(hub, cfg_reset):
+    hub.post("/config", {"allowed_origins": ["*.htncr.org"]})
+    code, d = hub.post("/print", {"text": "origin test", "title": "o1",
+                                  "kind": "thermal"},
+                       headers={"Origin": "https://app.htncr.org",
+                                "X-PrintHub-Token": hub.token})
+    assert code == 200
+    code, _ = hub.post("/print", {"text": "evil", "title": "o2",
+                                  "kind": "thermal"},
+                       headers={"Origin": "https://evil.example",
+                                "X-PrintHub-Token": hub.token})
+    assert code == 403
+    hub.post("/config", {"allowed_origins": []})   # back to allow-all
+
+
+def test_pdf_url_scheme_blocked(hub):
+    for bad in ("file:///etc/passwd", "ftp://host/x.pdf", "gopher://x/y"):
+        code, d = hub.post("/print", {"pdf_url": bad})
+        assert code == 400 and "blocked" in d["error"], bad
+
+
+def test_pdf_url_private_ip_blocked(hub, cfg_reset):
+    code, d = hub.post("/print", {"pdf_url": "http://192.168.1.1/a.pdf"})
+    assert code == 400 and "private" in d["error"]
+    code, d = hub.post("/print", {"pdf_url": "http://127.0.0.1:9235/health"})
+    assert code == 400 and "private" in d["error"]
+    # allowlist override accepts the host (download then fails for other
+    # reasons - NOT the SSRF guard). Use the hub itself as the allowed
+    # host so the check never depends on unreachable networks.
+    hub.post("/config", {"pdf_url_allowed_hosts": ["127.0.0.1"]})
+    code, d = hub.post("/print", {
+        "pdf_url": hub.base + "/a-not-a-pdf"})
+    assert code == 400 and "private" not in str(d.get("error", ""))
+    assert "blocked" not in str(d.get("error", ""))
+    hub.post("/config", {"pdf_url_allowed_hosts": []})
+
+
+def test_token_rotate_api(hub):
+    old = hub.token
+    code, d = hub.post("/token/rotate")
+    assert code == 200 and d["token"]
+    new = d["token"]
+    code, _ = hub.get("/jobs", token=old)
+    assert code == 401                      # old token dead immediately
+    code, _ = hub.get("/jobs", token=new)
+    assert code == 200
+    hub.token = new
+    assert printhub.CFG["token_header_only"] is True
+
+
+def test_config_post_persists(hub):
+    code, d = hub.post("/config", {"max_retries": 3})
+    assert code == 200 and "max_retries" in d["changed"]
+    disk = json.load(open(printhub.config_path()))
+    assert disk["max_retries"] == 3
+    code, d = hub.post("/config", {"token": "hack"})
+    assert code == 400                      # token only via /token/rotate
+
+
+def test_config_view_masks_token(hub):
+    code, d = hub.get("/config")
+    assert code == 200 and d["token"].endswith("***")
+
+
+# ============================================================
+# 2. queue: dedupe / priority / schedule / retry / dead-letter
+# ============================================================
+
+def test_duplicate_blocking(hub, clean_queue):
+    code, d1 = hub.post("/print", {"text": "same body", "title": "dup",
+                                   "kind": "thermal"})
+    assert code == 200 and d1["duplicate"] is False
+    code, d2 = hub.post("/print", {"text": "same body", "title": "dup",
+                                   "kind": "thermal"})
+    assert code == 200 and d2["duplicate"] is True
+    assert d2["job_id"] == d1["job_id"]
+    code, d3 = hub.post("/print", {"text": "same body", "title": "dup",
+                                   "kind": "thermal", "dedupe": False})
+    assert code == 200 and d3["duplicate"] is False
+
+
+def test_priority_urgent_first(hub, clean_queue):
+    printhub.RESUME_EVENT.clear()                       # hold the queue
+    code, lo = hub.post("/print", {"text": "low prio", "title": "low",
+                                   "priority": 9})
+    code, hi = hub.post("/print", {"text": "urgent", "title": "urgent",
+                                   "priority": 1})
+    assert lo["priority"] == 9 and hi["priority"] == 1
+    printhub.RESUME_EVENT.set()
+    ok = wait_until(lambda: len(hub.printed) >= 2)
+    assert ok
+    assert hub.printed[0]["job_id"] == hi["job_id"]     # urgent jumped the line
+    assert hub.printed[1]["job_id"] == lo["job_id"]
+
+
+def test_scheduled_print(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "later", "title": "sched",
+                                  "run_at": "+1h", "kind": "thermal"})
+    assert code == 200 and d["status"] == "scheduled" and d["scheduled_for"]
+    j = printhub.db_get(d["job_id"])
+    assert j["status"] == "scheduled"
+    assert printhub.db_promote_scheduled() == 0         # 1h away: not yet
+    printhub.db_update(j["id"], run_at="2020-01-01T00:00:00")
+    assert printhub.db_promote_scheduled() == 1
+    ok = wait_until(lambda: (printhub.db_get(j["id"]) or {})
+                    .get("status") in ("printed", "failed"))
+    assert ok
+
+
+def test_retry_then_dead_letter(hub, clean_queue, cfg_reset):
+    printhub.CFG["max_retries"] = 1
+    printhub.CFG["retry_base_seconds"] = 0
+    # make printing explode
+    orig = printhub.print_file
+    calls = {"n": 0}
+    def boom(*a, **k):
+        calls["n"] += 1
+        raise RuntimeError("printer on fire")
+    printhub.print_file = boom
+    try:
+        printhub.RESUME_EVENT.clear()
+        code, d = hub.post("/print", {"text": "will fail", "title": "boom",
+                                      "kind": "thermal"})
+        printhub.RESUME_EVENT.set()
+        ok = wait_until(lambda: (printhub.db_get(d["job_id"]) or {})
+                        .get("status") == "dead")
+        assert ok, "job should reach dead-letter after retries"
+        assert calls["n"] >= 2                          # 1st + 1 retry
+        # dead-letter recovery: retry on ANOTHER printer
+        code, d2 = hub.post("/jobs/%d/retry" % d["job_id"],
+                            {"printer": "BackupLab"})
+        assert code == 200
+        j = printhub.db_get(d["job_id"])
+        assert j["status"] in ("queued", "printing", "printed")
+        assert j["printer"] == "BackupLab"
+    finally:
+        printhub.print_file = orig
+
+
+def test_hold_when_printer_offline(hub, clean_queue, cfg_reset, monkeypatch):
+    printhub.CFG["hold_offline"] = True
+    monkeypatch.setattr(printhub, "printer_ready",
+                        lambda name="": "offline")
+    code, d = hub.post("/print", {"text": "wait for paper", "title": "hold",
+                                  "kind": "thermal", "printer": "FrontDesk"})
+    jid = d["job_id"]
+    ok = wait_until(lambda: (printhub.db_get(jid) or {}).get("status") == "held")
+    assert ok
+    j = printhub.db_get(jid)
+    assert "offline" in (j.get("held_reason") or "")
+    # printer back online -> released
+    monkeypatch.setattr(printhub, "printer_ready", lambda name="": "ready")
+    printhub._UNHOLD_TS[0] = 0.0
+    ok = wait_until(lambda: (printhub.db_get(jid) or {}).get("status")
+                    in ("printed", "printing"))
+    assert ok
+
+
+# ============================================================
+# 3. printer status / groups / raw / profiles
+# ============================================================
+
+def test_printer_group_fallback(hub, clean_queue, cfg_reset, monkeypatch):
+    printhub.CFG["printer_groups"] = {"Front": ["A", "B"]}
+    monkeypatch.setattr(printhub, "printers_status",
+                        lambda force=False: {"A": "offline", "B": "ready"})
+    assert printhub.pick_group_printer("Front") == "B"
+    code, d = hub.post("/print", {"text": "to group", "title": "grp",
+                                  "kind": "thermal", "printer": "Front"})
+    ok = wait_until(lambda: len(hub.printed) >= 1)
+    assert ok and hub.printed[-1]["printer"] == "B"
+
+
+def test_printers_endpoint_has_status(hub):
+    code, d = hub.get("/printers")
+    assert code == 200
+    for p in d["printers"]:
+        assert "status" in p and "is_group" in p
+
+
+def test_escpos_builder_markers():
+    b = printhub.escpos_bytes(
+        "HI\n#big HEAD\n|center|C\n|barcode:12345|\n|qr:tbl-9|\n|drawer|\n|cut|")
+    assert b[:2] == b"\x1b@"                  # init
+    assert b"\x1dV" in b                      # cut
+    assert b"\x1bp\x00" in b                  # cash drawer
+    assert b"\x1d(k" in b                     # QR
+    assert b"\x1dkI" in b                     # CODE128 barcode
+    assert b"\x1d!\x11" in b                  # double-size text
+
+
+def test_raw_escpos_and_zpl_end_to_end(hub, clean_queue):
+    code, d = hub.post("/print", {"lang": "escpos", "text": "COFFEE\n|cut|",
+                                  "title": "receipt", "printer": "XP-58"})
+    assert code == 200 and d["kind"] == "raw"
+    ok = wait_until(lambda: len(hub.raw_printed) >= 1)
+    assert ok
+    data, printer = hub.raw_printed[-1]
+    assert printer == "XP-58" and b"\x1dV" in data      # cut command inside
+    code, d = hub.post("/print", {"lang": "zpl",
+                                  "text": "^XA^FDHELLO^XZ",
+                                  "title": "label", "printer": "Zebra"})
+    ok = wait_until(lambda: len(hub.raw_printed) >= 2)
+    assert ok
+    data, printer = hub.raw_printed[-1]
+    assert printer == "Zebra" and data == b"^XA^FDHELLO^XZ"
+
+
+def test_pages_and_profile_reach_print_backend(hub, clean_queue, cfg_reset):
+    hub.post("/config", {"profiles": {
+        "Invoice": {"paper_size": "A4", "duplex": "long", "copies": 2}}})
+    code, d = hub.post("/print", {"text": "x", "title": "withprof",
+                                  "kind": "thermal", "profile": "Invoice",
+                                  "pages": "1-3,5", "printer": "P1"})
+    ok = wait_until(lambda: len(hub.printed) >= 1)
+    assert ok
+    rec = hub.printed[-1]
+    assert rec["pages"] == "1-3,5"
+    assert rec["duplex"] == "long" and rec["paper_size"] == "A4"
+    assert rec["copies"] == 2                        # profile default applied
+
+
+def test_unknown_profile_rejected(hub):
+    code, d = hub.post("/print", {"text": "x", "title": "badprof",
+                                  "profile": "Nope"})
+    assert code == 400 and "unknown profile" in d["error"]
+
+
+# ============================================================
+# 4. audit / watermark / exports / dashboard / diagnostics
+# ============================================================
+
+def test_audit_trail(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "audit me", "title": "aud",
+                                  "kind": "thermal"})
+    wait_until(lambda: (printhub.db_get(d["job_id"]) or {}).get("status")
+               == "printed")
+    code, d = hub.get("/audit?event=print.submitted")
+    assert code == 200 and any(e["event"] == "print.submitted"
+                               for e in d["entries"])
+    code, d = hub.get("/audit.csv")
+    assert code == 200 and b"ts,event,job_id" in d
+
+
+def test_job_records_site_and_hash(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "hash me", "title": "hash",
+                                  "kind": "thermal"})
+    j = printhub.db_get(d["job_id"])
+    assert j["content_hash"] and len(j["content_hash"]) == 64
+
+
+def test_reprint_reason_and_required(hub, clean_queue, cfg_reset):
+    code, d = hub.post("/print", {"text": "orig", "title": "rep",
+                                  "kind": "thermal"})
+    wait_until(lambda: (printhub.db_get(d["job_id"]) or {}).get("status")
+               == "printed")
+    printhub.CFG["reprint_reason_required"] = True
+    code, e = hub.post("/jobs/%d/reprint" % d["job_id"], {})
+    assert code == 400 and "reason" in e["error"]
+    code, e = hub.post("/jobs/%d/reprint" % d["job_id"],
+                       {"reason": "customer lost the copy"})
+    assert code == 200
+    code, d2 = hub.get("/audit?event=reprint")
+    assert any("customer lost" in (x.get("reason") or "")
+               for x in d2["entries"])
+    printhub.CFG["reprint_reason_required"] = False
+
+
+def test_reprint_watermark(hub, clean_queue, cfg_reset):
+    code, d = hub.post("/print", {"text": "wm source", "title": "wmsrc",
+                                  "kind": "thermal"})
+    wait_until(lambda: (printhub.db_get(d["job_id"]) or {}).get("status")
+               == "printed")
+    code, e = hub.post("/jobs/%d/reprint" % d["job_id"],
+                       {"reason": "again", "watermark": True})
+    assert code == 200 and e["watermark"] is True
+
+
+def test_pdf_watermark_function():
+    data, _ = printhub.thermal_pdf_bytes("WATERMARK UNIT TEST", "wm")
+    out = printhub.pdf_watermark(data, "REPRINT")
+    assert out[:5] == b"%PDF-" and len(out) > len(data)
+    assert b"REPRINT" in out and b"PHwm" in out
+
+
+def test_csv_history_export(hub, clean_queue):
+    hub.post("/print", {"text": "csv row", "title": "csv", "kind": "thermal"})
+    code, body = hub.get("/export/history.csv")
+    assert code == 200
+    head = body.split(b"\n")[0]
+    for col in (b"priority", b"site", b"content_hash", b"attempts"):
+        assert col in head
+
+
+def test_stats_and_dashboard(hub):
+    code, d = hub.get("/stats")
+    assert code == 200
+    for k in ("success_rate", "queue_size", "jobs_today", "by_status"):
+        assert k in d
+    code, body = hub.get("/dashboard?token=" + hub.token)
+    assert code == 200 and b"success rate" in body
+
+
+def test_diagnostics_redacts_token(hub):
+    code, d = hub.get("/diagnostics")
+    assert code == 200 and d["ok"] is True
+    assert d["token"].endswith("***")
+    assert hub.token not in json.dumps(d)
+
+
+def test_peers_endpoint(hub, cfg_reset):
+    printhub.CFG["peer_hubs"] = [{"url": "http://127.0.0.1:59999", "token": "x"}]
+    printhub._PEER_CACHE["t"] = 0.0
+    code, d = hub.get("/peers")
+    assert code == 200 and d["peers"][0]["alive"] is False
+    printhub.CFG["peer_hubs"] = []
+
+
+# ============================================================
+# 5. repo sanity: migration of a v1.x database + version anchors
+# ============================================================
+
+def test_v1_database_migration(tmp_path):
+    dbf = tmp_path / "history.db"
+    conn = sqlite3.connect(str(dbf))
+    conn.execute("""CREATE TABLE jobs (id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL, kind TEXT NOT NULL, title TEXT, printer TEXT,
+        copies INTEGER DEFAULT 1, status TEXT NOT NULL, error TEXT,
+        file_path TEXT, source TEXT DEFAULT 'api', origin_ip TEXT,
+        duration_ms INTEGER DEFAULT 0)""")
+    conn.execute("INSERT INTO jobs (created_at,kind,title,printer,copies,"
+                 "status,file_path,source,origin_ip,duration_ms) VALUES"
+                 "('2025-01-01T00:00:00','a4','old job','X',1,'printed',"
+                 "'/x.pdf','api','127',100)")
+    conn.commit()
+    conn.close()
+    old_dir = printhub.CFG["data_dir"]
+    printhub.CFG["data_dir"] = str(tmp_path)
+    try:
+        printhub.db_init()
+        row = printhub.db_get(1)
+        assert row["title"] == "old job"                 # data untouched
+        assert all(k in row for k in ("priority", "attempts", "site",
+                                      "content_hash", "held_reason"))
+    finally:
+        printhub.CFG["data_dir"] = old_dir
+
+
+def test_version_anchors():
+    assert printhub.VERSION == "2.0.0"
+    ext = os.path.join(os.path.dirname(printhub.__file__), "..",
+                       "extension", "manifest.json")
+    with open(ext) as f:
+        assert json.load(f)["version"] == "2.0.0"
+
+
+def test_log_rotation(tmp_path):
+    old = printhub.CFG["data_dir"]
+    printhub.CFG["data_dir"] = str(tmp_path)
+    old_max = printhub.CFG["log_max_mb"]
+    printhub.CFG["log_max_mb"] = 0        # rotate on every write
+    try:
+        printhub.log("rotation test entry")
+        assert os.path.isfile(os.path.join(str(tmp_path), "hub.log"))
+    finally:
+        printhub.CFG["data_dir"] = old
+        printhub.CFG["log_max_mb"] = old_max

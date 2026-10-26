@@ -1,4 +1,4 @@
-# Chrome Web Store — Copy-Paste Listing Texts (PrintHub Pro 1.6.0)
+# Chrome Web Store — Copy-Paste Listing Texts (PrintHub Pro 2.0.0)
 
 Every field below is ready to paste into the Developer Dashboard.
 Character limits are verified. Do not add emoji to the store name.
@@ -43,7 +43,7 @@ HOW IT WORKS
 
 WHERE TO GET THE HUB
 https://github.com/bitdreamit/PrintHub-Pro/releases
-(Windows: run PrintHub-Pro-Setup-1.6.0.exe — includes its own Python, nothing else to install. Linux: .deb package or install-unix.sh.)
+(Windows: run PrintHub-Pro-Setup-2.0.0.exe — includes its own Python, nothing else to install. Linux: .deb package or install-unix.sh.)
 
 PRIVACY — 100% LOCAL
 • Pages and print jobs travel only inside your computer (browser → hub → printer). They never touch any server.

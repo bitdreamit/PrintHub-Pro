@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  PrintHub Pro - Windows uninstall  (v1.7.2)
+REM  PrintHub Pro - Windows uninstall  (v2.0.0)
 REM  Removes the Startup-app shortcut (and the legacy logon task
 REM  from v1.2-v1.4) and stops the hub.
 REM  Does NOT delete your print data or the Chrome extension.

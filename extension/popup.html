@@ -52,6 +52,13 @@
   #msg.err { display:block; background:#fee2e2; color:#991b1b; }
   #msg.info { display:block; background:#dbeafe; color:#1e40af; }
   .switches { padding:8px 14px 2px; display:flex; flex-direction:column; gap:6px; }
+  .banner { display:none; align-items:center; gap:8px; margin:8px 14px 0;
+            padding:8px 10px; border-radius:8px; font-size:11.5px; line-height:1.35; }
+  .banner.show { display:flex; }
+  .banner.offline { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
+  .banner.warn { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; }
+  .banner button { padding:4px 9px; font-size:11px; flex:none; }
+  .banner .btxt { flex:1; }
   .sw { display:flex; align-items:center; gap:10px; padding:7px 9px;
         border:1px solid #eef2f7; border-radius:8px; cursor:pointer;
         user-select:none; }
@@ -74,12 +81,21 @@
   <header>
     <div class="logo">P</div>
     <h1>PrintHub Pro</h1>
-    <span class="ver" id="ver">v1.7.2</span>
+    <span class="ver" id="ver">v2.0.0</span>
   </header>
 
   <div class="status">
     <span class="dot" id="dot"></span><span id="stat">Checking hub...</span>
     <span class="sp"></span><a href="#" id="connect">Connect</a>
+  </div>
+
+  <div class="banner offline" id="offlineBanner">
+    <span class="btxt" id="offlineText">Hub offline</span>
+    <button id="bRetry">Retry now</button>
+  </div>
+  <div class="banner warn" id="tokenBanner">
+    <span class="btxt" id="tokenText">Using the DEFAULT token</span>
+    <button id="bTokenHelp">Change</button>
   </div>
 
   <div class="switches">
@@ -111,7 +127,7 @@
     <button id="bPause">Pause</button>
   </div>
 
-  <h2>Recent jobs</h2>
+  <h2 data-i18n="popRecentJobs">Recent jobs</h2>
   <div id="jobs"><div class="empty">No jobs yet.</div></div>
 
   <footer>
@@ -119,6 +135,7 @@
     <a href="#" id="lnkApi">window.printhub API</a>
   </footer>
 
+  <script src="i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

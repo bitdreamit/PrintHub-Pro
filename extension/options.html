@@ -62,8 +62,10 @@
   .st { font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:9px; }
   .st.printed, .st.queued { background:#dcfce7; color:#166534; }
   .st.printing { background:#dbeafe; color:#1e40af; }
-  .st.saved { background:#fef9c3; color:#854d0e; }
-  .st.failed, .st.canceled { background:#fee2e2; color:#991b1b; }
+  .st.saved, .st.scheduled { background:#fef9c3; color:#854d0e; }
+  .st.held { background:#ffedd5; color:#9a3412; }
+  .st.dead, .st.failed, .st.canceled { background:#fee2e2; color:#991b1b; }
+  .st.forwarded { background:#ede9fe; color:#5b21b6; }
   #saveMsg { display:inline-block; margin-left:10px; font-size:12px; font-weight:600; }
   .note { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af;
           border-radius:8px; padding:10px 12px; font-size:12.5px; margin-top:10px; }
@@ -101,7 +103,7 @@
     <h1>PrintHub Pro</h1>
     <p>Print from any web page to any printer &middot; silent &middot; 100% local &middot; MIT open source</p>
   </div>
-  <span class="verchip" id="verChip">v1.7.2</span>
+  <span class="verchip" id="verChip">v2.0.0</span>
 </header>
 
 <nav id="tabs">
@@ -165,6 +167,20 @@
         <div><b>Queue mode</b>
           <p>ON = every job goes through the hub queue in order (Pause/Resume in the popup or hub works, big jobs line up). OFF = each job is handed straight to the printer the moment it arrives (hub sends queue:false) - nothing waits behind earlier jobs, Pause has no effect.</p></div>
       </div>
+      <div class="toggle">
+        <input type="checkbox" id="retryOffline">
+        <div><b data-i18n="optRetryOffline">Retry when the hub comes back</b>
+          <p data-i18n="optRetryOfflineDesc">If the hub is offline, jobs are kept in the browser and sent automatically as soon as the hub answers again (checked every minute).</p></div>
+      </div>
+      <div class="toggle">
+        <select id="langSelect">
+          <option value="auto" data-i18n="optLangAuto">Automatic (browser language)</option>
+          <option value="en">English</option>
+          <option value="bn">বাংলা (Bangla)</option>
+        </select>
+        <div><b data-i18n="optLanguage">UI language</b>
+          <p>English or বাংলা for the popup and this Options page. "Automatic" follows the browser language.</p></div>
+      </div>
     </div>
 
     <section style="border:none;padding:0;margin:0">
@@ -176,13 +192,20 @@
       </div>
       <div class="row">
         <label>Token</label>
-        <input type="password" id="token" placeholder="PrintHub-2024">
+        <input type="password" id="token" placeholder="token from the hub">
         <button class="primary" id="bTestHub">Connect</button>
         <span id="hubState" class="mono"></span>
       </div>
       <div class="note">Start the hub with <b>python printhub.py serve</b>, or use the
         installed "PrintHub Pro" shortcut / "PrintHub Tool" menu.
-        Default token: <span class="mono">PrintHub-2024</span>.</div>
+        v2.0: new installs get a <b>private random token</b> - read it with
+        <span class="mono">python printhub.py token</span> or in the hub
+        dashboard. Old installs keep <span class="mono">PrintHub-2024</span>
+        until changed (the hub will warn you).</div>
+      <div class="row" style="margin-top:8px">
+        <button id="bDashboard" data-i18n="optDashboard">Open hub dashboard</button>
+        <button id="bAudit" data-i18n="optAudit">Open audit log</button>
+      </div>
     </section>
 
     <section style="border:none;padding:0;margin-top:18px">
@@ -197,12 +220,18 @@
 
     <section style="border:none;padding:0;margin-top:18px">
       <h2>Auto-print &amp; routing rules</h2>
-      <p class="sub">First matching rule wins. Patterns are globs: <span class="mono">*://www.htncr.org/lab/medical_reports/*</span>.
-        <b>Auto</b> = print automatically when the URL is opened.</p>
+      <p class="sub">First matching rule wins. <b>Type</b>: glob (<span class="mono">*://www.htncr.org/lab/*</span>)
+        or <b>regex</b> (v2.0). <b>Title</b>: only match when the page title contains the text.
+        <b>On</b>: per-site on/off. <b>Auto</b> = print automatically when the URL is opened.</p>
       <table id="rulesTable">
         <thead><tr>
-          <th style="width:44%">URL pattern</th><th style="width:22%">Printer</th>
-          <th style="width:14%">Action</th><th style="width:8%">Auto</th><th></th>
+          <th style="width:36%" data-i18n="optRulesRegex">URL pattern</th>
+          <th style="width:9%" data-i18n="optRulesType">Type</th>
+          <th style="width:15%" data-i18n="optRulesTitle">Title</th>
+          <th style="width:17%">Printer</th>
+          <th style="width:11%">Action</th>
+          <th style="width:5%" data-i18n="optRulesEnabled">On</th>
+          <th style="width:5%">Auto</th><th></th>
         </tr></thead>
         <tbody id="rulesBody"></tbody>
       </table>
@@ -263,7 +292,8 @@
   <section class="panel" id="panel-about">
     <div id="api" style="margin-top:-70px;padding-top:70px"></div>
     <h2>About PrintHub Pro</h2>
-    <p class="sub">Version <b id="aboutVer">1.7.2</b> &middot; by Bitdream IT &middot; MIT license &middot; 100% local - no cloud, no tracking.</p>
+    <p class="sub">Version <b id="aboutVer">2.0.0</b> &middot; by Bitdream IT &middot; MIT license &middot; 100% local - no cloud, no tracking.</p>
+    <p class="sub">v2.0 highlights: random install token + rotation, origin allowlist, IP lockout, SSRF-guarded pdf_url, printer status + hold, printer groups, ESC/POS &amp; ZPL raw printing, print profiles + page ranges, priority + exponential retry + scheduled prints + dead-letter list, peer hubs, audit log + REPRINT watermark + CSV export + web dashboard, English + বাংলা UI.</p>
 
     <h2 style="margin-top:14px">Updates</h2>
     <p class="sub">New versions are published on GitHub Releases. Install over the old one - settings and history are kept.</p>
@@ -279,12 +309,16 @@
 <pre>
 &lt;script&gt;
   <b>await</b> window.printhub.status();            <i>// hub health</i>
-  <b>await</b> window.printhub.printers();          <i>// [{name, is_default}]</i>
+  <b>await</b> window.printhub.printers();          <i>// [{name, is_default, status}]</i>
   <b>await</b> window.printhub.printPage({title});  <i>// print current page</i>
   <b>await</b> window.printhub.printPdf(url, {title, printer});
   <b>await</b> window.printhub.print({
     title: 'Receipt 12', printer: '', copies: 1,
-    text: '|center|HELLO|',        <i>// or:</i>
+    priority: 1,                    <i>// v2.0: urgent first</i>
+    pages: '1-3,5',                 <i>// v2.0: page range</i>
+    profile: 'Invoice',             <i>// v2.0: hub print profile</i>
+    text: '|center|HELLO|',         <i>// or:</i>
+    lang: 'escpos',                 <i>// v2.0: raw ESC/POS or ZPL</i>
     html: '&lt;h1&gt;Invoice&lt;/h1&gt;',      <i>// or:</i>
     pdfBase64: 'JVBERi0...',       <i>// or:</i>
     pdfUrl: 'https://.../report.pdf'
@@ -294,10 +328,13 @@
     <div class="note">Direct HTTP also works from any language:
       <span class="mono">POST http://127.0.0.1:9235/print</span> with header
       <span class="mono">X-PrintHub-Token</span> - add <span class="mono">"queue": false</span>
-      for immediate printing. See docs/API.md in the package.</div>
+      for immediate printing. New in v2.0: <span class="mono">priority, pages,
+      profile, run_at, lang, reason, watermark</span> - see docs/API.md.
+      Dashboard: <span class="mono">/dashboard?token=...</span></div>
   </section>
 </main>
 
+<script src="i18n.js"></script>
 <script src="options.js"></script>
 </body>
 </html>

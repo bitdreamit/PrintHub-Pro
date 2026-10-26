@@ -1,15 +1,15 @@
-PrintHub Pro 1.7.2 - Windows
+PrintHub Pro 2.0.0 - Windows
 ===========================
 
 NORMAL INSTALL (recommended):
-  Double-click  PrintHub-Pro-Setup-1.7.2.exe
+  Double-click  PrintHub-Pro-Setup-2.0.0.exe
   - installs everything (Python included, no admin)
   - starts the hub + auto-runs at logon (Startup app, visible)
   - creates the Start Menu shortcuts:
       Start PrintHub Pro / PrintHub Tool / Uninstall
   - OPTIONAL Windows service: tick the box on the components
     page, or run PrintHub Tool > 5 later (services.msc)
-  - silent install:  PrintHub-Pro-Setup-1.7.2.exe /S
+  - silent install:  PrintHub-Pro-Setup-2.0.0.exe /S
 
 AFTER INSTALL use 'PrintHub Tool' (Start Menu) - a numbered menu
 for start / stop / status / service add+remove / auto-run /
@@ -17,4 +17,4 @@ update check / uninstall. Non-technical users need nothing else.
 
 If Windows SmartScreen appears: More info > Run anyway.
 If the file reports 'corrupted': re-download it and compare the
-SHA-256 printed in SHA256SUMS-1.7.2.txt.
+SHA-256 printed in SHA256SUMS-2.0.0.txt.

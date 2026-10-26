@@ -108,7 +108,7 @@ async function updateCheck() {
   const out = $("updState"), live = $("updLive");
   out.textContent = "checking...";
   live.innerHTML = "";
-  let manifestVer = "1.7.2";
+  let manifestVer = "2.0.0";
   try { manifestVer = chrome.runtime.getManifest().version; } catch (_) {}
   try {
     const r = await fetch("https://api.github.com/repos/bitdreamit/PrintHub-Pro/releases/latest",
@@ -132,7 +132,7 @@ async function updateCheck() {
   }
 }
 
-/* ---------- rules table ---------- */
+/* ---------- rules table (v2.0: type glob/regex, title filter, on/off) -- */
 function ruleRow(rule) {
   const tr = document.createElement("tr");
 
@@ -142,6 +142,23 @@ function ruleRow(rule) {
   inP.placeholder = "*://example.com/reports/*";
   inP.addEventListener("change", collect);
   tdP.appendChild(inP);
+
+  const tdT = document.createElement("td");
+  const selT = document.createElement("select");
+  selT.appendChild(new Option("Glob", "glob"));
+  selT.appendChild(new Option("Regex", "regex"));
+  selT.value = rule.type || "glob";
+  selT.title = "Glob = 1.x style wildcards; Regex = v2.0 regular expression";
+  selT.addEventListener("change", collect);
+  tdT.appendChild(selT);
+
+  const tdTi = document.createElement("td");
+  const inTi = document.createElement("input");
+  inTi.type = "text"; inTi.value = rule.title || "";
+  inTi.placeholder = "invoice?";
+  inTi.title = "Only match when the page title contains this text";
+  inTi.addEventListener("change", collect);
+  tdTi.appendChild(inTi);
 
   const tdPr = document.createElement("td");
   const sel = document.createElement("select");
@@ -160,6 +177,13 @@ function ruleRow(rule) {
   selA.addEventListener("change", collect);
   tdA.appendChild(selA);
 
+  const tdOn = document.createElement("td");
+  const onChk = document.createElement("input");
+  onChk.type = "checkbox"; onChk.checked = rule.enabled !== false;
+  onChk.title = "Per-site on/off switch";
+  onChk.addEventListener("change", collect);
+  tdOn.appendChild(onChk);
+
   const tdAuto = document.createElement("td");
   const chk = document.createElement("input");
   chk.type = "checkbox"; chk.checked = !!rule.auto;
@@ -173,7 +197,7 @@ function ruleRow(rule) {
   bx.addEventListener("click", () => { tr.remove(); collect(); });
   tdX.appendChild(bx);
 
-  tr.append(tdP, tdPr, tdA, tdAuto, tdX);
+  tr.append(tdP, tdT, tdTi, tdPr, tdA, tdOn, tdAuto, tdX);
   return tr;
 }
 
@@ -186,10 +210,13 @@ function renderRules(rules) {
 function collect() {
   const rules = [];
   $("rulesBody").querySelectorAll("tr").forEach((tr) => {
-    const [p, pr, a, auto] = tr.querySelectorAll("input, select, select, input");
+    const [p, ty, ti, pr, a, on, auto] =
+      tr.querySelectorAll("input, select, select, select, select, input, input");
     if (p.value.trim()) {
-      rules.push({ pattern: p.value.trim(), printer: pr.value,
-                   action: a.value, auto: auto.checked });
+      rules.push({ pattern: p.value.trim(), type: ty.value,
+                   title: ti.value.trim(), printer: pr.value,
+                   action: a.value, enabled: on.checked,
+                   auto: auto.checked });
     }
   });
   return rules;
@@ -204,7 +231,11 @@ async function loadPrinters() {
   sel.appendChild(new Option("OS default printer", ""));
   sel.appendChild(new Option("File (save as PDF, no paper)", "__file__"));
   PRINTERS.forEach((p) =>
-    sel.appendChild(new Option(p.name + (p.is_default ? "  (OS default)" : ""), p.name)));
+    sel.appendChild(new Option(
+      p.name + (p.is_group ? "  (group)"
+              : (p.status && p.status !== "unknown"
+                 ? "  [" + p.status + "]" : "") +
+              (p.is_default ? "  (OS default)" : ""), p.name))));
   // refresh printer dropdowns in rules
   const cfg = await send({ type: "getCfg" });
   if (cfg.ok) renderRules(cfg.cfg.rules);
@@ -218,6 +249,8 @@ async function loadAll() {
   $("token").value = c.token || "";
   $("enabled").checked = c.enabled !== false;
   $("queueMode").checked = c.queueMode !== false;
+  $("retryOffline").checked = c.retryOffline !== false;
+  $("langSelect").value = c.lang || "auto";
   $("autoPrintAllPdfs").checked = c.autoPrintAllPdfs !== false;
   $("hookPrint").checked = !!c.hookPrint;
   $("closeAfterPrint").checked = c.closeAfterPrint !== false;
@@ -237,6 +270,8 @@ async function saveAll() {
       token: $("token").value.trim() || "PrintHub-2024",
       enabled: $("enabled").checked,
       queueMode: $("queueMode").checked,
+      retryOffline: $("retryOffline").checked,
+      lang: $("langSelect").value || "auto",
       defaultPrinter: $("defaultPrinter").value,
       autoPrintAllPdfs: $("autoPrintAllPdfs").checked,
       hookPrint: $("hookPrint").checked,
@@ -285,7 +320,8 @@ async function loadJobs() {
       `<td>${(j.title || "-").slice(0, 42)}</td><td>${(j.printer || "default").slice(0, 28)}</td>` +
       `<td>${j.kind}</td><td><span class="st ${j.status}">${j.status}</span></td>`;
     const tdBtn = document.createElement("td");
-    if (j.status === "queued" || j.status === "printing") {
+    if (j.status === "queued" || j.status === "printing" || j.status === "scheduled"
+        || j.status === "held") {
       const bc = document.createElement("button");
       bc.className = "mini danger"; bc.textContent = "Cancel";
       bc.addEventListener("click", async () => {
@@ -293,11 +329,25 @@ async function loadJobs() {
         loadJobs();
       });
       tdBtn.appendChild(bc);
+    } else if (j.status === "failed" || j.status === "dead" || j.status === "canceled") {
+      const br = document.createElement("button");
+      br.className = "mini"; br.textContent = "Retry";
+      br.title = "Queue this job again - choose another printer if you like";
+      br.addEventListener("click", async () => {
+        const p = prompt("Retry on which printer? (empty = the same printer)",
+                         j.printer || "");
+        if (p === null) return;                       // user canceled
+        await send({ type: "jobRetry", id: j.id, printer: p.trim() });
+        loadJobs();
+      });
+      tdBtn.appendChild(br);
     } else {
       const br = document.createElement("button");
       br.className = "mini"; br.textContent = "Reprint";
       br.addEventListener("click", async () => {
-        await send({ type: "jobAction", id: j.id, action: "reprint" });
+        const reason = prompt("Reprint - reason? (saved to the audit log)");
+        if (reason === null) return;
+        await send({ type: "jobReprint", id: j.id, reason: reason });
         loadJobs();
       });
       tdBtn.appendChild(br);
@@ -339,8 +389,26 @@ $("bClearHist").addEventListener("click", async () => {
   await chrome.storage.local.set({ history: [] });
   saved("Extension history copy cleared (hub history untouched)");
 });
-["enabled", "queueMode", "autoPrintAllPdfs", "hookPrint", "closeAfterPrint", "failFallback", "contextMenu", "badge", "defaultPrinter"].forEach((id) =>
+["enabled", "queueMode", "retryOffline", "autoPrintAllPdfs", "hookPrint",
+ "closeAfterPrint", "failFallback", "contextMenu", "badge", "defaultPrinter"].forEach((id) =>
   $(id).addEventListener("change", saveAll));
+
+$("langSelect").addEventListener("change", async () => {
+  await saveAll();
+  const lang = await PrintHubI18n.currentLang();
+  PrintHubI18n.apply(lang);
+});
+
+/* v2.0: hub dashboard + audit log (token comes from the saved config) */
+async function openHubPath(path) {
+  const cfg = await send({ type: "getCfg" });
+  if (!cfg.ok) return;
+  const base = (cfg.cfg.hubUrl || "http://127.0.0.1:9235").replace(/\/+$/, "");
+  chrome.tabs.create({ url: base + path + "?token=" +
+                       encodeURIComponent(cfg.cfg.token || "") });
+}
+$("bDashboard").addEventListener("click", () => openHubPath("/dashboard"));
+$("bAudit").addEventListener("click", () => openHubPath("/audit"));
 
 /* ---------- tab bar + queue/about wiring ---------- */
 document.querySelectorAll("#tabs button").forEach((b) =>
@@ -359,3 +427,4 @@ $("bUpdateCheck").addEventListener("click", updateCheck);
 
 loadAll();
 pickDefaultTab();
+PrintHubI18n.currentLang().then((lang) => PrintHubI18n.apply(lang));

@@ -1,0 +1,151 @@
+/* PrintHub Pro v2.0.0 - UI language: English + Bangla (বাংলা).
+ * Shared by popup + options. The language comes from:
+ *   1. chrome.storage.local.lang ("en" | "bn"), set in Options
+ *   2. fallback: the browser UI language (auto-detect)
+ * Usage in HTML: <span data-i18n="popupOffline">..</span>
+ * In JS:         const s = await t("popupOffline");
+ */
+(function (global) {
+  "use strict";
+  const STRINGS = {
+    en: {
+      appName: "PrintHub Pro",
+      // popup
+      popOffline: "Hub offline - jobs are saved and will retry",
+      popRetryNow: "Retry now",
+      popRetryCount: "job(s) waiting to retry",
+      popTokenWarn: "You are using the DEFAULT token - change it in Options",
+      popSwitchEnabled: "PrintHub enabled",
+      popEnabledOn: "printing is on",
+      popEnabledOff: "printing is OFF - nothing prints",
+      popSwitchQueue: "Queue mode",
+      popQueueOn: "jobs wait in order + pause works",
+      popQueueOff: "every job prints immediately (skips the line)",
+      popPrinting: "Sending to printer...",
+      popQueued: "Queued as job #",
+      popSaved: "Saved as PDF",
+      popCheckPrinter: " - check the printer",
+      popFailed: "Failed: ",
+      popHubOfflineHint: "Hub not reachable. Start it:  python printhub.py serve",
+      popPaused: "PAUSED",
+      popRunning: "running",
+      popResume: "Resume",
+      popPause: "Pause",
+      popRecentJobs: "Recent jobs",
+      popNoJobs: "No jobs yet - print something!",
+      popEnabledMsg: "PrintHub enabled",
+      popDisabledMsg: "PrintHub disabled - nothing will print",
+      popQueueOnMsg: "Queue mode ON - jobs are printed in FIFO order",
+      popQueueOffMsg: "Queue mode OFF - jobs print immediately",
+      popTestQueued: "Test page queued as job #",
+      popScreenshotQueued: "Screenshot queued as job #",
+      popCapturing: "Capturing screenshot...",
+      popSavingPdf: "Saving page as PDF file...",
+      popConfigError: "Config error",
+      // options
+      optLanguage: "UI language",
+      optLangAuto: "Automatic (browser language)",
+      optRetryOffline: "Retry when the hub comes back",
+      optRetryOfflineDesc: "If the hub is offline, jobs are kept in the browser and sent automatically as soon as the hub answers again (checked every minute).",
+      optDashboard: "Open hub dashboard",
+      optAudit: "Open audit log",
+      optRulesRegex: "URL pattern (glob or regex)",
+      optRulesTitle: "Page title contains",
+      optRulesEnabled: "On",
+      optRulesType: "Type",
+      optTypeGlob: "Glob (* wildcard)",
+      optTypeRegex: "Regex",
+      // about / branding
+      brandLine: "Version 2.0.0 - by Bitdream IT - MIT license - 100% local - no cloud, no tracking."
+    },
+    bn: {
+      appName: "প্রিন্টহাব প্রো",
+      popOffline: "হাব অফলাইন - কাজ সংরক্ষিত আছে, পরে আবার চেষ্টা হবে",
+      popRetryNow: "এখন পুনরায় চেষ্টা করুন",
+      popRetryCount: "টি কাজ পুনরায় পাঠানোর অপেক্ষায়",
+      popTokenWarn: "আপনি ডিফল্ট টোকেন ব্যবহার করছেন - Options থেকে বদলান",
+      popSwitchEnabled: "প্রিন্টহাব চালু",
+      popEnabledOn: "প্রিন্টিং চালু আছে",
+      popEnabledOff: "প্রিন্টিং বন্ধ - কিছুই প্রিন্ট হবে না",
+      popSwitchQueue: "কিউ মোড",
+      popQueueOn: "কাজ লাইনে অপেক্ষা করে + পজ কাজ করে",
+      popQueueOff: "প্রতিটি কাজ সাথে সাথে প্রিন্ট হয় (লাইন স্কিপ)",
+      popPrinting: "প্রিন্টারে পাঠানো হচ্ছে...",
+      popQueued: "কিউ হয়েছে, জব #",
+      popSaved: "PDF হিসেবে সংরক্ষিত",
+      popCheckPrinter: " - প্রিন্টার দেখুন",
+      popFailed: "ব্যর্থ: ",
+      popHubOfflineHint: "হাব পাওয়া যাচ্ছে না। চালু করুন:  python printhub.py serve",
+      popPaused: "বিরত",
+      popRunning: "চলছে",
+      popResume: "চালু করুন",
+      popPause: "বিরত করুন",
+      popRecentJobs: "সাম্প্রতিক কাজ",
+      popNoJobs: "এখনও কোনো কাজ নেই - কিছু প্রিন্ট করুন!",
+      popEnabledMsg: "প্রিন্টহাব চালু হয়েছে",
+      popDisabledMsg: "প্রিন্টহাব বন্ধ - কিছুই প্রিন্ট হবে না",
+      popQueueOnMsg: "কিউ মোড চালু - কাজ ক্রমানুসারে প্রিন্ট হবে",
+      popQueueOffMsg: "কিউ মোড বন্ধ - কাজ সাথে সাথে প্রিন্ট হবে",
+      popTestQueued: "টেস্ট পেজ কিউ হয়েছে, জব #",
+      popScreenshotQueued: "স্ক্রিনশট কিউ হয়েছে, জব #",
+      popCapturing: "স্ক্রিনশট নেওয়া হচ্ছে...",
+      popSavingPdf: "পেজ PDF হিসেবে সংরক্ষিত হচ্ছে...",
+      popConfigError: "কনফিগ সমস্যা",
+      optLanguage: "ইন্টারফেস ভাষা",
+      optLangAuto: "স্বয়ংক্রিয় (ব্রাউজারের ভাষা)",
+      optRetryOffline: "হাব ফিরে এলে আবার পাঠান",
+      optRetryOfflineDesc: "হাব অফলাইন থাকলে কাজগুলো ব্রাউজারে জমা থাকে এবং হাব চালু হতেই স্বয়ংক্রিয়ভাবে পাঠানো হয় (প্রতি মিনিটে পরীক্ষা)।",
+      optDashboard: "হাব ড্যাশবোর্ড খুলুন",
+      optAudit: "অডিট লগ খুলুন",
+      optRulesRegex: "URL প্যাটার্ন (glob বা regex)",
+      optRulesTitle: "পেজ শিরোনামে থাকবে",
+      optRulesEnabled: "চালু",
+      optRulesType: "ধরন",
+      optTypeGlob: "Glob (* ওয়াইল্ডকার্ড)",
+      optTypeRegex: "Regex",
+      brandLine: "সংস্করণ 2.0.0 - by Bitdream IT - MIT লাইসেন্স - ১০০% লোকাল - কোনো ক্লাউড নেই, কোনো ট্র্যাকিং নেই।"
+    }
+  };
+
+  function detect() {
+    try {
+      const ui = (chrome.i18n && chrome.i18n.getUILanguage ?
+                  chrome.i18n.getUILanguage() : "en").toLowerCase();
+      return ui.startsWith("bn") ? "bn" : "en";
+    } catch (_) { return "en"; }
+  }
+
+  function dict(lang) {
+    return STRINGS[lang] || STRINGS[detect()];
+  }
+
+  function t(key, lang) {
+    const d = dict(lang);
+    return d[key] != null ? d[key] : (STRINGS.en[key] || key);
+  }
+
+  function apply(lang) {
+    const d = dict(lang);
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+      const v = d[el.dataset.i18n];
+      if (v != null) el.textContent = v;
+    });
+    document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
+      const v = d[el.dataset.i18nPh];
+      if (v != null) el.placeholder = v;
+    });
+    document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+      const v = d[el.dataset.i18nTitle];
+      if (v != null) el.title = v;
+    });
+  }
+
+  async function currentLang() {
+    try {
+      const st = await chrome.storage.local.get({ lang: "auto" });
+      return st.lang === "auto" ? detect() : st.lang;
+    } catch (_) { return detect(); }
+  }
+
+  global.PrintHubI18n = { t, apply, detect, currentLang, languages: Object.keys(STRINGS) };
+})(typeof window !== "undefined" ? window : this);

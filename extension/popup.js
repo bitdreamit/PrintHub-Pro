@@ -14,11 +14,39 @@ function send(m) {
   });
 }
 
+/* ---------- v2.0: offline banner + retry queue ---------- */
+function showOffline(on, count) {
+  const b = $("offlineBanner");
+  b.classList.toggle("show", !!on);
+  if (on) {
+    const n = count || 0;
+    $("offlineText").textContent = PrintHubI18n.t("popOffline") +
+      (n ? " - " + n + " " + PrintHubI18n.t("popRetryCount") : "");
+  }
+}
+
+function showTokenWarning(on) {
+  $("tokenBanner").classList.toggle("show", !!on);
+}
+
+$("bRetry").addEventListener("click", async () => {
+  msg("Retrying parked jobs...", "info");
+  const r = await send({ type: "flushRetries" });
+  if (r.ok) msg((r.sent || 0) + " job(s) delivered to the hub", "info");
+  showOffline(false);
+  refresh();
+});
+
+$("bTokenHelp").addEventListener("click", () => {
+  chrome.tabs.create({ url: "options.html#settings" });
+});
+
 /* ---------- master switches (Enable / Queue Mode) ---------- */
 function renderEnabledState(off) {
   document.body.classList.toggle("off", off);
   $("swEnabledRow").classList.toggle("off", off);
-  $("swEnabledSub").textContent = off ? "printing is OFF - nothing prints" : "printing is on";
+  $("swEnabledSub").textContent = off ? PrintHubI18n.t("popEnabledOff")
+                                      : PrintHubI18n.t("popEnabledOn");
   ["bPage", "bFile", "bShot", "bTest"].forEach((id) => { $(id).disabled = off; });
   $("bPause").disabled = off;
 }
@@ -56,16 +84,28 @@ async function refresh() {
     $("stat").textContent = `Connected - hub v${st.version} on ${st.os}`;
     $("connect").textContent = "";
     paused = !!st.paused;
-    $("qstate").textContent = paused ? "PAUSED" : "running";
-    $("bPause").textContent = paused ? "Resume" : "Pause";
+    $("qstate").textContent = paused ? PrintHubI18n.t("popPaused")
+                                     : PrintHubI18n.t("popRunning");
+    $("bPause").textContent = paused ? PrintHubI18n.t("popResume")
+                                     : PrintHubI18n.t("popPause");
     $("qpend").textContent = st.pending ? st.pending + " pending" : "";
+    showOffline(false);
+    showTokenWarning(!!st.default_token_warning);
+    // v2.0: hub is back - deliver anything parked while it was down
+    const ri = await send({ type: "retryInfo" });
+    if (ri.ok && ri.count) {
+      const fl = await send({ type: "flushRetries" });
+      if (fl.ok && fl.sent) msg(fl.sent + " parked job(s) delivered", "info");
+    }
   } else {
     $("dot").classList.remove("on");
     $("stat").textContent = "Hub offline";
     $("connect").textContent = "Connect";
     $("qstate").textContent = "-";
     $("qpend").textContent = "";
-    msg("Hub not reachable. Start it:  python printhub.py serve", "err");
+    const ri = await send({ type: "retryInfo" });
+    showOffline(true, ri.ok ? ri.count : 0);
+    msg(PrintHubI18n.t("popHubOfflineHint"), "err");
   }
 
   const jobs = await send({ type: "hubJobs", limit: 8 });
@@ -89,7 +129,7 @@ async function refresh() {
       box.appendChild(d);
     }
   } else {
-    box.innerHTML = '<div class="empty">No jobs yet - print something!</div>';
+    box.innerHTML = '<div class="empty">' + PrintHubI18n.t("popNoJobs") + '</div>';
   }
 }
 
@@ -139,6 +179,16 @@ $("lnkApi").addEventListener("click", (e) => {
   chrome.tabs.create({ url: chrome.runtime.getURL("options.html#api") });
 });
 $("connect").addEventListener("click", (e) => { e.preventDefault(); refresh(); });
+
+/* ---------- v2.0: apply UI language (en / bn / auto) ---------- */
+PrintHubI18n.currentLang().then((lang) => {
+  PrintHubI18n.apply(lang);
+  $("swQueueSub").textContent = $("swQueue").checked
+    ? PrintHubI18n.t("popQueueOn") : PrintHubI18n.t("popQueueOff");
+  const off = document.body.classList.contains("off");
+  $("swEnabledSub").textContent = off ? PrintHubI18n.t("popEnabledOff")
+                                      : PrintHubI18n.t("popEnabledOn");
+});
 
 loadSwitches();
 refresh();
