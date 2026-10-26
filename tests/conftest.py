@@ -1,4 +1,4 @@
-"""Pytest fixtures: boot a real PrintHub Pro v2.0.0 hub (pure stdlib) on a
+"""Pytest fixtures: boot a real PrintHub Pro v2.0.1 hub (pure stdlib) on a
 random port with an isolated data dir, then hand tests an HTTP client.
 
 The print backends are monkeypatched (no printer needed) - print_file /
@@ -140,7 +140,9 @@ def cfg_reset(hub):
     snap = {k: printhub.CFG[k] for k in
             ("allowed_origins", "max_retries", "dedupe_minutes",
              "hold_offline", "reprint_reason_required", "reprint_watermark",
-             "printer_groups", "profiles", "peer_forwarding")}
+             "printer_groups", "profiles", "peer_forwarding",
+             "lockout_exempt_loopback", "max_auth_failures",
+             "lockout_minutes")}
     yield hub
     printhub.CFG.update(snap)
     printhub._AUTH_FAILS.clear()

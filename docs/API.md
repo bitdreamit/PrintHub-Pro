@@ -1,11 +1,11 @@
-# PrintHub Pro — Hub HTTP API (v2.0.0)
+# PrintHub Pro — Hub HTTP API (v2.0.2)
 
 Base URL: `http://127.0.0.1:9235` (default)
 
 Auth: header `X-PrintHub-Token: <token>`.
-- **New installs (v2.0):** the token is a private random value printed at first start and stored in `config.json`. Only the **header** is accepted on API endpoints (query/body tokens are rejected). Browser-navigation endpoints — `GET /dashboard?token=…`, `GET /jobs/{id}/file?token=…`, `GET /export/*.csv?token=…`, `GET /audit.csv?token=…` — still accept `?token=` because browsers cannot send headers on navigation.
+- **New installs (v2.0):** the token is a private random value printed at first start and stored in `config.json`. All **mutating endpoints (POST)** require the **header** — query/body tokens are rejected there. Every **GET** endpoint (v2.0.2, one uniform rule) additionally accepts `?token=` for plain browser navigation — `GET /dashboard?token=…`, `GET /audit?token=…`, `GET /jobs?token=…`, `GET /stats?token=…`, `GET /jobs/{id}/file?token=…`, `GET /export/*.csv?token=…` — because browsers cannot send headers when following a link. A leaked GET URL can therefore only *read* data, never print or change settings.
 - **Old installs:** keep working exactly as before (header, `?token=` query or JSON `"token"` field all accepted) and raise `default_token_warning: true` in `/health` until the token is rotated.
-- **IP lockout:** 10 wrong tokens from one IP locks it for 5 minutes (HTTP 429).
+- **IP lockout (fixed in v2.0.1):** 10 wrong tokens from one **remote** IP locks it for 5 minutes (HTTP 429). The loopback IP `127.0.0.1`/`::1` is **never locked by default** (`lockout_exempt_loopback: true`) — every Chrome window/profile shares that one IP, so a stale token in one window must not lock out the dashboard, tray and extension of all the others. Failures only count inside a sliding `lockout_minutes` window and any successful auth clears the counter immediately. Every 401 answer carries an actionable hint (and points out the old default token `PrintHub-2024` specifically when it is used). Browsers opening any GET link (`/dashboard`, `/audit`, `/stats`, …) with a wrong token get a readable HTML fix-it page instead of raw JSON (v2.0.2: extended from the dashboard to every GET endpoint); API clients keep the JSON error.
 
 All responses are JSON with an `"ok"` field. The API is CORS-open with
 `Access-Control-Allow-Private-Network: true`. When `allowed_origins` is set in
@@ -138,7 +138,7 @@ For `destination:"file"`: `"status": "saved"`, `"file": "<path>"`.
 |---|---|
 | `POST /token/rotate` | Generate a fresh random token; old one stops immediately. Response: `{"ok": true, "token": "..."}` |
 | `GET /config` | Redacted view of config.json |
-| `POST /config` | Update any config key at runtime (persisted): `allowed_origins`, `printer_groups`, `profiles`, `pdf_url_allowed_hosts`, `max_retries`, `retry_base_seconds`, `dedupe_minutes`, `hold_offline`, `audit_enabled`, `reprint_watermark`, `reprint_reason_required`, `max_auth_failures`, `lockout_minutes`, `peer_hubs`, `peer_forwarding`, `log_max_mb`, `log_backups`. The token is rejected here — use `/token/rotate`. |
+| `POST /config` | Update any config key at runtime (persisted): `allowed_origins`, `printer_groups`, `profiles`, `pdf_url_allowed_hosts`, `max_retries`, `retry_base_seconds`, `dedupe_minutes`, `hold_offline`, `audit_enabled`, `reprint_watermark`, `reprint_reason_required`, `max_auth_failures`, `lockout_minutes`, `lockout_exempt_loopback`, `peer_hubs`, `peer_forwarding`, `log_max_mb`, `log_backups`. The token is rejected here — use `/token/rotate`. |
 | `GET /peers` | Health-probe every configured peer hub — `{"url","alive","version","latency_ms"}`; dead peers are skipped by forwarding |
 
 ## Audit, exports, dashboard, diagnostics
@@ -164,6 +164,9 @@ Lives in the data dir (`~/.printhub/config.json`). See the README table for
 every key with defaults. **Defaults keep 1.x behaviour** except where the
 feature itself is the point (`max_retries: 2`, `dedupe_minutes: 5`,
 `hold_offline: true`). New installs additionally get `token_header_only: true`.
+Auth-related keys: `max_auth_failures` (10), `lockout_minutes` (5) and
+`lockout_exempt_loopback` (`true` = never lock 127.0.0.1/::1 — set `false`
+to lock loopback too, the strict v2.0.0 behaviour).
 
 ## CLI
 

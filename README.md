@@ -1,6 +1,6 @@
 # PrintHub Pro — Print from Any Web Page to Any Printer
 
-**PrintHub Pro — Version 2.0.0 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.**
+**PrintHub Pro — Version 2.0.2 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.**
 
 PrintHub Pro prints from any web page to **any printer** — thermal, receipt, label, or standard — with **no print dialog and no confirmation**. It is a free, 100%-local, MIT-licensed alternative to paid products like Ultraprint Hub: a small **desktop hub** (single Python file, zero pip dependencies) plus a **Chrome extension** that talk to each other on `localhost` only.
 
@@ -19,6 +19,51 @@ new Setup.exe over the old one keeps all settings and history.
 
 ---
 
+## What's new in v2.0.2 — "One token opens every page"
+
+Hotfix on top of v2.0.1, from user feedback: the same correct token opened
+`/dashboard?token=…` but was **rejected on `/audit?token=…`** — the Options
+tab's *Audit* button and any manually opened audit/stats link returned
+`401 invalid or missing token`. The v2.0.0 browser-navigation exception was
+whitelisted per-route, and `/audit`, `/stats`, `/jobs`, `/diagnostics` were
+missing from that list. v2.0.2 replaces the whitelist with one simple rule:
+
+- **Every GET endpoint accepts `?token=`** — a token that opens the
+  dashboard equally opens `/audit`, `/stats`, `/printers`, `/jobs`,
+  `/queue`, `/config`, `/peers` and the CSV exports. Read-only pages are
+  exactly what a browser follows links to; no more "works here, fails
+  there" surprises.
+- **Mutating calls stay hardened** — every POST (print, queue actions,
+  config, token rotate) still requires the `X-PrintHub-Token` header when
+  `token_header_only: true` (the v2.0 default). A leaked URL therefore
+  cannot trigger prints or change settings.
+- **Readable browser errors everywhere** — following any GET link with a
+  wrong/missing token now shows the same friendly HTML fix-it page the
+  dashboard already used, instead of a raw JSON blob. API clients
+  (curl / fetch / Laravel) keep getting the JSON error.
+
+### Fixed in v2.0.1 (previous hotfix)
+
+On multi-Chrome PCs a single stale token could lock the whole machine out
+of the hub for 5 minutes. Fixes that shipped in v2.0.1:
+
+- **The owner's PC is never locked out** — the loopback IP is exempt from
+  the wrong-token lockout by default (`lockout_exempt_loopback: true` in
+  config.json). Remote/LAN IPs keep the full 10-strikes → 5-minute lock.
+- **Sliding window + instant recovery** — failures only count inside a
+  5-minute window, and one successful auth clears the counter immediately.
+- **Self-limiting extension** — on a `401` the extension stops retrying at
+  once (circuit breaker, red `KEY` badge, popup banner), instead of
+  feeding the hub's failure counter every minute; the moment you save a
+  fixed token it retries automatically. On a `429` jobs are parked and
+  delivered after the lock expires.
+- **Readable errors** — every `401` answer now carries an actionable hint
+  ("the old default token no longer works — use the tray menu or
+  `python printhub.py token`"); browsers opening `/dashboard` with a wrong
+  token get a friendly HTML fix-it page instead of a raw JSON blob.
+- **Quieter audit log** — wrong-token attempts are audited at most once
+  per 10 s per IP (a polling stale client no longer floods `auth.failed`).
+
 ## What's new in v2.0.0 — "Security, Audit & Production Control"
 
 **Security**
@@ -26,7 +71,7 @@ new Setup.exe over the old one keeps all settings and history.
 - **Header-only tokens** on new installs (query/body tokens rejected; browser-navigation endpoints keep accepting `?token=`).
 - **Allowed origins** — restrict which websites may print (`allowed_origins: ["*.htncr.org"]`). Empty list = allow all, like 1.x.
 - **SSRF-guarded `pdf_url`** — `file://`, `ftp://` and private/local addresses are blocked (exempt list: `pdf_url_allowed_hosts`).
-- **IP lockout** — 10 wrong tokens ⇒ that IP is locked for 5 minutes.
+- **IP lockout (v2.0.1)** — 10 wrong tokens from a **remote** IP ⇒ locked 5 minutes. The loopback IP (`127.0.0.1`) is **never locked by default** — all Chrome windows/profiles share that one IP, so a stale token in one window can no longer lock out the dashboard, tray and extension of the others (`lockout_exempt_loopback`). Failures count only inside a sliding 5-minute window and any successful auth clears the counter. Wrong-token 401 answers carry a fix-it hint; the dashboard shows a friendly HTML error page instead of raw JSON.
 - **Token rotation** — dashboard button, `POST /token/rotate`, CLI `token-rotate`.
 
 **Printers**
@@ -209,7 +254,8 @@ variables still override config.json for the classic keys.
 | `token_header_only` | `false` (old installs) / `true` (new) | Reject `?token=`/body tokens except browser-navigation endpoints |
 | `allowed_origins` | `[]` = allow all | Which websites may print, e.g. `["*.htncr.org"]` |
 | `pdf_url_allowed_hosts` | `[]` | Hosts exempt from the private-IP block |
-| `max_auth_failures` / `lockout_minutes` | `10` / `5` | Wrong-token lockout |
+| `max_auth_failures` / `lockout_minutes` | `10` / `5` | Wrong-token lockout (remote IPs) |
+| `lockout_exempt_loopback` | `true` | v2.0.1: never lock 127.0.0.1/::1 (all Chrome windows share it) |
 | `printer_groups` | `{}` | `{"Front": ["A", "B"]}` fallback order |
 | `profiles` | `{}` | `{"Invoice": {"paper_size":"A4","duplex":"long","copies":2}}` |
 | `max_retries` / `retry_base_seconds` | `2` / `30` | Exponential retry (0 = off, 1.7.2 behaviour) |

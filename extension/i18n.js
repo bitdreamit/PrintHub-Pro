@@ -1,4 +1,4 @@
-/* PrintHub Pro v2.0.0 - UI language: English + Bangla (বাংলা).
+/* PrintHub Pro v2.0.2 - UI language: English + Bangla (বাংলা).
  * Shared by popup + options. The language comes from:
  *   1. chrome.storage.local.lang ("en" | "bn"), set in Options
  *   2. fallback: the browser UI language (auto-detect)
@@ -15,6 +15,8 @@
       popRetryNow: "Retry now",
       popRetryCount: "job(s) waiting to retry",
       popTokenWarn: "You are using the DEFAULT token - change it in Options",
+      popTokenBad: "The hub REJECTED your token - open Options and paste the current hub token",
+      popTokenLocked: "Hub is rate-limiting this IP - retries paused, will resume automatically",
       popSwitchEnabled: "PrintHub enabled",
       popEnabledOn: "printing is on",
       popEnabledOff: "printing is OFF - nothing prints",
@@ -64,6 +66,8 @@
       popRetryNow: "এখন পুনরায় চেষ্টা করুন",
       popRetryCount: "টি কাজ পুনরায় পাঠানোর অপেক্ষায়",
       popTokenWarn: "আপনি ডিফল্ট টোকেন ব্যবহার করছেন - Options থেকে বদলান",
+      popTokenBad: "হাব আপনার টোকেন প্রত্যাখ্যান করেছে - Options থেকে সঠিক হাব টোকেন দিন",
+      popTokenLocked: "হাব এই IP সাময়িকভাবে সীমিত করেছে - রিট্রি বিরতিতে আছে, স্বয়ংক্রিয়ভাবে পুনরায় শুরু হবে",
       popSwitchEnabled: "প্রিন্টহাব চালু",
       popEnabledOn: "প্রিন্টিং চালু আছে",
       popEnabledOff: "প্রিন্টিং বন্ধ - কিছুই প্রিন্ট হবে না",

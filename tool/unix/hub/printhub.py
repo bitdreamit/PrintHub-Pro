@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  PrintHub Pro v2.0.0  -  Print from any web page to any printer
+#  PrintHub Pro v2.0.1  -  Print from any web page to any printer
 #  by Bitdream IT  -  MIT licensed, 100% local & open source
 #  PrintHub Pro - Version 2.0.0 - by Bitdream IT - MIT license
 #  100% local - no cloud, no tracking.
@@ -36,6 +36,7 @@ import base64
 import csv
 import hashlib
 import hmac
+import html
 import io
 import ipaddress
 import json
@@ -56,7 +57,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "2.0.0"
+VERSION = "2.0.2"
 BRANDING = ("PrintHub Pro - Version %s - by Bitdream IT - MIT license - "
             "100%% local - no cloud, no tracking" % VERSION)
 APP_NAME = "PrintHub Pro"
@@ -102,6 +103,11 @@ CFG = {
     "pdf_url_allowed_hosts": [],      # hosts exempt from the private-IP block
     "max_auth_failures": 10,          # failed tokens before ...
     "lockout_minutes": 5,             # ... the IP is locked this many minutes
+    "lockout_exempt_loopback": True,  # 127.0.0.1/::1 are NEVER locked
+                                      # (every Chrome window/profile shares
+                                      #  that ONE IP - v2.0.1: a stale token
+                                      #  in one window must not lock out
+                                      #  the dashboard, tray and extension)
     "printer_groups": {},             # {"Front Desk": ["A", "B"]} fallback order
     "profiles": {},                   # {"Invoice": {"paper": "a4", "duplex": True}}
     "max_retries": 2,                 # exponential retry (0 = off, 1.7.2 style)
@@ -123,14 +129,16 @@ for _k in ("token", "printer", "file_dir"):
 
 CONFIG_KEYS = ("token", "token_header_only", "allowed_origins",
                "pdf_url_allowed_hosts", "max_auth_failures",
-               "lockout_minutes", "printer_groups", "profiles",
+               "lockout_minutes", "lockout_exempt_loopback",
+               "printer_groups", "profiles",
                "max_retries", "retry_base_seconds", "dedupe_minutes",
                "hold_offline", "audit_enabled", "reprint_watermark",
                "reprint_reason_required", "peer_hubs", "peer_forwarding",
                "log_max_mb", "log_backups", "printer", "file_dir")
 CONFIG_TYPES = {"token_header_only": bool, "allowed_origins": list,
                 "pdf_url_allowed_hosts": list, "max_auth_failures": int,
-                "lockout_minutes": int, "printer_groups": dict,
+                "lockout_minutes": int, "lockout_exempt_loopback": bool,
+                "printer_groups": dict,
                 "profiles": dict, "max_retries": int,
                 "retry_base_seconds": int, "dedupe_minutes": int,
                 "hold_offline": bool, "audit_enabled": bool,
@@ -1680,7 +1688,13 @@ CORS_HEADERS = [
 ]
 
 # v2.0 auth hardening state
-_AUTH_FAILS = {}          # ip -> {count, until}  (10 wrong tokens -> lock)
+_AUTH_FAILS = {}          # ip -> {count, until, first, last_audit, warned}
+                          # 10 wrong tokens inside the window -> lock
+                          # (v2.0.1: loopback IPs are exempt by default -
+                          #  see lockout_exempt_loopback in CFG)
+_AUTH_AUDIT_TS = {}       # ip -> last auth.failed audit write (survives
+                          # success-clears so the audit log can never be
+                          # flooded: max 1 row per 10 s per IP)
 START_TS = time.time()    # for the diagnostics uptime report
 
 def _extension_origin(origin):
@@ -2096,55 +2110,115 @@ class Handler(BaseHTTPRequestHandler):
         if os.environ.get("PRINTHUB_VERBOSE"):
             log("[HTTP] %s %s" % (self.address_string(), fmt % args))
 
-    # ---- auth (v2.0) ----
+    # ---- auth (v2.0, fixed in v2.0.1) ----
     # * token in the X-PrintHub-Token HEADER is always accepted
     # * token in query/body: accepted on old installs; on new installs
     #   (token_header_only) it is rejected everywhere EXCEPT the few
     #   endpoints a browser must open by navigation (/dashboard,
     #   /jobs/{id}/file, /export/*.csv) - documented in docs/API.md
-    # * 10 wrong tokens from one IP -> that IP is locked for 5 minutes
+    # * v2.0.1 LOCKOUT RULES (the v2.0.0 lockout could lock out the OWNER):
+    #     - every Chrome window/profile shares ONE IP (127.0.0.1), so a
+    #       stale token in one window locked the dashboard, tray and
+    #       extension of ALL windows -> loopback is now exempt by default
+    #       (config: lockout_exempt_loopback, default true)
+    #     - failures only count inside a sliding window (lockout_minutes)
+    #       so old failures can never accumulate into a surprise lock
+    #     - a successful auth clears that IP's counter immediately
+    #     - REMOTE IPs still get the full 10-wrong-tokens -> 5 min lock
     # * browser Origin header must match allowed_origins (when set)
     def _client_ip(self):
         return self.client_address[0] if self.client_address else "-"
+
+    def _is_loopback(self):
+        ip = self._client_ip()
+        return ip in ("127.0.0.1", "::1", "localhost",
+                      "::ffff:127.0.0.1", "::ffff:127.0.0.1%0")
 
     def _request_site(self):
         o = self.headers.get("Origin") or self.headers.get("Referer") or ""
         return o.strip()[:200] or None
 
+    def _auth_hint(self, given):
+        """Actionable hint appended to every 401 answer."""
+        if given and given == LEGACY_TOKEN and CFG["token"] != LEGACY_TOKEN:
+            return ("'%s' was the OLD default token and no longer works. "
+                    "Get the current token from the tray menu (Open "
+                    "dashboard), read it from %s, or run: "
+                    "python printhub.py token"
+                    % (LEGACY_TOKEN, config_path()))
+        return ("get the token from the tray menu, from %s, or run: "
+                "python printhub.py token" % config_path())
+
     def _auth_error(self, qtoken=None, body=None, allow_query=False):
         """Returns None when authorized, otherwise (code, message).
-        allow_query=True marks browser-navigation endpoints where the
-        query token is accepted even in header-only mode."""
+        allow_query=True marks read-only GET navigation where the query
+        token is accepted even in header-only mode (v2.0.2: every GET;
+        POST stays header-strict)."""
         ip = self._client_ip()
+        loopback = self._is_loopback()
+        exempt = loopback and CFG.get("lockout_exempt_loopback", True)
+        now = time.time()
         lock = _AUTH_FAILS.get(ip)
-        if lock and lock.get("until", 0) > time.time():
-            left = int(lock["until"] - time.time())
-            return (429, "too many failed tokens - this IP is locked for"
-                         " another %ds" % left)
+        if lock and lock.get("until", 0) > now:
+            if not exempt:
+                left = int(lock["until"] - now)
+                return (429, "too many failed tokens - this IP is locked"
+                             " for another %ds" % left)
+            _AUTH_FAILS.pop(ip, None)   # owner IP: never stay locked
         strict = bool(CFG.get("token_header_only")) and not allow_query
         given = self.headers.get("X-PrintHub-Token") or ""
         if not strict:
             given = given or str(qtoken or "") or str((body or {}).get("token") or "")
         if given and hmac.compare_digest(str(given), str(CFG["token"])):
-            if ip in _AUTH_FAILS:
-                _AUTH_FAILS.pop(ip, None)
+            _AUTH_FAILS.pop(ip, None)   # success clears the counter
             return None
         # record the failure -> maybe lock this IP
-        rec = _AUTH_FAILS.setdefault(ip, {"count": 0, "until": 0.0})
+        window = max(int(CFG.get("lockout_minutes", 5)), 1) * 60
+        rec = _AUTH_FAILS.get(ip)
+        if rec is None or now - rec.get("first", 0) > window:
+            rec = {"count": 0, "until": 0.0, "first": now,
+                   "last_audit": 0.0, "warned": False}
+            _AUTH_FAILS[ip] = rec
+            if len(_AUTH_FAILS) > 512:          # memory hygiene
+                for k in [k for k, v in _AUTH_FAILS.items()
+                          if now - v.get("first", 0) > window][:64]:
+                    _AUTH_FAILS.pop(k, None)
         rec["count"] += 1
-        db_audit("auth.failed", ip=ip,
-                 details="wrong token (attempt %d)" % rec["count"])
-        if rec["count"] >= int(CFG.get("max_auth_failures", 10)):
-            mins = int(CFG.get("lockout_minutes", 5))
-            rec["until"] = time.time() + mins * 60
-            db_audit("auth.locked", ip=ip,
-                     details="IP locked for %d min after %d wrong tokens"
-                             % (mins, rec["count"]))
-            log("[AUTH] IP %s locked for %d min (%d wrong tokens)"
-                % (ip, mins, rec["count"]))
-            return (429, "too many failed tokens - this IP is locked for"
-                         " %d minutes" % mins)
-        return (401, "invalid or missing token")
+        # audit throttle: max 1 auth.failed row per 10 s per IP - kept in
+        # a side table so clearing the counter on success cannot be used
+        # to re-arm it and flood the audit log
+        if now - _AUTH_AUDIT_TS.get(ip, 0) >= 10:
+            _AUTH_AUDIT_TS[ip] = now
+            if len(_AUTH_AUDIT_TS) > 512:       # memory hygiene
+                for k in [k for k, t in _AUTH_AUDIT_TS.items()
+                          if now - t > 60][:64]:
+                    _AUTH_AUDIT_TS.pop(k, None)
+            db_audit("auth.failed", ip=ip,
+                     details="wrong token (attempt %d)" % rec["count"])
+        limit = max(int(CFG.get("max_auth_failures", 10)), 1)
+        if rec["count"] >= limit:
+            if exempt:
+                # v2.0.1: the owner's own IP is never locked - one stale
+                # token must not take the whole PC's printing down
+                rec["count"] = 0
+                if not rec.get("warned"):
+                    rec["warned"] = True
+                    log("[AUTH] %d wrong tokens from loopback %s - NOT"
+                        " locked (lockout_exempt_loopback=true; use the"
+                        " tray menu or 'python printhub.py token' to fix)"
+                        % (limit, ip))
+            else:
+                mins = int(CFG.get("lockout_minutes", 5))
+                rec["until"] = now + mins * 60
+                rec["count"] = 0        # fresh count after the lock ends
+                db_audit("auth.locked", ip=ip,
+                         details="IP locked for %d min after %d wrong tokens"
+                                 % (mins, limit))
+                log("[AUTH] IP %s locked for %d min (%d wrong tokens)"
+                    % (ip, mins, limit))
+                return (429, "too many failed tokens - this IP is locked"
+                             " for %d minutes" % mins)
+        return (401, "invalid or missing token - " + self._auth_hint(given))
 
     def _origin_error(self):
         """403 when the browser Origin is not on the allowed list.
@@ -2164,18 +2238,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    # endpoints a browser may open by plain navigation (token via ?token=
-    # is accepted even in header-only mode - browsers cannot send headers)
-
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         qt = (q.get("token") or [""])[0]
         route = u.path.rstrip("/") or "/"
-        browser_nav = (route == "/dashboard"
-                       or (route.startswith("/jobs/") and route.endswith("/file"))
-                       or route.startswith("/export/")
-                       or route in ("/audit.csv", "/history.csv"))
+        # v2.0.2 auth rule (fixes the /audit vs /dashboard mismatch):
+        # EVERY GET endpoint accepts ?token= for plain browser navigation
+        # - browsers cannot send the X-PrintHub-Token header, and a token
+        # that opens /dashboard must equally open /audit, /stats, /jobs.
+        # Mutating calls (POST) still require the header in header-only
+        # mode, so the extension/API hardening is not weakened.
 
         if route == "/health":                        # open: browser pre-check
             dp = default_printer()
@@ -2206,11 +2279,26 @@ class Handler(BaseHTTPRequestHandler):
                 "v2": True,
             })
 
-        # /dashboard - browser page; ?token= is the documented exception
-        # to header-only mode (browsers cannot send headers on navigation)
+        # /dashboard - browser page with its own early auth so browser
+        # users always get the HTML error page (v2.0.2: /audit, /stats
+        # and every other GET accept ?token= too - see the generic rule)
         if route == "/dashboard":
             err = self._auth_error(qt, allow_query=True)
             if err:
+                # v2.0.1: browsers get a readable HTML page with fix
+                # instructions instead of a raw JSON blob
+                if "text/html" in (self.headers.get("Accept") or ""):
+                    page = dashboard_auth_error_html(err[1]).encode("utf-8")
+                    self.send_response(err[0])
+                    self._cors()
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(page)))
+                    self.end_headers()
+                    try:
+                        self.wfile.write(page)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
                 return self._send(err[0], {"ok": False, "error": err[1]})
             html = dashboard_html(u.query).encode("utf-8")
             self.send_response(200)
@@ -2227,8 +2315,23 @@ class Handler(BaseHTTPRequestHandler):
         err = self._origin_error()
         if err:
             return self._send(err[0], {"ok": False, "error": err[1]})
-        err = self._auth_error(qt, allow_query=browser_nav)
+        err = self._auth_error(qt, allow_query=True)   # v2.0.2: every GET
         if err:
+            # v2.0.2: a browser that followed a link gets the same
+            # readable HTML error page as the dashboard; API clients
+            # (fetch/curl) keep the JSON error
+            if "text/html" in (self.headers.get("Accept") or ""):
+                page = dashboard_auth_error_html(err[1]).encode("utf-8")
+                self.send_response(err[0])
+                self._cors()
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(page)))
+                self.end_headers()
+                try:
+                    self.wfile.write(page)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
             return self._send(err[0], {"ok": False, "error": err[1]})
 
         if route == "/":
@@ -2979,6 +3082,55 @@ def dashboard_html(query=""):
             .replace("@@VERSION@@", VERSION)
             .replace("@@BRANDING@@", BRANDING.replace(" - ", " &middot; "))
             .replace("@@Q@@", q))
+
+DASHBOARD_AUTH_ERROR_TMPL = r"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PrintHub Pro - dashboard needs the current token</title>
+<style>
+ body{font-family:"Segoe UI",system-ui,sans-serif;background:#f1f5f9;margin:0;
+      display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .c{background:#fff;max-width:600px;width:92%;border-radius:12px;
+    padding:26px 32px;box-shadow:0 4px 24px rgba(15,23,42,.08);
+    border-top:4px solid #dc2626}
+ h1{font-size:19px;margin:0 0 10px;color:#0f172a}
+ p{color:#334155;line-height:1.55;margin:8px 0}
+ ol{color:#334155;line-height:1.85;padding-left:22px;margin:10px 0}
+ code{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:4px;
+      padding:1px 6px;font-size:12.5px;word-break:break-all}
+ .m{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;
+    border-radius:8px;padding:9px 12px;font-size:13px;word-break:break-word}
+ .f{color:#64748b;font-size:12px;margin-top:14px;line-height:1.5}
+</style></head><body><div class="c">
+<h1>PrintHub Pro - dashboard needs the current token</h1>
+<div class="m">__MSG__</div>
+<p>The token in this link is not the hub's current token. This often
+happens when a bookmark still uses the old default token
+<code>PrintHub-2024</code>, or the token was rotated recently.</p>
+<ol>
+<li><b>Tray icon (easiest)</b> - right-click the PrintHub Pro tray icon
+and choose <i>Open dashboard</i>. It always opens with the right token.</li>
+<li><b>Command line</b> - in the hub folder run
+<code>python printhub.py token</code>, then open
+<code>/dashboard?token=THE-TOKEN</code>.</li>
+<li><b>Config file</b> - the token is the <code>"token"</code> value in
+<code>%USERPROFILE%\.printhub\config.json</code>
+(Linux/Mac: <code>~/.printhub/config.json</code>).</li>
+</ol>
+<p class="f">Tip: after changing or rotating the token, also update it in
+the extension (PrintHub Pro Options - Hub token) and replace old dashboard
+bookmarks. Since v2.0.1 a wrong token in one Chrome window can no longer
+lock out the other windows - the hub never locks the loopback IP
+127.0.0.1 by default.</p>
+</div></body></html>
+"""
+
+
+def dashboard_auth_error_html(message=""):
+    """Friendly browser page when the dashboard token is wrong/missing."""
+    msg = html.escape(str(message or "invalid or missing token"), quote=True)
+    return DASHBOARD_AUTH_ERROR_TMPL.replace("__MSG__", msg)
+
 
 DASHBOARD_HTML = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">

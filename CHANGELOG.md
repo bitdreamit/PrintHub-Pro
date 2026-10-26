@@ -6,6 +6,74 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is
 
 ---
 
+## [2.0.2] — 2026-10-26 — "One token opens every page"
+
+### Fixed
+- **`/audit?token=…` was rejected while `/dashboard?token=…` worked** with
+  the same, correct token: the v2.0.0 "browser-navigation exception" was a
+  per-route whitelist (`/dashboard`, `/jobs/{id}/file`, `/export/*`,
+  `/audit.csv`) that forgot the JSON views — `/audit`, `/stats`, `/jobs`,
+  `/printers`, `/queue`, `/config`, `/diagnostics`, `/peers`. The
+  extension Options tab's *Audit* button opens exactly `/audit?token=…`
+  and returned `401 invalid or missing token` for every user. **v2.0.2
+  replaces the whitelist with one uniform rule: every GET endpoint
+  accepts `?token=` for browser navigation.**
+- **Friendly HTML auth-error page on every GET**: a browser following a
+  link with a wrong/missing token now gets the same readable fix-it page
+  the dashboard already used, instead of a raw JSON blob. API clients
+  (curl / fetch / Laravel Http) keep receiving the JSON error because
+  they do not send `Accept: text/html`.
+
+### Security
+- **Hardening unchanged where it matters**: all mutating endpoints (POST)
+  still require the `X-PrintHub-Token` header when
+  `token_header_only: true` (default on new installs) — a query token
+  alone can read, never print or change settings. The IP lockout,
+  sliding-window counting and loopback exemption from v2.0.1 are
+  untouched.
+
+---
+
+## [2.0.1] — 2026-10-26 — "Lockout fix for multi-Chrome PCs"
+
+### Fixed
+- **Loopback is never locked out** (`lockout_exempt_loopback`, default
+  `true`): in v2.0.0 every Chrome window/profile shares the single IP
+  `127.0.0.1`, so one stale token (e.g. an old
+  `/dashboard?token=PrintHub-2024` bookmark) could hit 10 failed tokens
+  and lock the dashboard, tray, extension and all other windows out for
+  5 minutes — repeatedly, because the stale client kept retrying. The
+  hub now never locks its owner's loopback IP; remote/LAN IPs keep the
+  full lock. Set `lockout_exempt_loopback: false` for the strict
+  v2.0.0 behaviour.
+- **Sliding-window failure counting**: wrong tokens only count inside a
+  `lockout_minutes` window (old failures expire instead of accumulating
+  into a surprise lock days later); any successful auth clears that
+  IP's counter instantly.
+- **Extension circuit breaker**: on HTTP 401 the extension stops sending
+  immediately (no more per-minute retry storm), shows a red `KEY` badge
+  plus a popup banner, and resumes + flushes the moment a fixed token or
+  hub URL is saved. On HTTP 429 jobs are parked and auto-delivered after
+  the lock expires. `Flush` backoff doubles 1 → 2 → 4 → 8 → 15 min.
+- **Actionable 401 hints**: every invalid-token answer explains how to
+  get the current token (tray menu, config.json,
+  `python printhub.py token`) and specifically calls out the old default
+  `PrintHub-2024` when it is used.
+- **Dashboard HTML error page**: browsers opening `/dashboard` with a
+  wrong/missing token now get a styled fix-it page (tray icon, CLI and
+  config-file instructions) instead of a raw JSON blob.
+- **Audit spam throttle**: `auth.failed` is written at most once per
+  10 s per IP, so a polling stale client no longer floods the audit log
+  (and the `_AUTH_FAILS` map is capped/cleaned).
+
+### Changed
+- Version anchors 2.0.0 → 2.0.1 (hub `VERSION`, branding, extension
+  manifest/popup/options, docs, tests).
+- README security section, docs/API.md auth section and the config table
+  document the new key and behaviour.
+
+---
+
 ## [2.0.0] — 2026-10-26 — "Security, Audit & Production Control"
 
 The largest release ever: 22 features across security, printers, queue,

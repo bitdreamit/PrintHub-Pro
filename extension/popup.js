@@ -25,8 +25,16 @@ function showOffline(on, count) {
   }
 }
 
-function showTokenWarning(on) {
+function showTokenWarning(on, mode) {
   $("tokenBanner").classList.toggle("show", !!on);
+  if (on) {
+    // v2.0.2: mode "token"=401, "locked"=429, "default"=legacy token
+    $("tokenText").textContent = mode === "token"
+      ? PrintHubI18n.t("popTokenBad")
+      : mode === "locked"
+        ? PrintHubI18n.t("popTokenLocked")
+        : PrintHubI18n.t("popTokenWarn");
+  }
 }
 
 $("bRetry").addEventListener("click", async () => {
@@ -90,7 +98,14 @@ async function refresh() {
                                      : PrintHubI18n.t("popPause");
     $("qpend").textContent = st.pending ? st.pending + " pending" : "";
     showOffline(false);
-    showTokenWarning(!!st.default_token_warning);
+    // v2.0.2: token rejected earlier (KEY state) -> red banner; once an
+    // authed call succeeds below, the flag is cleared again
+    const ap = await chrome.storage.local.get({ authProblem: null });
+    if (ap.authProblem) {
+      showTokenWarning(true, ap.authProblem.why);
+    } else {
+      showTokenWarning(!!st.default_token_warning, "default");
+    }
     // v2.0: hub is back - deliver anything parked while it was down
     const ri = await send({ type: "retryInfo" });
     if (ri.ok && ri.count) {
@@ -111,6 +126,15 @@ async function refresh() {
   const jobs = await send({ type: "hubJobs", limit: 8 });
   const box = $("jobs");
   box.innerHTML = "";
+  if (jobs.ok) {
+    // v2.0.2: an authed call just succeeded -> the token works again;
+    // clear the KEY flag so the red banner disappears on next paint
+    const ap = await chrome.storage.local.get({ authProblem: null });
+    if (ap.authProblem) {
+      await chrome.storage.local.remove("authProblem");
+      showTokenWarning(!!st.default_token_warning, "default");
+    }
+  }
   if (jobs.ok && jobs.jobs && jobs.jobs.length) {
     for (const j of jobs.jobs) {
       const d = document.createElement("div");

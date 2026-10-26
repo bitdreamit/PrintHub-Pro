@@ -1,10 +1,10 @@
-"""PrintHub Pro v2.0.0 - pytest suite (pure stdlib hub, no real printer).
+"""PrintHub Pro v2.0.1 - pytest suite (pure stdlib hub, no real printer).
 
 Covers the 22 feature areas: security (random token, header-only, origins,
-SSRF guard, lockout, rotate), printer (status, groups, raw ESC/POS+ZPL,
-profiles, page ranges), queue (retry, priority, dedupe, schedule,
-dead-letter, peers), audit (log, reason, watermark, CSV, diagnostics,
-dashboard) plus repo sanity (version anchors, migrations).
+SSRF guard, lockout + v2.0.1 loopback exemption, rotate), printer (status,
+groups, raw ESC/POS+ZPL, profiles, page ranges), queue (retry, priority,
+dedupe, schedule, dead-letter, peers), audit (log, reason, watermark, CSV,
+diagnostics, dashboard) plus repo sanity (version anchors, migrations).
 """
 import json
 import os
@@ -25,7 +25,7 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.0.0"
+    assert d["version"] == "2.0.2"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
@@ -40,23 +40,38 @@ def test_auth_required_without_token(hub):
     assert code == 401
 
 
-def test_header_token_works_query_token_rejected(hub):
-    code, d = hub.get("/jobs")
-    assert code == 200 and d["ok"] is True
-    code, _ = hub.get("/jobs?token=" + hub.token, token=None)
-    assert code == 401          # header-only mode: query tokens are refused
+def test_header_token_works_on_every_get_v202(hub):
+    # v2.0.2: the /audit vs /dashboard mismatch is gone - the SAME token
+    # must open EVERY GET endpoint, with or without a browser header
+    for path in ("/jobs", "/audit", "/stats", "/diagnostics",
+                 "/printers", "/queue", "/config", "/peers"):
+        code, _ = hub.get(path)                           # header call
+        assert code == 200, path
+        code, _ = hub.get(path + "?token=" + hub.token,
+                          token=None)                     # browser link
+        assert code == 200, path
 
 
-def test_browser_navigation_exception(hub):
-    # /dashboard, /export/*.csv must accept ?token= (browsers cannot
-    # send headers on navigation - documented exception)
-    code, body = hub.get("/export/history.csv?token=" + hub.token)
-    assert code == 200 and b"id,created_at" in body
-    code, body = hub.get("/dashboard?token=" + hub.token)
-    assert code == 200 and b"PrintHub Pro" in body
+def test_post_query_token_still_rejected_v202(hub):
+    # v2.0.2 hardening kept: mutating POSTs require the header in
+    # header-only mode - a query token alone is not enough
+    code, _ = hub.post("/queue/pause?token=" + hub.token,
+                       {}, token=None)
+    assert code == 401
+    code, _ = hub.post("/queue/pause", {})                # header works
+    assert code == 200
+    hub.post("/queue/resume", {})                         # restore
+
+
+def test_wrong_token_get_gives_json_for_api_clients(hub):
+    code, d = hub.get("/audit", token="nope-" + hub.token)
+    assert code == 401 and d["ok"] is False and "error" in d
 
 
 def test_wrong_token_counts_and_lockout(hub, cfg_reset):
+    # v2.0.1: loopback is exempt by default -> disable the exemption to
+    # exercise the remote-IP lock path (tests always come from 127.0.0.1)
+    printhub.CFG["lockout_exempt_loopback"] = False
     printhub._AUTH_FAILS.clear()
     codes = []
     for i in range(printhub.CFG["max_auth_failures"]):
@@ -67,6 +82,67 @@ def test_wrong_token_counts_and_lockout(hub, cfg_reset):
     code, d = hub.get("/jobs")          # even the CORRECT token is locked now
     assert code == 429
     printhub._AUTH_FAILS.clear()
+
+
+def test_loopback_never_locked_by_default(hub):
+    """v2.0.1 core fix: many Chrome windows share 127.0.0.1 - a stale
+    token in one window must never lock the dashboard/tray/extension
+    of every other window out."""
+    printhub._AUTH_FAILS.clear()
+    n = int(printhub.CFG["max_auth_failures"]) + 5
+    codes = set()
+    for i in range(n):
+        code, _ = hub.get("/jobs", token="still-wrong-%d" % i)
+        codes.add(code)
+    assert 429 not in codes             # no lock, no matter how many fails
+    code, d = hub.get("/jobs")          # the correct token keeps working
+    assert code == 200 and d["ok"] is True
+    assert not printhub._AUTH_FAILS.get("127.0.0.1", {}).get("until")
+    printhub._AUTH_FAILS.clear()
+
+
+def test_success_clears_failure_counter(hub):
+    printhub._AUTH_FAILS.clear()
+    for i in range(int(printhub.CFG["max_auth_failures"]) - 1):
+        hub.get("/jobs", token="bad-%d" % i)
+    code, _ = hub.get("/jobs")          # one success -> counter reset
+    assert code == 200
+    rec = printhub._AUTH_FAILS.get("127.0.0.1")
+    assert rec is None                  # success clears the IP entirely
+    printhub._AUTH_FAILS.clear()
+
+
+def test_failures_expire_with_sliding_window(hub):
+    printhub._AUTH_FAILS.clear()
+    for i in range(int(printhub.CFG["max_auth_failures"]) - 1):
+        hub.get("/jobs", token="old-%d" % i)
+    rec = printhub._AUTH_FAILS["127.0.0.1"]
+    rec["first"] -= int(printhub.CFG["lockout_minutes"]) * 60 + 1  # age out
+    code, _ = hub.get("/jobs", token="after-window")
+    assert code == 401                  # still rejected, but...
+    fresh = printhub._AUTH_FAILS["127.0.0.1"]
+    assert fresh["count"] == 1          # ...counted in a NEW window
+    printhub._AUTH_FAILS.clear()
+
+
+def test_old_default_token_gets_clear_hint(hub):
+    code, d = hub.get("/jobs", token="PrintHub-2024")
+    assert code == 401
+    assert "OLD default token" in d["error"]
+    assert "printhub.py token" in d["error"]
+
+
+def test_dashboard_wrong_token_html_error(hub):
+    """Browsers opening /dashboard with a stale ?token= now get a
+    readable HTML page (fix instructions), not a raw JSON blob."""
+    code, body = hub.get("/dashboard?token=PrintHub-2024",
+                         token="PrintHub-2024",
+                         headers={"Accept": "text/html"})
+    assert code == 401
+    assert b"<!DOCTYPE html>" in body and b"tray icon" in body.lower()
+    # JSON clients still get JSON
+    code, d = hub.get("/dashboard?token=PrintHub-2024", token="PrintHub-2024")
+    assert code == 401 and d["ok"] is False and "error" in d
 
 
 def test_origin_allowlist(hub, cfg_reset):
@@ -418,11 +494,11 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert printhub.VERSION == "2.0.0"
+    assert printhub.VERSION == "2.0.2"
     ext = os.path.join(os.path.dirname(printhub.__file__), "..",
                        "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.0.0"
+        assert json.load(f)["version"] == "2.0.2"
 
 
 def test_log_rotation(tmp_path):

@@ -89,7 +89,9 @@ async function flushRetries(reason) {
   if (!q.length) return 0;
   let sent = 0;
   const remaining = [];
-  for (const item of q) {
+  let stopped = null;           // "auth" | "locked" | null
+  for (let i = 0; i < q.length; i++) {
+    const item = q[i];
     try {
       const data = await hubFetch("/print", {
         method: "POST", body: item.payload });
@@ -99,6 +101,15 @@ async function flushRetries(reason) {
                           printer: "retry" });
       sent++;
     } catch (e) {
+      if (e && (e.auth || e.locked)) {
+        // v2.0.2 circuit breaker: STOP immediately. Every extra request
+        // just feeds the hub's failure counter and (with several Chrome
+        // windows on one IP) locks everyone out longer. Tries are NOT
+        // burned - this is a config problem, not a dead job.
+        stopped = e.auth ? "auth" : "locked";
+        remaining.push(...q.slice(i));
+        break;
+      }
       item.tries = (item.tries || 0) + 1;
       if (item.tries < 20) remaining.push(item);   // give up after ~20 min
     }
@@ -108,7 +119,17 @@ async function flushRetries(reason) {
   if (!remaining.length) {
     try { await chrome.alarms.clear(RETRY_ALARM); } catch (_) {}
   }
+  if (stopped) {
+    await setAuthProblem(true, stopped);
+    FLUSH_BACKOFF_MIN = Math.min(FLUSH_BACKOFF_MIN * 2 || 2, 15);
+    await scheduleRetryAlarm();      // slow down: 1 -> 2 -> 4 -> 8 -> 15 min
+    console.warn("[PrintHub] retry paused for " + FLUSH_BACKOFF_MIN +
+                 " min (" + remaining.length + " job(s) kept)");
+    return sent;
+  }
   if (sent) {
+    FLUSH_BACKOFF_MIN = 1;
+    await setAuthProblem(false);
     console.log("[PrintHub] " + sent + " parked job(s) delivered" +
                 (reason ? " (" + reason + ")" : ""));
     await flashBadge(true, "OK");
@@ -122,10 +143,29 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+/* v2.0.2: the moment the user fixes the token or hub URL (Options page,
+ * popup Connect) clear the KEY state, reset the backoff and retry at
+ * once - no need to wait for the next alarm tick. */
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.token || changes.hubUrl) {
+    FLUSH_BACKOFF_MIN = 1;
+    setAuthProblem(false).then(() => flushRetries("config-changed"));
+  } else if (changes.authProblem && !changes.authProblem.newValue) {
+    updateRetryBadge();       // KEY badge can go away
+  }
+});
+
 async function updateRetryBadge() {
   const cfg = await loadCfg();
   if (!cfg.badge || cfg.enabled === false) return;
   try {
+    const st = await chrome.storage.local.get({ authProblem: null });
+    if (st.authProblem) {           // v2.0.2: token problem outranks count
+      await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+      await chrome.action.setBadgeText({ text: "KEY" });
+      return;
+    }
     const q = await retryQueueInfo();
     if (q.length) {
       await chrome.action.setBadgeBackgroundColor({ color: "#d97706" });
@@ -153,9 +193,47 @@ async function hubFetch(path, opts = {}) {
   let data = {};
   try { data = await res.json(); } catch (_) {}
   if (!res.ok || data.ok === false) {
-    throw new HubError(data.error || ("HTTP " + res.status));
+    // v2.0.2: tag auth/lock errors so callers can stop hammering the
+    // hub (every wrong request feeds its IP failure counter)
+    const err = new HubError(data.error || ("HTTP " + res.status));
+    err.status = res.status;
+    err.auth = res.status === 401;
+    err.locked = res.status === 429;
+    throw err;
   }
   return data;
+}
+
+/* ---------------- auth problem state (v2.0.2) ------------------- */
+/* When the hub answers 401 (token rejected) or 429 (IP temporarily
+ * locked) the extension must NOT keep retrying - with several Chrome
+ * windows sharing one IP that would lock the dashboard and the other
+ * windows out too. State is stored so the popup can show a banner. */
+let FLUSH_BACKOFF_MIN = 1;      // alarm period: 1 -> 2 -> 4 -> 8 -> 15 min
+
+async function setAuthProblem(on, why) {
+  const st = await chrome.storage.local.get({ authProblem: null });
+  if (on) {
+    await chrome.storage.local.set({
+      authProblem: { why: why || "token", at: new Date().toISOString() }
+    });
+    try {
+      await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+      await chrome.action.setBadgeText({ text: "KEY" });
+    } catch (_) {}
+    console.warn("[PrintHub] " + (why === "locked"
+      ? "hub is rate-limiting this IP (429) - backing off"
+      : "hub rejected the token (401) - update it in PrintHub options"));
+  } else if (st.authProblem) {
+    await chrome.storage.local.remove("authProblem");
+  }
+}
+
+async function scheduleRetryAlarm() {
+  try {
+    await chrome.alarms.create(RETRY_ALARM,
+                               { periodInMinutes: FLUSH_BACKOFF_MIN });
+  } catch (_) {}
 }
 
 /* ---------------- URL pattern matching (glob + regex + title) -------- */
@@ -244,6 +322,26 @@ function hubPrint(payload) {
     if (cfg.queueMode === false) payload.queue = false;
     return hubFetch("/print", { method: "POST", body: payload })
       .catch(async (e) => {
+        // v2.0.2: 401 = the token is wrong. Flag it (KEY badge + popup
+        // banner) and say so plainly; do NOT park the job - printing
+        // cannot succeed until the token is fixed.
+        if (e && e.auth) {
+          await setAuthProblem(true, "token");
+          throw new HubError("hub rejected the token - fix it in " +
+                             "PrintHub Pro options (Hub token field)");
+        }
+        if (e && e.locked) {
+          // v2.0.2: 429 = this IP is temporarily locked (too many bad
+          // tokens from SOME client). Transient -> park and auto-retry.
+          if (cfg.retryOffline !== false && payload.destination !== "file") {
+            await queueForRetry(payload);
+            await setAuthProblem(true, "locked");
+            throw new HubError("hub is rate-limiting this IP - job saved " +
+                               "and will retry automatically");
+          }
+          throw new HubError("hub is rate-limiting this IP - try again " +
+                             "in a few minutes");
+        }
         // v2.0: network-level failure (hub down) -> park for auto-retry
         const msg = String((e && e.message) || e);
         const networkish = /failed to fetch|networkerror|load failed/i.test(msg);
