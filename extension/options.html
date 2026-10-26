@@ -103,13 +103,14 @@
     <h1>PrintHub Pro</h1>
     <p>Print from any web page to any printer &middot; silent &middot; 100% local &middot; MIT open source</p>
   </div>
-  <span class="verchip" id="verChip">v2.1.0</span>
+  <span class="verchip" id="verChip">v2.2.0</span>
 </header>
 
 <nav id="tabs">
   <button data-tab="queue" id="tabBtnQueue">Queue<span class="tbadge" id="tabQBadge"></span></button>
   <button data-tab="history">History</button>
   <button data-tab="settings">Settings</button>
+  <button data-tab="lan" id="tabBtnLan">LAN / PCs</button>
   <button data-tab="about">About</button>
 </nav>
 
@@ -219,6 +220,75 @@
     </section>
 
     <section style="border:none;padding:0;margin-top:18px">
+      <h2>Default print options <span class="sub" style="display:inline">(v2.2 - all printer options)</span></h2>
+      <p class="sub">Sent with EVERY job printed from this browser - rules, page
+        scripts and the popup can still override. Shown only as the printer
+        supports them (ask the hub: /printers/&lt;name&gt;/capabilities).</p>
+      <div class="row">
+        <label>Copies</label>
+        <input type="text" id="dCopies" placeholder="1" style="max-width:80px;min-width:80px">
+        <label style="min-width:auto">Pages</label>
+        <select id="dPagesMode" style="flex:none">
+          <option value="">All pages</option>
+          <option value="odd">Odd pages only</option>
+          <option value="even">Even pages only</option>
+          <option value="custom">Custom range...</option>
+        </select>
+        <input type="text" id="dPagesCustom" placeholder="1-3,5" style="max-width:110px;min-width:110px">
+      </div>
+      <div class="row">
+        <label>Quality</label>
+        <select id="dQuality" style="flex:none">
+          <option value="">Printer default</option>
+          <option value="draft">Draft (fast, light ink)</option>
+          <option value="normal">Normal</option>
+          <option value="high">High / Best</option>
+          <option value="300dpi">300 dpi</option>
+          <option value="600dpi">600 dpi</option>
+          <option value="1200dpi">1200 dpi</option>
+          <option value="custom">Custom DPI...</option>
+        </select>
+        <input type="text" id="dQualityCustom" placeholder="600" style="max-width:80px;min-width:80px">
+        <label style="min-width:auto">Per sheet (n-up)</label>
+        <select id="dPerSheet" style="flex:none">
+          <option value="">1 per sheet</option><option value="2">2</option>
+          <option value="4">4</option><option value="6">6</option>
+          <option value="9">9</option><option value="16">16</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Duplex (two sides)</label>
+        <select id="dDuplex" style="flex:none">
+          <option value="">Printer default</option>
+          <option value="simplex">One side (simplex)</option>
+          <option value="duplex">Two sides, long edge</option>
+          <option value="duplexlong">Two sides, long edge</option>
+          <option value="duplexshort">Two sides, short edge</option>
+        </select>
+        <label style="min-width:auto">Layout</label>
+        <select id="dOrient" style="flex:none">
+          <option value="">Auto (portrait)</option>
+          <option value="portrait">Portrait</option>
+          <option value="landscape">Landscape</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Scale %</label>
+        <input type="text" id="dScale" placeholder="100 (25-400)" style="max-width:110px;min-width:110px">
+        <label style="min-width:auto">Margins mm</label>
+        <input type="text" id="dMargin" placeholder="driver default" style="max-width:110px;min-width:110px">
+        <label style="min-width:auto">Paper</label>
+        <select id="dPaper" style="flex:none">
+          <option value="">Printer default</option>
+          <option>A4</option><option>A5</option><option>A3</option>
+          <option>Letter</option><option>Legal</option><option>Tabloid</option>
+          <option>Executive</option><option>Folio</option><option>Statement</option>
+        </select>
+      </div>
+      <div class="note" id="capsNote">Connect to the hub to see what the selected printer supports.</div>
+    </section>
+
+    <section style="border:none;padding:0;margin-top:18px">
       <h2>Auto-print &amp; routing rules</h2>
       <p class="sub">First matching rule wins. <b>Type</b>: glob (<span class="mono">*://www.htncr.org/lab/*</span>)
         or <b>regex</b> (v2.0). <b>Title</b>: only match when the page title contains the text.
@@ -288,12 +358,57 @@
     </section>
   </section>
 
+  <!-- ================= LAN / PCs ================= -->
+  <section class="panel" id="panel-lan">
+    <h2>LAN sharing - let OTHER PCs print through this one</h2>
+    <p class="sub">v2.2 &middot; the hub listens on 127.0.0.1 only until you switch
+      this on. Other PCs must use your token - wrong tokens get locked out.</p>
+    <div class="qstate">
+      <span class="dot" id="lanDot"></span>
+      <b id="lanState">checking...</b>
+      <span id="lanUrl" class="mono"></span>
+      <span style="flex:1"></span>
+      <button class="mini" id="bLanToggle">Enable</button>
+      <button class="mini" id="bLanCopy">Copy URL</button>
+      <button class="mini" id="bLanRefresh">Refresh</button>
+    </div>
+    <div class="note" id="lanHint">After enabling: <b>restart the hub</b>
+      (tray icon &rarr; Exit, start PrintHub Pro again) and allow the port
+      through the firewall once:<br>
+      <span class="mono">netsh advfirewall firewall add rule name="PrintHub Pro"
+      dir=in action=allow protocol=TCP localport=9235</span></div>
+
+    <h2 style="margin-top:16px">Other PCs (peers)</h2>
+    <p class="sub">Fixed peers live in <span class="mono">"peer_hubs"</span> in the
+      hub's config.json. <b>Shift</b> re-uploads the waiting jobs to that PC
+      and marks them forwarded here.</p>
+    <table>
+      <thead><tr><th>PC (hub URL)</th><th>Status</th><th>Version</th>
+        <th style="width:180px"></th></tr></thead>
+      <tbody id="peersBody"><tr><td colspan="4">Connect to the hub first.</td></tr></tbody>
+    </table>
+    <div class="row" style="margin-top:12px">
+      <label>Shift whole queue to</label>
+      <input type="text" id="shiftTarget" placeholder="http://192.168.0.60:9235">
+      <input type="password" id="shiftToken" placeholder="that PC's token (optional for peers)" style="min-width:190px">
+      <button class="primary" id="bShiftAll">Shift all waiting</button>
+    </div>
+    <div class="note"><b>Print FROM another PC through this one:</b> install the
+      extension there, set <b>Settings &rarr; Hub URL</b> to this PC's LAN URL
+      (Copy button above) and the same token. Single jobs: the
+      <b>Shift to PC</b> buttons in the <b>Queue</b> tab. Full guide:
+      <b>About &rarr; Open user guide</b> (the hub serves it at /docs).</div>
+  </section>
+
   <!-- ================= ABOUT ================= -->
   <section class="panel" id="panel-about">
     <div id="api" style="margin-top:-70px;padding-top:70px"></div>
     <h2>About PrintHub Pro</h2>
-    <p class="sub">Version <b id="aboutVer">2.1.0</b> &middot; by Bitdream IT &middot; MIT license &middot; 100% local - no cloud, no tracking.</p>
-    <p class="sub">v2.0 highlights: random install token + rotation, origin allowlist, IP lockout, SSRF-guarded pdf_url, printer status + hold, printer groups, ESC/POS &amp; ZPL raw printing, print profiles + page ranges, priority + exponential retry + scheduled prints + dead-letter list, peer hubs, audit log + REPRINT watermark + CSV export + web dashboard, English + বাংলা UI.</p>
+    <p class="sub">Version <b id="aboutVer">2.2.0</b> &middot; by Bitdream IT &middot; MIT license &middot; 100% local - no cloud, no tracking.</p>
+    <p class="sub">v2.2 highlights: <b>Default print options</b> (copies, odd/even/custom pages, per-sheet n-up, <b>quality draft/normal/high AND DPI</b>, scale, margins, duplex, paper, layout) &middot; <b>LAN / PCs tab</b>: share this printer over the LAN, peers list, shift single jobs or the whole queue to another PC &middot; the hub serves the full user guide at <b>/docs</b> &middot; v2.1: capabilities endpoint, Bangla thermal receipts, Laravel auto-print.</p>
+    <div class="gh">
+      <button class="primary" id="bOpenDocs">Open user guide (built-in docs)</button>
+    </div>
 
     <h2 style="margin-top:14px">Updates</h2>
     <p class="sub">New versions are published on GitHub Releases. Install over the old one - settings and history are kept.</p>
@@ -315,7 +430,13 @@
   <b>await</b> window.printhub.print({
     title: 'Receipt 12', printer: '', copies: 1,
     priority: 1,                    <i>// v2.0: urgent first</i>
-    pages: '1-3,5',                 <i>// v2.0: page range</i>
+    pages: '1-3,5',                 <i>// v2.0: range - v2.2: odd/even too</i>
+    per_sheet: 2,                   <i>// v2.1: n-up</i>
+    quality: 'draft',               <i>// v2.2: draft|normal|high|'600dpi'</i>
+    dpi: 600,                       <i>// v2.2: explicit DPI</i>
+    scale_pct: 150, margin_mm: 8,   <i>// v2.1: rendered jobs</i>
+    duplex: 'duplex',               <i>// two-sided</i>
+    paper_size: 'A4', orientation: 'landscape',
     profile: 'Invoice',             <i>// v2.0: hub print profile</i>
     text: '|center|HELLO|',         <i>// or:</i>
     lang: 'escpos',                 <i>// v2.0: raw ESC/POS or ZPL</i>

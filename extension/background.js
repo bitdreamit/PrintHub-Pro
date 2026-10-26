@@ -24,6 +24,10 @@ const DEFAULTS = {
   closeAfterPrint: true,    // auto-printed URLs: close the tab after -> no browser view
   contextMenu: true,        // right-click "PrintHub Pro" menu
   badge: true,              // show ok/fail on the toolbar icon
+  printDefaults: {},        // v2.2: default print options from Options >
+                            // "Default print options" (copies, pages mode,
+                            // quality draft/normal/high/DPI, per_sheet,
+                            // duplex, scale, margins, paper, orientation)
   rules: [
     {
       pattern: "*://www.htncr.org/lab/medical_reports/pdf/*",
@@ -102,7 +106,7 @@ async function flushRetries(reason) {
       sent++;
     } catch (e) {
       if (e && (e.auth || e.locked)) {
-        // v2.1.0 circuit breaker: STOP immediately. Every extra request
+        // v2.2.0 circuit breaker: STOP immediately. Every extra request
         // just feeds the hub's failure counter and (with several Chrome
         // windows on one IP) locks everyone out longer. Tries are NOT
         // burned - this is a config problem, not a dead job.
@@ -143,7 +147,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-/* v2.1.0: the moment the user fixes the token or hub URL (Options page,
+/* v2.2.0: the moment the user fixes the token or hub URL (Options page,
  * popup Connect) clear the KEY state, reset the backoff and retry at
  * once - no need to wait for the next alarm tick. */
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -161,7 +165,7 @@ async function updateRetryBadge() {
   if (!cfg.badge || cfg.enabled === false) return;
   try {
     const st = await chrome.storage.local.get({ authProblem: null });
-    if (st.authProblem) {           // v2.1.0: token problem outranks count
+    if (st.authProblem) {           // v2.2.0: token problem outranks count
       await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
       await chrome.action.setBadgeText({ text: "KEY" });
       return;
@@ -193,7 +197,7 @@ async function hubFetch(path, opts = {}) {
   let data = {};
   try { data = await res.json(); } catch (_) {}
   if (!res.ok || data.ok === false) {
-    // v2.1.0: tag auth/lock errors so callers can stop hammering the
+    // v2.2.0: tag auth/lock errors so callers can stop hammering the
     // hub (every wrong request feeds its IP failure counter)
     const err = new HubError(data.error || ("HTTP " + res.status));
     err.status = res.status;
@@ -204,7 +208,7 @@ async function hubFetch(path, opts = {}) {
   return data;
 }
 
-/* ---------------- auth problem state (v2.1.0) ------------------- */
+/* ---------------- auth problem state (v2.2.0) ------------------- */
 /* When the hub answers 401 (token rejected) or 429 (IP temporarily
  * locked) the extension must NOT keep retrying - with several Chrome
  * windows sharing one IP that would lock the dashboard and the other
@@ -311,6 +315,35 @@ function printerLabel(p) {
   return p === "__file__" ? "File (PDF)" : (p || "default");
 }
 
+function applyPrintDefaults(payload, cfg) {
+  // v2.2: merge the saved "Default print options" into every job - values
+  // the caller already set (page script, rule, popup) always win.
+  const pd = (cfg && cfg.printDefaults) || {};
+  const num = (v) => (v === "" || v == null || isNaN(parseInt(v, 10)))
+    ? null : parseInt(v, 10);
+  if (payload.copies == null && num(pd.copies) > 1) payload.copies = num(pd.copies);
+  if (!payload.pages) {
+    if (pd.pagesMode === "odd" || pd.pagesMode === "even") payload.pages = pd.pagesMode;
+    else if (pd.pagesMode === "custom" && pd.pagesCustom) payload.pages = pd.pagesCustom;
+  }
+  if (payload.quality == null) {
+    if (pd.quality === "custom" && pd.qualityCustom) payload.quality = pd.qualityCustom;
+    else if (pd.quality) payload.quality = pd.quality;   // draft|normal|high|600dpi
+  }
+  if (payload.per_sheet == null && num(pd.perSheet) > 1) payload.per_sheet = num(pd.perSheet);
+  if (payload.duplex == null && pd.duplex) payload.duplex = pd.duplex;
+  if (payload.orientation == null && pd.orient) payload.orientation = pd.orient;
+  if (payload.scale_pct == null && num(pd.scale) && num(pd.scale) !== 100) {
+    payload.scale_pct = num(pd.scale);
+  }
+  if (payload.margin_mm == null && pd.margin !== "" && pd.margin != null &&
+      !isNaN(parseFloat(pd.margin))) {
+    payload.margin_mm = parseFloat(pd.margin);
+  }
+  if (payload.paper_size == null && pd.paper) payload.paper_size = pd.paper;
+  return payload;
+}
+
 function hubPrint(payload) {
   if (payload.printer === "__file__") {
     payload.destination = "file";
@@ -320,9 +353,10 @@ function hubPrint(payload) {
   // (bypasses the FIFO; pause/resume does not hold it back).
   return loadCfg().then((cfg) => {
     if (cfg.queueMode === false) payload.queue = false;
+    applyPrintDefaults(payload, cfg);
     return hubFetch("/print", { method: "POST", body: payload })
       .catch(async (e) => {
-        // v2.1.0: 401 = the token is wrong. Flag it (KEY badge + popup
+        // v2.2.0: 401 = the token is wrong. Flag it (KEY badge + popup
         // banner) and say so plainly; do NOT park the job - printing
         // cannot succeed until the token is fixed.
         if (e && e.auth) {
@@ -331,7 +365,7 @@ function hubPrint(payload) {
                              "PrintHub Pro options (Hub token field)");
         }
         if (e && e.locked) {
-          // v2.1.0: 429 = this IP is temporarily locked (too many bad
+          // v2.2.0: 429 = this IP is temporarily locked (too many bad
           // tokens from SOME client). Transient -> park and auto-retry.
           if (cfg.retryOffline !== false && payload.destination !== "file") {
             await queueForRetry(payload);
@@ -785,6 +819,24 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         case "hubPrinters":
           reply(await hubFetch("/printers"));
           break;
+        case "hubPeers":
+          reply(await hubFetch("/peers"));
+          break;
+        case "hubCaps":
+          reply(await hubFetch("/printers/" +
+            encodeURIComponent(msg.name || "") + "/capabilities"));
+          break;
+        case "hubConfigSet":
+          reply(await hubFetch("/config", { method: "POST",
+                                            body: msg.patch || {} }));
+          break;
+        case "queueShift":
+          reply(await hubFetch("/queue/shift", { method: "POST", body: {
+            scope: msg.scope || "all",
+            ids: msg.ids || [],
+            target: msg.target || "",
+            target_token: msg.targetToken || "" } }));
+          break;
         case "hubJobs":
           reply(await hubFetch("/jobs?limit=" + (msg.limit || 100)));
           break;
@@ -876,7 +928,15 @@ async function handleApi(msg) {
       if (o.lang) body.lang = o.lang;                 // v2.0 raw: escpos|zpl
       if (o.rawBase64) body.raw_base64 = o.rawBase64; // v2.0 raw bytes
       if (o.priority) body.priority = o.priority;     // v2.0: 1 = urgent
-      if (o.pages) body.pages = o.pages;              // v2.0: "1-3,5"
+      if (o.pages) body.pages = o.pages;              // v2.0: "1-3,5" | odd | even
+      if (o.per_sheet) body.per_sheet = o.per_sheet;  // v2.1: n-up
+      if (o.quality) body.quality = o.quality;        // v2.2: draft|normal|high|600dpi
+      if (o.dpi) body.dpi = o.dpi;                    // v2.2: explicit DPI
+      if (o.scale_pct) body.scale_pct = o.scale_pct;  // v2.1: 25-400
+      if (o.margin_mm != null) body.margin_mm = o.margin_mm; // v2.1
+      if (o.duplex) body.duplex = o.duplex;           // two-sided
+      if (o.paper_size) body.paper_size = o.paper_size;
+      if (o.orientation) body.orientation = o.orientation;
       if (o.profile) body.profile = o.profile;        // v2.0: hub profile name
       if (o.reason) body.reason = o.reason;           // v2.0: audit reason
       if (o.watermark != null) body.watermark = o.watermark;

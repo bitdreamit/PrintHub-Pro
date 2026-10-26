@@ -1,6 +1,6 @@
 # PrintHub Pro — Print from Any Web Page to Any Printer
 
-**PrintHub Pro — Version 2.1.0 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.**
+**PrintHub Pro — Version 2.2.0 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.**
 
 PrintHub Pro prints from any web page to **any printer** — thermal, receipt, label, or standard — with **no print dialog and no confirmation**. It is a free, 100%-local, MIT-licensed alternative to paid products like Ultraprint Hub: a small **desktop hub** (single Python file, zero pip dependencies) plus a **Chrome extension** that talk to each other on `localhost` only.
 
@@ -18,6 +18,39 @@ Update anytime: run `PrintHub Tool` → **8: Check for updates**, or click
 new Setup.exe over the old one keeps all settings and history.
 
 ---
+
+## What's new in v2.2.0 — "You can SEE every feature now"
+
+v2.1.0 shipped the print-option, LAN-sharing and queue-shift machinery as
+**API endpoints only** — install it and the extension looked exactly like
+v2.0. v2.2.0 puts every one of those features on screen, and the
+documentation can no longer go missing:
+
+- **Extension Options → "Default print options"**: copies, pages
+  (all / **odd** / **even** / custom range), per-sheet n-up (1/2/4/6/9/16),
+  **quality — draft / normal / high AND DPI (300/600/1200 or any custom
+  value)**, scale %, margins mm, duplex (two-sided), paper size, layout
+  (portrait/landscape). Saved once, sent with **every** job from that
+  browser; page scripts and rules still override per job.
+- **Extension Options → "LAN / PCs" tab** (the big miss is back in the
+  UI): turn **LAN sharing** on/off, copy this PC's LAN URL
+  (`http://192.168.x.x:9235`), see peer PCs with online status, and
+  **shift the whole waiting queue — or any single job from the Queue tab —
+  to another PC**, where it prints immediately.
+- **Quality accepts both spellings**: `"quality": "draft"` → CUPS
+  `print-quality=3`; `"quality": "600dpi"` (or `"600"`, or `"dpi": 600`)
+  → CUPS `printer-resolution=600dpi`. The capabilities endpoint reports
+  presets + DPI list per printer; on Windows the driver decides the real
+  DPI and the choice is logged on the job.
+- **Documentation ships INSIDE the hub**: open
+  `http://127.0.0.1:9235/docs?token=…` — the full user guide (feature
+  click-map, every print option with backend support matrix, LAN sharing
+  steps + firewall command, queue shift, Laravel cron/webhook recipes,
+  Bangla receipt notes). Buttons: extension About → *Open user guide*,
+  dashboard → *Docs (user guide)*.
+- **Dashboard LAN card**: live share_lan state, copy URL, per-peer
+  "Shift all waiting jobs", per-row Shift buttons in the queue — plus an
+  honest "restart the hub to apply" hint until the listener rebinds.
 
 ## What's new in v2.1.0 — "Every printer option, LAN sharing, Bangla receipts"
 

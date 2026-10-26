@@ -25,7 +25,7 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.1.0"
+    assert d["version"] == "2.2.0"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
@@ -494,11 +494,11 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert printhub.VERSION == "2.1.0"
+    assert printhub.VERSION == "2.2.0"
     ext = os.path.join(os.path.dirname(printhub.__file__), "..",
                        "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.1.0"
+        assert json.load(f)["version"] == "2.2.0"
 
 
 def test_log_rotation(tmp_path):
@@ -515,7 +515,7 @@ def test_log_rotation(tmp_path):
 
 
 # ============================================================
-# v2.1.0: print options, capabilities, LAN share, queue shift
+# v2.2.0: print options, capabilities, LAN share, queue shift
 # ============================================================
 
 @pytest.fixture(autouse=True)
@@ -637,3 +637,90 @@ def test_v21_escpos_codepage_config(hub, cfg_reset, monkeypatch):
     printhub.CFG["escpos_codepage"] = "cp437"
     data = printhub.escpos_bytes("caf\xe9")
     assert b"caf" in data                          # replaced, no crash
+
+# ============================================================
+# v2.2.0: quality presets AND DPI, built-in /docs page,
+# dashboard LAN card, health lan_active
+# ============================================================
+
+def test_v22_quality_preset_still_works(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "q", "title": "q",
+                                  "kind": "thermal", "printer": "P1",
+                                  "quality": "draft"})
+    assert code == 200
+    assert wait_until(lambda: len(hub.printed) >= 1)
+    assert hub.printed[-1]["quality"] == "draft"
+
+
+def test_v22_quality_dpi_spellings(hub, clean_queue):
+    """v2.2: quality accepts draft/normal/high AND DPI - all 3 forms."""
+    for given, want in (("600dpi", "dpi:600"), ("600", "dpi:600"),
+                        ("1200 dpi", "dpi:1200")):
+        n = len(hub.printed)
+        code, d = hub.post("/print", {"text": "q-" + given, "title": "q-" + given,
+                                      "kind": "thermal", "printer": "P1",
+                                      "quality": given})
+        assert code == 200, (given, d)
+        assert wait_until(lambda: len(hub.printed) > n)
+        assert hub.printed[-1]["quality"] == want, given
+
+
+def test_v22_dpi_field(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "q-dpi", "title": "q-dpi",
+                                  "kind": "thermal", "printer": "P1",
+                                  "dpi": 300})
+    assert code == 200
+    assert wait_until(lambda: len(hub.printed) >= 1)
+    assert hub.printed[-1]["quality"] == "dpi:300"
+
+
+def test_v22_quality_alias_and_clamp(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "q-best", "title": "q-best",
+                                  "kind": "thermal", "printer": "P1",
+                                  "quality": "best"})
+    assert code == 200
+    assert wait_until(lambda: len(hub.printed) >= 1)
+    assert hub.printed[-1]["quality"] == "high"
+    # clamp: 99999 dpi -> 2400
+    code, d = hub.post("/print", {"text": "q-clamp", "title": "q-clamp",
+                                  "kind": "thermal", "printer": "P1",
+                                  "dpi": 99999})
+    assert code == 200
+    assert wait_until(lambda: hub.printed[-1]["quality"] == "dpi:2400")
+
+
+def test_v22_capabilities_quality_shape(hub):
+    code, d = hub.get("/printers/FakeLaser/capabilities")
+    assert code == 200 and d["ok"] is True
+    q = d["quality"]
+    assert isinstance(q, dict) and "draft" in q["presets"]
+    # dpi is either a list (CUPS) or None (Windows driver-controlled)
+    assert q["dpi"] is None or isinstance(q["dpi"], list)
+
+
+def test_v22_docs_page_served(hub):
+    code, d = hub.get("/docs")
+    assert code == 200
+    # the client falls back to raw bytes for non-JSON responses
+    body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
+            else d if isinstance(d, str) else json.dumps(d))
+    assert "LAN sharing" in body and "POST /print" in body
+    assert "2.2.0" in body
+
+
+def test_v22_docs_wrong_token_json(hub):
+    code, d = hub.get("/docs", token="wrong-token")
+    assert code == 401 and d.get("ok") is False
+
+
+def test_v22_dashboard_has_lan_card_and_docs(hub):
+    html = printhub.dashboard_html("")
+    assert 'id="lanBody"' in html and "LAN sharing" in html
+    assert "/docs" in html and "shiftJob" in html
+    assert "2.2.0" in html
+
+
+def test_v22_health_lan_active(hub):
+    code, d = hub.get("/health")
+    assert code == 200
+    assert d["lan_active"] is False      # test server binds 127.0.0.1

@@ -1,4 +1,4 @@
-# PrintHub Pro — Hub HTTP API (v2.1.0)
+# PrintHub Pro — Hub HTTP API (v2.2.0)
 
 Base URL: `http://127.0.0.1:9235` (default)
 
@@ -49,6 +49,26 @@ extensions are served; everything else gets **403**.
 
 Status values: `ready` · `offline` · `paper-out` · `error` · `unknown` · `group`.
 
+### GET /printers/{name}/capabilities *(v2.1)*
+
+What THIS printer + backend actually supports — drives the extension UI
+and API clients so only supported options are offered. Windows reports the
+SumatraPDF capability map (driver-level extras noted); Linux queries CUPS
+`lpoptions -p <name> -l` live:
+
+```json
+{ "ok": true, "backend": "cups", "printer": "XP-80C",
+  "pages": {"type": "ranges", "odd_even": true},
+  "copies": {"min": 1, "max": 50},
+  "duplex": ["one-sided", "two-sided-long-edge", "two-sided-short-edge"],
+  "per_sheet": [1, 2, 4, 6, 9, 16],
+  "quality": {"presets": ["draft", "normal", "high"], "dpi": [300, 600, 1200]},
+  "paper": ["A4", "A5", "Letter"], "tray": ["Tray1"], "raw_options": { } }
+```
+
+`quality.dpi` is `null` on Windows — the print driver decides the real
+DPI there (both spellings are still accepted and logged per job).
+
 ---
 
 ## POST /print
@@ -64,10 +84,16 @@ One payload source is required. **Common fields:**
 | `destination` | `"printer"` | `"file"` = save as PDF, no paper |
 | `queue` | `true` | `false` = **Queue Mode OFF** for this job (prints immediately, bypasses FIFO) |
 | `priority` | `5` | v2.0: `1` (urgent) … `9` (low); urgent jobs jump the FIFO |
-| `pages` | — | v2.0: page range `"1-3,5"` (PDF prints; SumatraPDF / CUPS page-ranges) |
+| `pages` | — | v2.0: page range `"1-3,5"`; **v2.1: also `"odd"` / `"even"`** (CUPS `page-set` / SumatraPDF) |
 | `duplex` | — | v2.0: `simplex` \| `duplex` \| `long` \| `short` |
 | `paper_size` | — | v2.0: e.g. `A4`, `Letter` (CUPS media / Sumatra paper=) |
 | `tray` | — | v2.0: e.g. `Tray2` (CUPS only — SumatraPDF cannot select trays) |
+| `per_sheet` | `1` | v2.1: n-up printing — `2` `4` `6` `9` `16` (CUPS `number-up`; SumatraPDF logs it as unsupported) |
+| `quality` | — | **v2.2: BOTH spellings** — presets `draft` \| `normal` \| `high` (aliases `best`/`fine` → `high`) → CUPS `print-quality=3/4/5`; **or DPI**: `"600"`, `"600dpi"` → CUPS `printer-resolution=600dpi`. Windows: accepted + recorded, driver decides |
+| `dpi` | — | v2.2: explicit DPI number (72–2400) — same effect as `quality:"600dpi"` |
+| `scale_pct` | — | v2.1: 25–400 % scale for hub-rendered jobs (text/HTML) |
+| `margin_mm` | — | v2.1: page margins in mm for hub-rendered jobs |
+| `orientation` | — | v2.1: `portrait` \| `landscape` |
 | `profile` | — | v2.0: name of a profile from config.json `profiles` (request values win) |
 | `run_at` | — | v2.0: schedule — ISO datetime `"2026-10-27T09:00:00"` or relative `+5m` `+2h` `+30s` |
 | `reason` | — | v2.0: free text recorded in the audit log |
@@ -130,6 +156,20 @@ For `destination:"file"`: `"status": "saved"`, `"file": "<path>"`.
 
 `GET /queue` (adds `"held": n`) · `POST /queue/pause` · `POST /queue/resume` · `POST /queue/clear`
 
+### POST /queue/shift *(v2.1)* — move jobs to ANOTHER PC
+
+```json
+{ "target": "http://192.168.0.60:9235",   // other hub's LAN URL
+  "target_token": "PEER-TOKEN",            // optional if target is in peer_hubs
+  "scope": "all" }                          // or "job" + "ids": [12,13]
+```
+
+Waiting (`queued`/`held`/`scheduled`/`failed`/`dead`/`retrying`) jobs are
+re-uploaded to the target hub, marked **`forwarded`** here and audited.
+The UI equivalents: extension Options → **LAN / PCs** tab (whole queue) and
+**Shift to PC** buttons in the Queue tab; dashboard LAN card. Response:
+`{"ok":true,"target":…,"shifted":[12,13],"shifted_count":2,"errors":[]}`.
+
 ---
 
 ## Security endpoints
@@ -149,7 +189,8 @@ For `destination:"file"`: `"status": "saved"`, `"file": "<path>"`.
 | `GET /audit?limit=50[&event=print.failed]` | Audit entries |
 | `GET /audit.csv` · `GET /export/audit.csv` | Audit CSV download |
 | `GET /export/history.csv` | Full job history CSV (id, site, hash, priority, attempts…) |
-| `GET /dashboard?token=…` | Built-in web dashboard — success rate, queue size, live queue with cancel, printers, recent jobs with retry/reprint, audit trail, token rotation button |
+| `GET /dashboard?token=…` | Built-in web dashboard — success rate, queue size, live queue with cancel + **Shift**, **LAN sharing card**, printers, recent jobs with retry/reprint, audit trail, token rotation |
+| `GET /docs?token=…` | **v2.2: the built-in user guide** — every option, LAN sharing how-to, queue shift, Laravel recipes, Bangla receipts. Served by the hub so the docs can never go missing |
 | `GET /diagnostics` | Support bundle JSON: versions, config (token masked), DB stats, printers, peers, log tail |
 
 ## Misc

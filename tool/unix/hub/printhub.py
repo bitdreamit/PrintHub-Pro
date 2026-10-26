@@ -57,7 +57,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 BRANDING = ("PrintHub Pro - Version %s - by Bitdream IT - MIT license - "
             "100%% local - no cloud, no tracking" % VERSION)
 APP_NAME = "PrintHub Pro"
@@ -160,6 +160,7 @@ CONFIG_TYPES = {"token_header_only": bool, "allowed_origins": list,
                 "log_max_mb": int, "log_backups": int}
 
 DEFAULT_TOKEN_WARNING = False   # True while the legacy default token is active
+BOUND_LAN = False               # True once the listener actually bound 0.0.0.0
 
 
 def config_path():
@@ -946,7 +947,11 @@ def printer_capabilities(name=""):
                       "Executive", "Folio", "Statement"],
             "tray": None,          # SumatraPDF cannot select a tray
             "per_sheet": None,     # n-up needs CUPS
-            "quality": None,       # DPI/quality is driver-controlled
+            "quality": {"presets": ["draft", "normal", "high"],
+                        "dpi": None,
+                        "note": "the Windows driver decides the real"
+                                " DPI - both presets and dpi values are"
+                                " accepted and logged"},
             "scale": ["noscale", "shrinkfit"],
             "margins": "render",   # honoured when the hub renders the PDF
             "orientation": ["portrait", "landscape"],
@@ -960,7 +965,8 @@ def printer_capabilities(name=""):
             "duplex": ["one-sided", "two-sided-long-edge",
                        "two-sided-short-edge"],
             "per_sheet": [1, 2, 4, 6, 9, 16],
-            "quality": ["draft", "normal", "high"],
+            "quality": {"presets": ["draft", "normal", "high"],
+                        "dpi": [300, 600, 1200]},
             "margins": "render", "orientation": ["portrait", "landscape"],
             "tray": [], "paper": [], "raw_options": {}}
     try:
@@ -987,7 +993,14 @@ def printer_capabilities(name=""):
                     if nums:
                         caps["per_sheet"] = nums
                 elif key == "print-quality":
-                    caps["quality"] = choices
+                    caps["quality"]["presets"] = [
+                        c for c in choices
+                        if c in ("draft", "normal", "high")] or choices[:6]
+                elif key in ("Resolution", "printer-resolution"):
+                    dpis = [int(re.sub(r"[^0-9]", "", c))
+                            for c in choices if re.search(r"\d{3,4}", c)]
+                    if dpis:
+                        caps["quality"]["dpi"] = sorted(set(dpis))[:8]
                 elif key == "page-set":
                     caps["pages"] = {"type": "ranges",
                                      "odd_even": bool(set(choices) &
@@ -1197,7 +1210,7 @@ _CURRENT = {"id": None, "proc": None}
 
 def print_file(path, kind="a4", printer="", copies=1, job_id=None,
                pages=None, duplex=None, paper_size=None, tray=None,
-               per_sheet=None, quality=None):
+               per_sheet=None, quality=None, dpi=None):
     """
     Print a PDF file SILENTLY (no dialog) to the given printer
     or the OS default. Raises RuntimeError with a friendly message.
@@ -1205,6 +1218,9 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None,
     v2.0 options: pages ("1-3,5"), duplex ("simplex"|"duplex"|"long"|"short"),
     paper_size ("A4", "Letter"...), tray ("Tray2" - CUPS only; SumatraPDF
     cannot select trays, logged as a warning).
+    v2.2 options: quality accepts BOTH presets (draft|normal|high) AND a
+    DPI number - quality="dpi:600" (the /print endpoint normalises
+    "600", "600dpi" or dpi=600 into that form before calling us).
     """
     copies = max(1, min(int(copies or 1), 50))
     target = printer or CFG["printer"] or default_printer() or ""
@@ -1253,8 +1269,15 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None,
                 log("[PRINT] note: per-sheet %s is not supported by the"
                     " SumatraPDF backend (needs CUPS) - ignored" % per_sheet)
             if quality:
-                log("[PRINT] note: quality '%s' is controlled by the Windows"
-                    " driver - SumatraPDF has no quality switch" % quality)
+                if str(quality).startswith("dpi:"):
+                    log("[PRINT] note: DPI '%s' is controlled by the Windows"
+                        " driver - SumatraPDF has no resolution switch;"
+                        " the driver default is used" % quality)
+                else:
+                    log("[PRINT] note: quality '%s' is controlled by the"
+                        " Windows driver - SumatraPDF has no quality switch"
+                        " (draft/normal/high maps to the driver default)"
+                        % quality)
             parts.append("noscale" if kind in ("thermal", "image-thermal")
                          else "shrinkfit")
             if copies > 1:
@@ -1294,6 +1317,10 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None,
                       "high": "5"}.get(str(quality).lower())
                 if qv:
                     cmd += ["-o", "print-quality=%s" % qv]
+                elif str(quality).startswith("dpi:"):
+                    # v2.2: numeric DPI -> CUPS printer-resolution
+                    cmd += ["-o", "printer-resolution=%sdpi" %
+                            str(quality).split(":")[1]]
             df = duplex_flag()
             if df:
                 cmd += ["-o", {"duplex": "two-sided-long-edge",
@@ -1495,6 +1522,7 @@ def _execute_job(job, t0):
                                 tray=job.get("tray"),
                                 per_sheet=job.get("per_sheet"),
                                 quality=job.get("quality"))
+                                
             ms = int((time.time() - t0) * 1000)
             db_update(job["id"], status="printed", error=None,
                       duration_ms=ms, printer=target)
@@ -2454,6 +2482,7 @@ class Handler(BaseHTTPRequestHandler):
                 "service": service_state(),
                 "queue_bypass": True,
                 "share_lan": bool(CFG.get("share_lan")),
+                "lan_active": bool(BOUND_LAN),
                 "lan_url": ("http://%s:%d" % (lan_ip(), CFG["port"]))
                            if CFG.get("share_lan") else None,
                 "held": st.get("by_status", {}).get("held", 0) if st else 0,
@@ -2492,6 +2521,37 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             try:
                 self.wfile.write(html)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+
+        # /docs - v2.2: the full user guide served BY the hub, so the
+        # documentation is always where the product is (same token rule
+        # as the dashboard, browsers get HTML)
+        if route == "/docs":
+            err = self._auth_error(qt, allow_query=True)
+            if err:
+                if "text/html" in (self.headers.get("Accept") or ""):
+                    page = dashboard_auth_error_html(err[1]).encode("utf-8")
+                    self.send_response(err[0])
+                    self._cors()
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(page)))
+                    self.end_headers()
+                    try:
+                        self.wfile.write(page)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
+                return self._send(err[0], {"ok": False, "error": err[1]})
+            page = docs_html().encode("utf-8")
+            self.send_response(200)
+            self._cors()
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(page)))
+            self.end_headers()
+            try:
+                self.wfile.write(page)
             except (BrokenPipeError, ConnectionResetError):
                 pass
             return
@@ -2961,7 +3021,27 @@ class Handler(BaseHTTPRequestHandler):
                 per_sheet = max(1, min(16, int(per_sheet))) if per_sheet else 1
             except (TypeError, ValueError):
                 per_sheet = 1
-            quality = str(bget("quality") or "")[:12].lower() or None
+            # v2.2 quality accepts BOTH named presets (draft|normal|high)
+            # AND a DPI number ("600", "600dpi") - stored exactly as given
+            quality = str(bget("quality") or "")[:16].strip().lower() or None
+            dpi = bget("dpi")
+            try:
+                dpi = int(dpi) if dpi else None
+            except (TypeError, ValueError):
+                dpi = None
+            if quality and not dpi:
+                mdpi = re.match(r"^(\d{2,4})\s*dpi$", quality)
+                if mdpi:
+                    dpi = int(mdpi.group(1))
+                    quality = "dpi:%d" % dpi
+                elif re.match(r"^\d{2,4}$", quality):
+                    dpi = int(quality)
+                    quality = "dpi:%d" % dpi
+            if dpi:
+                dpi = max(72, min(2400, dpi))
+                quality = "dpi:%d" % dpi
+            if quality in ("best", "fine"):
+                quality = "high"
             scale_pct = bget("scale_pct") or bget("scale") or None
             margin_mm = bget("margin_mm") or bget("margins") or None
             orientation = str(bget("orientation") or "").lower()
@@ -3394,6 +3474,292 @@ def dashboard_html(query=""):
             .replace("@@BRANDING@@", BRANDING.replace(" - ", " &middot; "))
             .replace("@@Q@@", q))
 
+
+def docs_html():
+    """v2.2: the full user guide, served by the hub itself at /docs so
+    the documentation is ALWAYS inside the product (no website needed)."""
+    return (DOCS_HTML
+            .replace("@@VERSION@@", VERSION)
+            .replace("@@PORT@@", str(CFG.get("port", 9235)))
+            .replace("@@CFGPATH@@",
+                     html.escape(config_path(), quote=True)))
+
+# Docs live here so they can never be "missing" again - they ship in the
+# hub file and are served at http://127.0.0.1:9235/docs?token=...
+DOCS_HTML = r"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PrintHub Pro @@VERSION@@ - User Guide</title>
+<style>
+ :root{--blue:#1d4ed8;--ink:#0f172a;--mut:#64748b;--ok:#16a34a;
+       --bad:#dc2626;--line:#e2e8f0}
+ *{box-sizing:border-box;margin:0;padding:0}
+ body{font:14px/1.6 "Segoe UI",system-ui,sans-serif;color:var(--ink);
+      background:#f5f8fc;padding-bottom:60px}
+ header{background:linear-gradient(135deg,#1e3a8a,#1d4ed8);color:#fff;
+        padding:22px 32px}
+ header h1{font-size:20px}
+ header p{font-size:12.5px;opacity:.9;margin-top:4px}
+ main{max-width:960px;margin:0 auto;padding:18px 20px}
+ nav.toc{background:#fff;border:1px solid var(--line);border-radius:12px;
+         padding:14px 18px;margin-bottom:18px;font-size:13.5px}
+ nav.toc a{color:var(--blue);text-decoration:none;margin-right:14px;
+           white-space:nowrap;line-height:2}
+ h2{font-size:17px;margin:26px 0 8px;color:#1e3a8a}
+ h3{font-size:14px;margin:16px 0 6px}
+ p{margin:7px 0}
+ .box{background:#fff;border:1px solid var(--line);border-radius:12px;
+      padding:16px 18px;margin:10px 0}
+ .tip{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;
+      border-radius:10px;padding:10px 13px;font-size:13px;margin:10px 0}
+ .warn{background:#fef3c7;border:1px solid #fcd34d;color:#92400e;
+       border-radius:10px;padding:10px 13px;font-size:13px;margin:10px 0}
+ table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;
+       border:1px solid var(--line);border-radius:10px;overflow:hidden}
+ th{background:#f1f5f9;text-align:left;padding:8px 10px;font-size:11.5px;
+    text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
+ td{padding:8px 10px;border-top:1px solid #f1f5f9;vertical-align:top}
+ code,.mono{font:12.5px/1.6 Consolas,"Courier New",monospace;
+            background:#f1f5f9;border:1px solid var(--line);
+            border-radius:5px;padding:1px 6px;word-break:break-all}
+ pre{background:#0f172a;color:#e2e8f0;border-radius:10px;padding:14px 16px;
+     font:12.5px/1.65 Consolas,monospace;overflow-x:auto;margin:10px 0}
+ pre b{color:#93c5fd;font-weight:600}
+ ol,ul{padding-left:22px;margin:8px 0}
+ li{margin:4px 0}
+ .ok{color:var(--ok);font-weight:700}
+ .no{color:var(--bad);font-weight:700}
+ footer{color:var(--mut);font-size:12px;text-align:center;margin-top:30px}
+</style></head><body>
+<header>
+ <h1>PrintHub Pro @@VERSION@@ - User Guide</h1>
+ <p>This page is served by YOUR hub - the documentation is inside the
+    product. Open it any time: <code>http://127.0.0.1:@@PORT@@/docs?token=YOUR-TOKEN</code></p>
+</header>
+<main>
+<nav class="toc">
+ <a href="#where">Where is every feature</a>
+ <a href="#options">All print options</a>
+ <a href="#quality">Quality: presets + DPI</a>
+ <a href="#lan">LAN sharing (print from other PCs)</a>
+ <a href="#queue">Queue on/off + shift to another PC</a>
+ <a href="#laravel">Laravel / PHP auto print</a>
+ <a href="#bangla">Bangla receipts</a>
+ <a href="#files">Files &amp; endpoints</a>
+</nav>
+
+<h2 id="where">1. Where is every feature (click map)</h2>
+<div class="box">
+ <ul>
+  <li><b>Toolbar popup</b> - queue on/off (Pause), last jobs, token banner.</li>
+  <li><b>Extension Options &rarr; Settings</b> - master switch, queue mode,
+      <b>Default print options</b> (copies, pages all/odd/even/custom,
+      per-sheet n-up, <b>quality draft/normal/high AND DPI</b>, scale %,
+      margins mm, duplex/two-sided, paper size, orientation) - these are
+      sent with EVERY job from this browser. Connection (Hub URL + token)
+      and auto-print routing rules are here too.</li>
+  <li><b>Extension Options &rarr; LAN / PCs</b> - turn LAN sharing on/off,
+      copy this hub's LAN URL, list peer PCs, <b>shift the whole queue or a
+      single job to another PC</b>.</li>
+  <li><b>Extension Options &rarr; Queue</b> - live queue, Pause/Resume,
+      per-row Cancel + <b>Shift to PC</b>.</li>
+  <li><b>Hub dashboard</b> (<code>/dashboard?token=...</code>) - printers,
+      queue, history, audit, <b>LAN sharing card</b> (on/off + copy URL),
+      pause, clear, shift-all to a peer PC, rotate token.</li>
+  <li><b>This page</b> - the built-in guide at <code>/docs?token=...</code>.</li>
+ </ul>
+</div>
+
+<h2 id="options">2. All print options (POST /print)</h2>
+<p>Every option works in the JSON API, in <code>window.printhub.print()</code>
+   from any web page, and in the extension's <b>Default print options</b>.</p>
+<table>
+<tr><th style="width:14%">Parameter</th><th style="width:34%">Values</th>
+    <th style="width:26%">Windows (SumatraPDF)</th><th>Linux (CUPS)</th></tr>
+<tr><td><code>copies</code></td><td>1-50</td><td class="ok">yes</td><td class="ok">yes</td></tr>
+<tr><td><code>pages</code></td><td>"1-3,5" &middot; "odd" &middot; "even"</td>
+    <td class="ok">yes (incl. odd/even)</td><td class="ok">yes (page-set)</td></tr>
+<tr><td><code>duplex</code></td><td>simplex &middot; duplex &middot; duplexlong &middot; duplexshort</td>
+    <td class="ok">yes</td><td class="ok">yes</td></tr>
+<tr><td><code>paper_size</code></td><td>A4 A5 A3 Letter Legal Tabloid...</td>
+    <td class="ok">yes</td><td class="ok">yes (media)</td></tr>
+<tr><td><code>per_sheet</code></td><td>1 2 4 6 9 16 (n-up)</td>
+    <td class="no">no (driver)</td><td class="ok">yes (number-up)</td></tr>
+<tr><td><code>quality</code></td><td>draft &middot; normal &middot; high &middot; <b>600 / "600dpi"</b></td>
+    <td class="ok">accepted, driver decides</td><td class="ok">yes (print-quality / printer-resolution)</td></tr>
+<tr><td><code>dpi</code></td><td>72-2400 number</td>
+    <td class="ok">accepted, driver decides</td><td class="ok">yes</td></tr>
+<tr><td><code>scale_pct</code></td><td>25-400</td><td class="ok">for rendered jobs</td><td class="ok">for rendered jobs</td></tr>
+<tr><td><code>margin_mm</code></td><td>0-50</td><td class="ok">for rendered jobs</td><td class="ok">for rendered jobs</td></tr>
+<tr><td><code>orientation</code></td><td>portrait &middot; landscape</td><td class="ok">yes</td><td class="ok">yes</td></tr>
+<tr><td><code>tray</code></td><td>driver name</td><td class="no">no</td><td class="ok">yes (InputSlot)</td></tr>
+<tr><td><code>priority</code></td><td>1 (urgent) - 9</td><td colspan="2" class="ok">queue ordering</td></tr>
+<tr><td><code>queue</code></td><td>false = print immediately, skip FIFO</td><td colspan="2" class="ok">yes</td></tr>
+<tr><td><code>profile</code></td><td>saved profile name</td><td colspan="2" class="ok">named defaults</td></tr>
+<tr><td><code>run_at</code></td><td>ISO time or "+30s +5m +2h"</td><td colspan="2" class="ok">scheduled print</td></tr>
+<tr><td><code>lang</code></td><td>escpos &middot; zpl (raw bytes)</td><td colspan="2" class="ok">receipt printers</td></tr>
+<tr><td><code>watermark</code></td><td>true + watermark_text</td><td colspan="2" class="ok">reprint marking</td></tr>
+</table>
+<p>Ask any printer what IT supports:
+   <code>GET /printers/PRINTER-NAME/capabilities?token=...</code> - returns
+   pages/odd-even, copies range, duplex modes, per_sheet list, quality
+   presets + DPI list, paper list (live from <code>lpoptions -l</code> on
+   Linux).</p>
+
+<h2 id="quality">3. Quality: draft/normal/high AND DPI - both work</h2>
+<div class="box">
+ <p><b>v2.2:</b> the <code>quality</code> parameter accepts BOTH spellings:</p>
+ <pre>curl -X POST http://127.0.0.1:@@PORT@@/print \
+  -H "X-PrintHub-Token: YOUR-TOKEN" \
+  -d '{"title":"lab report","pdfUrl":"https://x/r.pdf",
+       <b>"quality":"draft"</b>}'          <i># preset -> CUPS print-quality=3</i>
+
+curl -X POST http://127.0.0.1:@@PORT@@/print \
+  -H "X-PrintHub-Token: YOUR-TOKEN" \
+  -d '{"title":"photo","pdfUrl":"https://x/p.pdf",
+       <b>"quality":"600dpi"</b>}'        <i># DPI -> CUPS printer-resolution=600dpi</i>
+
+<i>// or the dedicated dpi field:</i>
+{"title":"invoice","text":"...","kind":"thermal",<b>"dpi":300</b>}</pre>
+ <p>In the extension pick from the dropdown:
+    <i>Printer default / Draft / Normal / High / 300 dpi / 600 dpi /
+    1200 dpi</i> - or type any DPI. On Linux both are sent to CUPS exactly;
+    on Windows the print driver keeps control (the choice is accepted,
+    stored on the job and logged so you can see what was requested).</p>
+</div>
+<h2 id="lan">4. LAN sharing - print from OTHER PCs (restored)</h2>
+<div class="box">
+ <p>The hub by default listens only on this PC (127.0.0.1). Turn on
+    <b>LAN sharing</b> and every PC/phone in your network can print
+    through it:</p>
+ <ol>
+  <li><b>Turn it on</b> - pick ONE:<br>
+      &bull; Extension Options &rarr; <b>LAN / PCs</b> tab &rarr; "Enable LAN sharing"<br>
+      &bull; Hub dashboard &rarr; "LAN sharing &amp; other PCs" card &rarr; Enable<br>
+      &bull; API: <code>POST /config</code> with <code>{"share_lan": true}</code></li>
+  <li>The hub restarts its listener on <code>0.0.0.0:@@PORT@@</code> and the
+      dashboard/LAN tab shows this PC's address, e.g.
+      <code>http://192.168.0.50:@@PORT@@</code>.</li>
+  <li><b>Allow the port through the firewall</b> (Windows Defender):
+      <pre>netsh advfirewall firewall add rule name="PrintHub Pro" dir=in ^
+  action=allow protocol=TCP localport=@@PORT@@</pre></li>
+  <li><b>From another PC</b> - pick ONE:<br>
+      &bull; Install the same extension there and set <b>Hub URL</b> to
+      <code>http://192.168.0.50:@@PORT@@</code> + the same token<br>
+      &bull; Or call the API from any program:
+      <pre>curl -X POST http://192.168.0.50:@@PORT@@/print \
+  -H "X-PrintHub-Token: YOUR-TOKEN" \
+  -d '{"title":"from pc2","pdfBase64":"JVBERi0...","copies":2}'</pre></li>
+ </ol>
+ <p class="warn"><b>Security:</b> remote IPs keep the 10-wrong-tokens &rarr;
+    5-minute lockout. Only PCs with YOUR token can print. Turn sharing off
+    the same way when you do not need it.</p>
+</div>
+
+<h2 id="queue">5. Queue on/off + shift jobs to another PC</h2>
+<div class="box">
+ <p><b>Queue on/off:</b> popup Pause button, Options &rarr; Queue &rarr;
+    Pause/Resume, dashboard "Pause queue", or
+    <code>POST /queue/pause</code> / <code>POST /queue/resume</code>.
+    Settings &rarr; Queue mode OFF = every job prints immediately without
+    waiting in line.</p>
+ <p><b>Shift to another PC</b> (uses the LAN URL of that PC):</p>
+ <ul>
+  <li>Extension Options &rarr; Queue tab: each row has a <b>Shift to PC</b>
+      selector; the LAN/PCs tab shifts <b>the whole waiting queue</b>.</li>
+  <li>Dashboard: "LAN sharing &amp; other PCs" card has
+      <b>Shift all waiting jobs</b> per peer.</li>
+  <li>API: <pre>POST /queue/shift
+{"target":"http://192.168.0.60:@@PORT@@",
+ "target_token":"PEER-TOKEN",   <i>// optional if it is in peer_hubs</i>
+ "scope":"all"}                  <i>// or "job" + "ids":[12,13]</i></pre>
+      Jobs are re-uploaded to the target hub, marked <b>forwarded</b> here,
+      and audited. Add fixed peers in config:
+      <code>"peer_hubs": [{"url":"http://192.168.0.60:@@PORT@@",
+      "token":"..."}]</code> in <span class="mono">@@CFGPATH@@</span>.</li>
+ </ul>
+</div>
+
+<h2 id="laravel">6. Laravel / PHP - scheduled &amp; automatic printing</h2>
+<div class="box">
+ <p>Three proven patterns (full code in <b>docs/LARAVEL.md</b> in the
+    package):</p>
+ <h3>a) Print service + token header</h3>
+ <pre>class PrintHubService {
+  public static function printPdf(string $url, array $opt = []): array {
+    $res = Http::withHeaders(['X-PrintHub-Token' =&gt; config('services.printhub.token')])
+      -&gt;post(config('services.printhub.url', 'http://127.0.0.1:@@PORT@@').'/print',
+        array_merge(['pdf_url' =&gt; $url, 'title' =&gt; 'laravel',
+                     'copies' =&gt; 1, 'quality' =&gt; 'normal'], $opt));
+    return $res-&gt;throw()-&gt;json();
+  }
+}</pre>
+ <h3>b) Time-based automatic printing (schedule:run + cron every minute)</h3>
+ <pre><i>// app/Console/Kernel.php</i>
+protected function schedule(Schedule $schedule): void {
+  $schedule-&gt;call(fn () =&gt; PrintHubService::printDailyReports())
+           -&gt;dailyAt('08:00');
+  $schedule-&gt;call(fn () =&gt; PrintHubService::printPendingInvoices())
+           -&gt;everyFiveMinutes();
+}
+<i>// server crontab:  * * * * * php /var/www/artisan schedule:run</i></pre>
+ <h3>c) Event-driven (a row created &rarr; print instantly)</h3>
+ <pre><i>// in your controller / observer / job</i>
+PrintHubService::printPdf($report-&gt;pdf_url,
+    ['title' =&gt; 'LAB-'.$report-&gt;id, 'printer' =&gt; 'LabPrinter',
+     'pages' =&gt; '1-2', 'copies' =&gt; 2, 'quality' =&gt; 'high']);
+
+<i>// or queued for reliability: PrintJob::dispatch($report);</i>
+<i>// or webhook: POST /print from your own webhook receiver</i></pre>
+ <p>Delayed printing without cron: send <code>"run_at": "+30m"</code> -
+    the hub itself fires the job later (survives restarts, stored in the
+    SQLite queue).</p>
+</div>
+
+<h2 id="bangla">7. Bangla (বাংলা) on thermal receipt printers</h2>
+<div class="box">
+ <p>ESC/POS code pages (cp437 etc.) contain <b>no Bangla glyphs</b> - a
+    font table inside the printer cannot render them, on ANY vendor. So
+    the hub does shaping + rendering itself:
+    <code>thermal_text_engine = auto</code> (default) detects non-Latin
+    text and renders the receipt with headless Chrome using
+    <b>Nirmala UI / Noto Sans Bengali</b>, then prints it as a raster
+    image - correct conjuncts, correct ligatures.</p>
+ <ul>
+  <li>Pure-Latin receipts keep the fast built-in font path.</li>
+  <li>Install a Bangla font once: Windows ships Nirmala UI already; Linux:
+      <code>sudo apt install fonts-noto-bengali</code>.</li>
+  <li>Force either engine: <code>"thermal_text_engine": "text|browser"</code>
+      in <span class="mono">@@CFGPATH@@</span>.</li>
+  <li>Legacy printer firmware that maps a Bangla code page (rare) can set
+      <code>"escpos_codepage"</code> and skip the browser path.</li>
+ </ul>
+</div>
+
+<h2 id="files">8. Files &amp; quick endpoint map</h2>
+<div class="box">
+ <ul>
+  <li>Config: <span class="mono">@@CFGPATH@@</span> - port, token,
+      share_lan, printer, peer_hubs, profiles, escpos_codepage,
+      thermal_text_engine...</li>
+  <li>Logs: tray menu &rarr; Open log, or <code>/diagnostics?token=...</code>.</li>
+  <li><code>/health</code> &middot; <code>/stats</code> &middot;
+      <code>/printers</code> &middot; <code>/printers/{name}/capabilities</code>
+      &middot; <code>/jobs</code> &middot; <code>/queue</code> &middot;
+      <code>/audit</code> &middot; <code>/peers</code> &middot;
+      <code>/config</code> &middot; <code>/docs</code> (this page) - all GET
+      with <code>?token=</code> or the header.</li>
+  <li>POST: <code>/print</code> &middot; <code>/queue/pause|resume|clear|shift</code>
+      &middot; <code>/jobs/{id}/cancel|retry|reprint</code> &middot;
+      <code>/token/rotate</code> &middot; <code>/config</code> - header only.</li>
+ </ul>
+</div>
+
+<footer>PrintHub Pro @@VERSION@@ &middot; by Bitdream IT &middot; MIT license
+ &middot; 100% local - no cloud, no tracking</footer>
+</main>
+</body></html>"""
+
 DASHBOARD_AUTH_ERROR_TMPL = r"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -3509,6 +3875,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   <div class="bar">
     <button id="bPause" onclick="togglePause()">Pause queue</button>
     <button onclick="if(confirm('Cancel every waiting job?'))act('/queue/clear')">Clear queue</button>
+    <a href="/docs@@Q@@"><button><b>Docs (user guide)</b></button></a>
     <a href="/export/history.csv@@Q@@"><button>History CSV</button></a>
     <a href="/audit.csv@@Q@@"><button>Audit CSV</button></a>
     <a href="/diagnostics@@Q@@"><button>Diagnostics JSON</button></a>
@@ -3521,6 +3888,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div class="card"><b id="cPrinters">-</b><span>printers ready</span></div>
     <div class="card"><b id="cVer">v@@VERSION@@</b><span>hub version</span></div>
   </div>
+  <h2>LAN sharing &amp; other PCs <small style="text-transform:none;letter-spacing:0">&nbsp;- v2.2: share this printer over the network, shift jobs to another PC</small></h2>
+  <div class="panel" id="lanCard"><table><tbody id="lanBody">
+    <tr><td>Loading LAN status...</td></tr></tbody></table></div>
   <h2>Printers</h2>
   <div class="panel" id="printers"><table><tbody>
     <tr><td>Loading printers...</td></tr></tbody></table></div>
@@ -3578,7 +3948,8 @@ async function refresh(){
           esc(j.printer||"default")+"</td><td><span class='st "+esc(j.status)+
           "'>"+esc(j.status)+(j.held_reason?" - "+esc(j.held_reason):"")+
           "</span></td><td><button onclick=\"act('/jobs/"+j.id+
-          "/cancel').then(refresh)\">Cancel</button></td></tr>";
+          "/cancel').then(refresh)\">Cancel</button> "+
+          (j.status!=="printing"?"<button onclick=\"shiftJob("+j.id+")\">Shift</button>":"")+"</td></tr>";
     }
     document.getElementById("queue").innerHTML=
       qh||"<tr><td>Queue is empty.</td></tr>";
@@ -3615,13 +3986,65 @@ async function togglePause(){
   await act("/queue/"+(st.paused?"resume":"pause"));
   refresh();
 }
+/* ---- v2.2: LAN sharing card + queue shift ---- */
+let PEERS=[];
+async function loadLan(){
+  try{
+    const hl=await jget("/health");
+    const b=document.getElementById("lanBody");
+    if(!b)return;
+    const on=!!hl.share_lan;
+    const active=!!hl.lan_active;
+    const url=hl.lan_url||("http://<this-PC-ip>:"+location.port);
+    let rows="<tr><td><b>LAN sharing: </b>"+(on?"<span class='st queued'>ON</span>":"<span class='st held'>OFF</span>")+"</td>"+
+      "<td class='mono'>"+esc(on?url:"127.0.0.1 (this PC only)")+"</td>"+
+      "<td><button onclick='toggleLan("+(on?"false":"true")+")'>"+(on?"Disable":"Enable")+"</button> "+
+      (on?"<button onclick='copyLan()'>Copy URL</button>":"")+"</td></tr>";
+    if(on&&!active)
+      rows+="<tr><td colspan='3'><b>Restart the hub to apply</b> - tray icon → Exit, then start PrintHub Pro again (the listener rebinds to the LAN on start).</td></tr>";
+    try{const pr=await jget("/peers");PEERS=(pr&&pr.peers)||pr||[];}catch(_){PEERS=[];}
+    for(const p of (PEERS||[])){
+      rows+="<tr><td><span class='st "+(p.alive?"queued":"offline")+"'>peer "+(p.alive?"online":"offline")+"</span> "+esc(p.url)+" <small>"+esc(p.version||"")+"</small></td>"+
+        "<td></td><td><button onclick=\"shiftAll('"+esc(p.url)+"')\">Shift all waiting jobs</button></td></tr>";
+    }
+    if(!(PEERS||[]).length)
+      rows+="<tr><td colspan='3'><small>Tip: add fixed peer PCs (\"peer_hubs\") in config.json - see <a href='/docs@@Q@@'>Docs</a>. Or from the other PC, set its extension Hub URL to this machine's LAN URL.</small></td></tr>";
+    b.innerHTML=rows;
+  }catch(e){}
+}
+async function toggleLan(on){
+  const r=await act("/config",{share_lan:on});
+  if(r.ok)msg(on?"LAN sharing saved - RESTART the hub (tray icon → Exit, start again) so other PCs can connect. Check the firewall!":"LAN sharing disabled - restart the hub to unbind the LAN");
+  else msg(r.error||"failed");
+  setTimeout(refresh,400);
+}
+function copyLan(){
+  const u=document.querySelector("#lanBody .mono");
+  if(u&&navigator.clipboard)navigator.clipboard.writeText(u.textContent).then(()=>msg("LAN URL copied: "+u.textContent));
+}
+async function shiftAll(url){
+  if(!confirm("Shift ALL waiting jobs to "+url+"?"))return;
+  const r=await act("/queue/shift",{scope:"all",target:url});
+  if(r.ok)msg(r.message||("shifted "+r.shifted_count+" job(s)"));
+  else msg(r.error||"shift failed");
+  refresh();
+}
+async function shiftJob(id){
+  const def=((PEERS||[]).filter(p=>p.alive).map(p=>p.url)[0])||"";
+  const t=prompt("Shift job #"+id+" to which PC? (the OTHER PrintHub's LAN URL, e.g. http://192.168.0.60:9235)",def);
+  if(!t)return;
+  const r=await act("/queue/shift",{scope:"job",ids:[id],target:t.trim()});
+  if(r.ok)msg(r.message||"shifted");
+  else msg(r.error||"shift failed");
+  refresh();
+}
 async function rotateToken(){
   if(!confirm("Generate a NEW token? The old one stops working immediately."))return;
   const r=await act("/token/rotate");
   if(r.ok){prompt("Your NEW token - copy it into the extension Options page:",r.token);}
   else msg(r.error||"failed");
 }
-refresh();setInterval(refresh,5000);
+refresh();loadLan();setInterval(refresh,5000);setInterval(loadLan,15000);
 </script></body></html>"""
 
 # ------------------------------------------------------------
@@ -3834,6 +4257,8 @@ def cmd_serve():
             " http://%s:%d (token required; allow TCP %d through the"
             " firewall if needed)" % (lan_ip(), CFG["port"], CFG["port"]))
     addr = (host, CFG["port"])
+    global BOUND_LAN
+    BOUND_LAN = (host == "0.0.0.0")
     try:
         httpd = ThreadingHTTPServer(addr, Handler)
     except OSError as e:

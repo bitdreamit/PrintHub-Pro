@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PrintHub Pro — Print from Any Web Page",
   "short_name": "PrintHub Pro",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Print any web page, PDF, selection or screenshot to ANY printer via your local PrintHub Pro hub. Silent, no print dialog, 100% local.",
   "author": "Bitdream IT",
   "homepage_url": "https://github.com/bitdreamit/PrintHub-Pro",

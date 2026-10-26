@@ -1,7 +1,9 @@
-/* PrintHub Pro - options page logic */
+/* PrintHub Pro - options page logic (v2.2: print defaults + LAN/PCs) */
 const $ = (id) => document.getElementById(id);
 let PRINTERS = [];
 let QUEUE_TIMER = null;
+let LAN_TIMER = null;
+let CAPS = null;
 
 function send(m) {
   return new Promise((resolve) => {
@@ -13,16 +15,26 @@ function saved(text) {
   setTimeout(() => { $("saveMsg").textContent = ""; }, 2500);
 }
 
-/* ---------- tabs (Queue | History | Settings | About) ---------- */
+/* ---------- tabs (Queue | History | Settings | LAN | About) ---------- */
 function showTab(name) {
-  const valid = ["queue", "history", "settings", "about"].includes(name)
+  const valid = ["queue", "history", "settings", "lan", "about"].includes(name)
     ? name : "settings";
   document.querySelectorAll("#tabs button").forEach((b) =>
     b.classList.toggle("active", b.dataset.tab === valid));
   document.querySelectorAll("section.panel").forEach((p) =>
     p.classList.toggle("active", p.id === "panel-" + valid));
   if (valid === "queue") startQueueLoop(); else stopQueueLoop();
+  if (valid === "lan") startLanLoop(); else stopLanLoop();
   if (valid === "history") loadJobs();
+}
+
+function stopLanLoop() {
+  if (LAN_TIMER) { clearInterval(LAN_TIMER); LAN_TIMER = null; }
+}
+function startLanLoop() {
+  stopLanLoop();
+  loadLan();
+  LAN_TIMER = setInterval(loadLan, 8000);
 }
 
 function stopQueueLoop() {
@@ -98,9 +110,30 @@ async function refreshQueue() {
       refreshQueue();
     });
     tdBtn.appendChild(bc);
+    if (j.status !== "printing") {
+      const bs = document.createElement("button");
+      bs.className = "mini"; bs.textContent = "Shift to PC";
+      bs.title = "Print this job on ANOTHER PC's hub over the LAN";
+      bs.addEventListener("click", () => shiftJobPrompt(j.id));
+      tdBtn.appendChild(bs);
+    }
     tr.appendChild(tdBtn);
     body.appendChild(tr);
   }
+}
+
+/* v2.2: shift one job (or the whole queue) to another PC's hub */
+async function shiftJobPrompt(id) {
+  const t = prompt(
+    `Shift job #${id} to which PC?\n` +
+    "Enter the OTHER PrintHub's LAN URL, e.g. http://192.168.0.60:9235",
+    $("shiftTarget").value.trim());
+  if (!t) return;
+  $("shiftTarget").value = t.trim();
+  const r = await send({ type: "queueShift", scope: "job", ids: [id],
+                         target: t.trim(), targetToken: $("shiftToken").value.trim() });
+  alert(r.ok ? r.message || "shifted" : "Shift failed: " + r.error);
+  refreshQueue();
 }
 
 /* ---------- GitHub update check ---------- */
@@ -108,7 +141,7 @@ async function updateCheck() {
   const out = $("updState"), live = $("updLive");
   out.textContent = "checking...";
   live.innerHTML = "";
-  let manifestVer = "2.1.0";
+  let manifestVer = "2.2.0";
   try { manifestVer = chrome.runtime.getManifest().version; } catch (_) {}
   try {
     const r = await fetch("https://api.github.com/repos/bitdreamit/PrintHub-Pro/releases/latest",
@@ -222,6 +255,137 @@ function collect() {
   return rules;
 }
 
+/* ---------- v2.2: default print options (stored as cfg.printDefaults) */
+function PD() {
+  return {
+    copies: ($("dCopies").value || "").trim(),
+    pagesMode: $("dPagesMode").value,
+    pagesCustom: ($("dPagesCustom").value || "").trim(),
+    quality: $("dQuality").value,
+    qualityCustom: ($("dQualityCustom").value || "").trim(),
+    perSheet: $("dPerSheet").value,
+    duplex: $("dDuplex").value,
+    orient: $("dOrient").value,
+    scale: ($("dScale").value || "").trim(),
+    margin: ($("dMargin").value || "").trim(),
+    paper: $("dPaper").value
+  };
+}
+
+function applyPrintDefaults(pd) {
+  pd = pd || {};
+  $("dCopies").value = pd.copies || "";
+  $("dPagesMode").value = pd.pagesMode || "";
+  $("dPagesCustom").value = pd.pagesCustom || "";
+  $("dQuality").value = pd.quality || "";
+  $("dQualityCustom").value = pd.qualityCustom || "";
+  $("dPerSheet").value = pd.perSheet || "";
+  $("dDuplex").value = pd.duplex || "";
+  $("dOrient").value = pd.orient || "";
+  $("dScale").value = pd.scale || "";
+  $("dMargin").value = pd.margin || "";
+  $("dPaper").value = pd.paper || "";
+}
+
+/* What the hub will actually receive for the current defaults - the same
+ * merge logic background.js applies before POST /print. */
+function effectiveOptions(pd) {
+  pd = pd || PD();
+  const o = {};
+  if (pd.copies && parseInt(pd.copies, 10) > 1) o.copies = parseInt(pd.copies, 10);
+  if (pd.pagesMode === "odd" || pd.pagesMode === "even") o.pages = pd.pagesMode;
+  else if (pd.pagesMode === "custom" && pd.pagesCustom) o.pages = pd.pagesCustom;
+  if (pd.quality === "custom" && pd.qualityCustom) o.quality = pd.qualityCustom;
+  else if (pd.quality) o.quality = pd.quality;
+  if (pd.perSheet && parseInt(pd.perSheet, 10) > 1) o.per_sheet = parseInt(pd.perSheet, 10);
+  if (pd.duplex) o.duplex = pd.duplex;
+  if (pd.orient) o.orientation = pd.orient;
+  if (pd.scale && parseInt(pd.scale, 10) !== 100) o.scale_pct = parseInt(pd.scale, 10);
+  if (pd.margin) o.margin_mm = parseFloat(pd.margin);
+  if (pd.paper) o.paper_size = pd.paper;
+  return o;
+}
+
+async function refreshCaps() {
+  const note = $("capsNote");
+  const p = $("defaultPrinter").value;
+  if (!p) {
+    CAPS = null;
+    note.innerHTML = "Using the OS default printer - the hub reports what it supports per job.";
+    return;
+  }
+  const r = await send({ type: "hubCaps", name: p });
+  if (!r.ok) {
+    CAPS = null;
+    note.innerHTML = "Could not read capabilities (hub offline?).";
+    return;
+  }
+  CAPS = r.caps;
+  const parts = [];
+  parts.push("backend: <b>" + (r.caps.backend || "?") + "</b>");
+  if (r.caps.pages) parts.push("odd/even pages: <b>" + (r.caps.pages.odd_even ? "yes" : "no") + "</b>");
+  if (r.caps.copies) parts.push("copies: <b>" + r.caps.copies.max + "</b>");
+  if (r.caps.per_sheet) parts.push("per-sheet: <b>" +
+    (Array.isArray(r.caps.per_sheet) ? r.caps.per_sheet.join("/") : r.caps.per_sheet) + "</b>");
+  else parts.push("per-sheet: <b>no (driver)</b>");
+  if (r.caps.quality) {
+    if (Array.isArray(r.caps.quality)) parts.push("quality: <b>" + r.caps.quality.join("/") + "</b>");
+    else parts.push("quality: <b>" + (r.caps.quality.presets || []).join("/") +
+                    "</b>, dpi: <b>" + (r.caps.quality.dpi ? (Array.isArray(r.caps.quality.dpi) ? r.caps.quality.dpi.join("/") : r.caps.quality.dpi) : "driver decides") + "</b>");
+  }
+  if (r.caps.duplex) parts.push("duplex: <b>" + r.caps.duplex.join("/") + "</b>");
+  if (r.caps.tray === null) parts.push("tray: <b>no</b>");
+  note.innerHTML = "<b>" + p + "</b> supports: " + parts.join(" &middot; ");
+}
+
+/* ---------- v2.2: LAN sharing + peers (LAN / PCs tab) ---------- */
+async function loadLan() {
+  const st = await send({ type: "hubStatus" });
+  const dot = $("lanDot"), state = $("lanState"), url = $("lanUrl");
+  if (!st.ok) {
+    dot.className = "dot offline";
+    state.textContent = "Hub offline";
+    url.textContent = "start the hub first";
+    $("bLanToggle").textContent = "Enable";
+    $("peersBody").innerHTML = '<tr><td colspan="4">Hub offline.</td></tr>';
+    return;
+  }
+  const on = !!st.share_lan;
+  dot.className = "dot" + (on ? "" : " paused");
+  state.textContent = on ? "ON - other PCs can print through this PC" : "OFF - this PC only (127.0.0.1)";
+  url.textContent = on ? (st.lan_url || "") : "";
+  if (on && st.lan_active === false)
+    state.textContent = "SAVED - restart the hub (tray icon > Exit, start again) to apply";
+  $("bLanToggle").textContent = on ? "Disable" : "Enable";
+  const pr = await send({ type: "hubPeers" });
+  const peers = (pr.ok && (pr.peers || pr.parsed)) || [];
+  const body = $("peersBody");
+  if (!peers.length) {
+    body.innerHTML = '<tr><td colspan="4">No peer PCs configured. Add them in the hub config.json under "peer_hubs" - see About > Open user guide. (You can still shift by typing the other PC\'s LAN URL below.)</td></tr>';
+    return;
+  }
+  body.innerHTML = "";
+  for (const p of peers) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td class="mono">${p.url || ""}</td>` +
+      `<td><span class="st ${p.alive ? "printed" : "failed"}">${p.alive ? "online" : "offline"}</span></td>` +
+      `<td>${p.version || ""}</td>`;
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "mini"; b.textContent = "Shift all waiting";
+    b.addEventListener("click", async () => {
+      if (!confirm("Shift ALL waiting jobs to " + p.url + "?")) return;
+      const r = await send({ type: "queueShift", scope: "all", target: p.url });
+      alert(r.ok ? r.message || "shifted" : "Shift failed: " + r.error);
+      loadLan();
+    });
+    td.appendChild(b);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
 /* ---------- load / save ---------- */
 async function loadPrinters() {
   const r = await send({ type: "hubPrinters" });
@@ -257,8 +421,10 @@ async function loadAll() {
   $("failFallback").value = c.failFallback === "none" ? "none" : "tab";
   $("contextMenu").checked = !!c.contextMenu;
   $("badge").checked = !!c.badge;
+  applyPrintDefaults(c.printDefaults);
   await loadPrinters();
   $("defaultPrinter").value = c.defaultPrinter || "";
+  refreshCaps();
   testHub(false);
 }
 
@@ -279,6 +445,7 @@ async function saveAll() {
       failFallback: $("failFallback").value,
       contextMenu: $("contextMenu").checked,
       badge: $("badge").checked,
+      printDefaults: PD(),
       rules: collect()
     }
   });
@@ -409,6 +576,51 @@ async function openHubPath(path) {
 }
 $("bDashboard").addEventListener("click", () => openHubPath("/dashboard"));
 $("bAudit").addEventListener("click", () => openHubPath("/audit"));
+$("bOpenDocs").addEventListener("click", () => openHubPath("/docs"));
+
+/* ---------- v2.2: LAN / PCs wiring ---------- */
+$("bLanToggle").addEventListener("click", async () => {
+  const st = await send({ type: "hubStatus" });
+  if (!st.ok) return alert("Hub offline - start it first");
+  const on = !st.share_lan;
+  if (!confirm(on ?
+      "Enable LAN sharing?\n\nAfter this, RESTART the hub (tray icon > Exit, start again) and allow TCP 9235 through the firewall. Other PCs will need your token." :
+      "Disable LAN sharing? Other PCs will no longer reach this printer.")) return;
+  const r = await send({ type: "hubConfigSet", patch: { share_lan: on } });
+  if (r.ok) alert(on ?
+      "Saved. NOW: 1) restart the hub (tray icon > Exit, start PrintHub Pro again)  2) allow TCP 9235 through the firewall.\nThis PC's LAN URL will be shown after the restart." :
+      "Saved. Restart the hub to fully apply.");
+  else alert("Failed: " + r.error);
+  loadLan();
+});
+$("bLanCopy").addEventListener("click", async () => {
+  const u = $("lanUrl").textContent.trim();
+  if (!u) return;
+  try { await navigator.clipboard.writeText(u); alert("Copied: " + u); }
+  catch (_) { prompt("Copy this LAN URL:", u); }
+});
+$("bLanRefresh").addEventListener("click", loadLan);
+$("bShiftAll").addEventListener("click", async () => {
+  const target = $("shiftTarget").value.trim();
+  if (!target) return alert("Enter the other PC's LAN URL first\n(e.g. http://192.168.0.60:9235)");
+  if (!confirm("Shift ALL waiting jobs to " + target + "?")) return;
+  const r = await send({ type: "queueShift", scope: "all", target,
+                         targetToken: $("shiftToken").value.trim() });
+  alert(r.ok ? r.message || "shifted" : "Shift failed: " + r.error);
+  loadLan();
+});
+
+/* default print options: save on change + capability hints */
+["dCopies", "dPagesMode", "dPagesCustom", "dQuality", "dQualityCustom",
+ "dPerSheet", "dDuplex", "dOrient", "dScale", "dMargin", "dPaper"]
+ .forEach((id) => $(id).addEventListener("change", saveAll));
+$("dPagesMode").addEventListener("change", () => {
+  $("dPagesCustom").style.display = $("dPagesMode").value === "custom" ? "" : "none";
+});
+$("dQuality").addEventListener("change", () => {
+  $("dQualityCustom").style.display = $("dQuality").value === "custom" ? "" : "none";
+});
+$("defaultPrinter").addEventListener("change", refreshCaps);
 
 /* ---------- tab bar + queue/about wiring ---------- */
 document.querySelectorAll("#tabs button").forEach((b) =>

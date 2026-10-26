@@ -6,6 +6,57 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is
 
 ---
 
+## [2.2.0] — 2026-10-27 — "You can SEE every feature now"
+
+v2.1.0 shipped the new machinery as API endpoints only; the extension UI
+showed nothing new and the docs were easy to miss. This release surfaces
+everything.
+
+### Added
+- **Extension Options → "Default print options"** section: copies, pages
+  (all / odd / even / custom range), per-sheet n-up (2/4/6/9/16), quality
+  (draft/normal/high **and** 300/600/1200 dpi or any custom DPI), scale %,
+  margins mm, duplex (one/two-sided long/short edge), paper size and
+  layout. Stored as `printDefaults` and merged into EVERY job this
+  browser sends (`applyPrintDefaults` in background.js) - per-call values
+  from page scripts, rules or the popup still win. A capability line shows
+  what the selected printer really supports
+  (`GET /printers/{name}/capabilities`).
+- **Extension Options → "LAN / PCs" tab**: LAN sharing on/off
+  (`POST /config {"share_lan": ...}`) with honest "restart the hub to
+  apply" state (`/health` now reports `lan_active`), copy-LAN-URL button,
+  firewall command, peers table (from `/peers`) with per-peer
+  **Shift all waiting jobs**, and a manual shift form (URL + optional
+  peer token). Queue tab rows gained **Shift to PC** buttons.
+- **Hub dashboard "LAN sharing & other PCs" card**: live state + LAN URL +
+  copy + enable/disable + per-peer shift-all + per-row Shift in the queue
+  + Docs button.
+- **`GET /docs`** - the full user guide served by the hub itself (feature
+  click-map, complete print-option table with Windows/CUPS support,
+  quality presets + DPI section, LAN sharing steps incl. firewall
+  command, queue on/off + shift, Laravel scheduler/webhook recipes,
+  Bangla thermal notes, endpoint map). Token-protected like the
+  dashboard; linked from the extension About tab and the dashboard.
+- **`quality` dual mode on POST /print**: named presets
+  (`draft|normal|high`, plus `best|fine` aliases) AND DPI values
+  (`"600"`, `"600dpi"`, or the separate `"dpi": 600` field, clamped
+  72-2400). Presets map to CUPS `print-quality=3/4/5`; DPI maps to
+  `printer-resolution=<n>dpi`. Capabilities now return
+  `quality: {presets, dpi}` per printer.
+- `window.printhub.print()` passes `per_sheet, quality, dpi, scale_pct,
+  margin_mm, duplex, paper_size, orientation` straight through.
+
+### Changed
+- Windows/Sumatra note for quality/DPI now explains per-case that the
+  Windows driver keeps control (Sumatra has no quality/resolution
+  switch); the requested value is still stored on the job and audited.
+- Extension + installer version sweep to 2.2.0.
+
+### Fixed
+- The v2.1.0 "invisible features" regression: LAN sharing, queue shift
+  and print options now have real UI instead of API-only access, and the
+  documentation ships inside the hub so it cannot go missing again.
+
 ## [2.1.0] — 2026-10-26 — "Every printer option, LAN sharing, Bangla receipts"
 
 ### Added
