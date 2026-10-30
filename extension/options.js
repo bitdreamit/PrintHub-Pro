@@ -25,7 +25,20 @@ function showTab(name) {
     p.classList.toggle("active", p.id === "panel-" + valid));
   if (valid === "queue") startQueueLoop(); else stopQueueLoop();
   if (valid === "lan") startLanLoop(); else stopLanLoop();
-  if (valid === "history") loadJobs();
+  if (valid === "history") startJobsLoop(); else stopJobsLoop();
+}
+
+/* v2.2.1: history auto-refreshes every 8 s while the tab is open, so a
+ * stuck "queued" row turns "printed" in front of the user (or shows the
+ * real error) instead of looking frozen. */
+let JOBS_TIMER = null;
+function stopJobsLoop() {
+  if (JOBS_TIMER) { clearInterval(JOBS_TIMER); JOBS_TIMER = null; }
+}
+function startJobsLoop() {
+  stopJobsLoop();
+  loadJobs();
+  JOBS_TIMER = setInterval(loadJobs, 8000);
 }
 
 function stopLanLoop() {
@@ -141,7 +154,7 @@ async function updateCheck() {
   const out = $("updState"), live = $("updLive");
   out.textContent = "checking...";
   live.innerHTML = "";
-  let manifestVer = "2.2.0";
+  let manifestVer = "2.2.1";
   try { manifestVer = chrome.runtime.getManifest().version; } catch (_) {}
   try {
     const r = await fetch("https://api.github.com/repos/bitdreamit/PrintHub-Pro/releases/latest",
@@ -482,10 +495,12 @@ async function loadJobs() {
   }
   for (const j of r.jobs || []) {
     const tr = document.createElement("tr");
+    const why = j.held_reason || j.error || "";
     tr.innerHTML =
       `<td>${j.id}</td><td class="mono">${(j.created_at || "").replace("T", " ")}</td>` +
       `<td>${(j.title || "-").slice(0, 42)}</td><td>${(j.printer || "default").slice(0, 28)}</td>` +
-      `<td>${j.kind}</td><td><span class="st ${j.status}">${j.status}</span></td>`;
+      `<td>${j.kind}</td><td><span class="st ${j.status}" title="${String(why).replace(/"/g, "&quot;")}">${j.status}</span>` +
+      (why ? `<div class="jerr">${String(why).replace(/</g, "&lt;").slice(0, 90)}</div>` : "") + `</td>`;
     const tdBtn = document.createElement("td");
     if (j.status === "queued" || j.status === "printing" || j.status === "scheduled"
         || j.status === "held") {
@@ -496,6 +511,21 @@ async function loadJobs() {
         loadJobs();
       });
       tdBtn.appendChild(bc);
+      // v2.2.1: Print now - bypasses the pause and the printer-status
+      // hold (the remedy when jobs sit in the queue and never print)
+      if (j.status !== "printing") {
+        const bp = document.createElement("button");
+        bp.className = "mini"; bp.textContent = "Print now";
+        bp.title = "Send this job to the printer immediately " +
+                   "(bypasses pause and printer-status hold)";
+        bp.addEventListener("click", async () => {
+          bp.disabled = true; bp.textContent = "...";
+          const pr = await send({ type: "jobPrintNow", id: j.id });
+          if (!pr.ok) alert("Print now failed: " + (pr.error || "no response"));
+          loadJobs();
+        });
+        tdBtn.appendChild(bp);
+      }
     } else if (j.status === "failed" || j.status === "dead" || j.status === "canceled") {
       const br = document.createElement("button");
       br.className = "mini"; br.textContent = "Retry";

@@ -25,7 +25,7 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.2.0"
+    assert d["version"] == "2.2.1"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
@@ -494,11 +494,11 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert printhub.VERSION == "2.2.0"
+    assert printhub.VERSION == "2.2.1"
     ext = os.path.join(os.path.dirname(printhub.__file__), "..",
                        "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.2.0"
+        assert json.load(f)["version"] == "2.2.1"
 
 
 def test_log_rotation(tmp_path):
@@ -705,7 +705,7 @@ def test_v22_docs_page_served(hub):
     body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
             else d if isinstance(d, str) else json.dumps(d))
     assert "LAN sharing" in body and "POST /print" in body
-    assert "2.2.0" in body
+    assert "2.2.1" in body
 
 
 def test_v22_docs_wrong_token_json(hub):
@@ -717,10 +717,128 @@ def test_v22_dashboard_has_lan_card_and_docs(hub):
     html = printhub.dashboard_html("")
     assert 'id="lanBody"' in html and "LAN sharing" in html
     assert "/docs" in html and "shiftJob" in html
-    assert "2.2.0" in html
+    assert "2.2.1" in html
 
 
 def test_v22_health_lan_active(hub):
     code, d = hub.get("/health")
     assert code == 200
     assert d["lan_active"] is False      # test server binds 127.0.0.1
+
+
+# ============================================================
+# v2.2.1 - "extension shows OK but nothing prints" fixes
+# ============================================================
+
+def test_v221_print_response_has_status(hub, clean_queue):
+    # the extension history used to record EVERY job as "queued" because
+    # the POST /print answer carried no status field at all
+    code, d = hub.post("/print", {"text": "status check", "title": "st1"})
+    assert code == 200 and d["ok"] is True
+    assert d["status"] == "queued"
+    code, d = hub.post("/print", {"text": "direct", "title": "st2",
+                                  "queue": False})
+    assert code == 200 and d["status"] == "printing"
+
+
+def test_v221_get_single_job(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "single", "title": "solo"})
+    jid = d["job_id"]
+    code, d = hub.get("/jobs/%d" % jid)
+    assert code == 200 and d["ok"] is True
+    assert d["job"]["id"] == jid and d["job"]["title"] == "solo"
+    code, d = hub.get("/jobs/999999")
+    assert code == 404 and d["ok"] is False
+
+
+def test_v221_print_now_bypasses_hold(hub, clean_queue, cfg_reset, monkeypatch):
+    # printer reports offline -> job HELD (old behaviour: stuck forever,
+    # the user sees "queued/held" and nothing prints). print-now must
+    # push it out immediately.
+    printhub.CFG["hold_offline"] = True
+    monkeypatch.setattr(printhub, "printers_status",
+                        lambda force=False: {"GhostOff": "offline"})
+    code, d = hub.post("/print", {"text": "held job", "title": "h1",
+                                  "printer": "GhostOff"})
+    jid = d["job_id"]
+    assert wait_until(lambda: (printhub.db_get(jid) or {}).get("status")
+                      == "held"), "job should be held"
+    code, d = hub.post("/jobs/%d/print-now" % jid, {})
+    assert code == 200 and d["ok"] is True and d["status"] == "printing"
+    assert wait_until(lambda: (printhub.db_get(jid) or {}).get("status")
+                      == "printed"), "print-now must print despite hold"
+
+
+def test_v221_print_now_bypasses_pause(hub, clean_queue):
+    code, d = hub.post("/print", {"text": "paused job", "title": "p1"})
+    jid = d["job_id"]
+    hub.post("/queue/pause", {})
+    try:
+        assert wait_until(lambda: (printhub.db_get(jid) or {})
+                          .get("status") == "queued")
+        code, d = hub.post("/jobs/%d/print-now" % jid, {})
+        assert code == 200
+        assert wait_until(lambda: (printhub.db_get(jid) or {})
+                          .get("status") == "printed"), \
+            "print-now must print even while the queue is paused"
+    finally:
+        hub.post("/queue/resume", {})
+
+
+def test_v221_worker_survives_internal_error(hub, clean_queue, monkeypatch):
+    # THE regression: any unexpected exception inside the worker used to
+    # kill the thread - the hub kept answering OK while every later job
+    # stayed "queued" forever. The exception-proof loop must keep going.
+    calls = {"n": 0}
+    real_execute = printhub._execute_job
+
+    def exploding(job, t0):
+        calls["n"] += 1
+        raise RuntimeError("simulated worker crash")
+
+    monkeypatch.setattr(printhub, "_execute_job", exploding)
+    code, d = hub.post("/print", {"text": "boom", "title": "crash1"})
+    jid1 = d["job_id"]
+    # the crash must be picked up by the worker...
+    assert wait_until(lambda: calls["n"] >= 1, timeout=10), \
+        "worker should have called the exploding handler"
+    # ...and the job must NOT be stuck in 'printing' forever - it goes
+    # to failed -> retry backoff (status queued again, attempts counted)
+    def retried():
+        j = printhub.db_get(jid1) or {}
+        return (j.get("status") == "queued" and j.get("attempts", 0) >= 1) \
+            or j.get("status") == "failed"
+    assert wait_until(retried), \
+        "crashed job must not stay 'printing' forever"
+    # the worker must STILL be alive for the next job
+    monkeypatch.setattr(printhub, "_execute_job", real_execute)
+    code, d = hub.post("/print", {"text": "after crash", "title": "ok1"})
+    jid2 = d["job_id"]
+    assert wait_until(lambda: (printhub.db_get(jid2) or {})
+                      .get("status") == "printed", timeout=10), \
+        "worker must survive an unexpected internal error"
+    assert calls["n"] >= 1
+
+
+def test_v221_watchdog_respawns_dead_worker(hub):
+    # belt & braces: the watchdog must notice a dead worker thread and
+    # spawn a fresh one
+    dead = __import__("threading").Thread(target=lambda: None)
+    dead.start()
+    dead.join()
+    old = printhub._WORKER_THREAD[0]
+    try:
+        printhub._WORKER_THREAD[0] = dead
+        assert not printhub._WORKER_THREAD[0].is_alive()
+        printhub._spawn_worker()
+        assert printhub._WORKER_THREAD[0].is_alive()
+        assert printhub._WORKER_THREAD[0] is not dead
+    finally:
+        printhub._WORKER_THREAD[0] = old
+
+
+def test_v221_health_reports_worker_and_hold(hub):
+    code, d = hub.get("/health")
+    assert code == 200
+    assert d["worker_alive"] is True
+    assert d["hold_offline"] is True

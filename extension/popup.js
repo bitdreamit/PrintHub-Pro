@@ -92,8 +92,12 @@ async function refresh() {
     $("stat").textContent = `Connected - hub v${st.version} on ${st.os}`;
     $("connect").textContent = "";
     paused = !!st.paused;
-    $("qstate").textContent = paused ? PrintHubI18n.t("popPaused")
-                                     : PrintHubI18n.t("popRunning");
+    const qs = $("qstate");
+    qs.textContent = paused ? PrintHubI18n.t("popPaused")
+                            : PrintHubI18n.t("popRunning");
+    // v2.2.1: PAUSED must be unmissable - red text (a paused queue is
+    // the #1 reason jobs "stay queued" and nothing prints)
+    qs.classList.toggle("paused", paused);
     $("bPause").textContent = paused ? PrintHubI18n.t("popResume")
                                      : PrintHubI18n.t("popPause");
     $("qpend").textContent = st.pending ? st.pending + " pending" : "";
@@ -136,9 +140,14 @@ async function refresh() {
     }
   }
   if (jobs.ok && jobs.jobs && jobs.jobs.length) {
+    // v2.2.1: held jobs get their own banner with a one-click fix
+    let held = [];
     for (const j of jobs.jobs) {
+      if (j.status === "held") held.push(j);
       const d = document.createElement("div");
       d.className = "job";
+      const why = j.held_reason || j.error || "";
+      if (why) d.title = why;
       const t = document.createElement("span");
       t.className = "t";
       t.textContent = j.title || ("job #" + j.id);
@@ -150,10 +159,43 @@ async function refresh() {
       m.className = "m";
       m.textContent = (j.printer || "default");
       d.append(t, s, m);
+      // v2.2.1: one-click "Print now" for anything that is not moving -
+      // bypasses the global pause AND the printer-status hold
+      if (["queued", "held", "failed", "dead", "scheduled", "saved"]
+          .includes(j.status)) {
+        const b = document.createElement("button");
+        b.className = "pbtn";
+        b.textContent = "Print now";
+        b.title = "Send this job to the printer immediately " +
+                  "(bypasses pause and printer-status hold)";
+        b.addEventListener("click", async () => {
+          b.disabled = true; b.textContent = "...";
+          const r = await send({ type: "jobPrintNow", id: j.id });
+          msg(r.ok ? "Job #" + j.id + " - printing now"
+                   : "Failed: " + (r.error || "no response"),
+             r.ok ? "info" : "err");
+          setTimeout(refresh, 1500);
+        });
+        d.appendChild(b);
+      }
+      if (why) {
+        const e = document.createElement("span");
+        e.className = "e";
+        e.textContent = why.slice(0, 120);
+        d.appendChild(e);
+      }
       box.appendChild(d);
+    }
+    if (held.length) {
+      $("heldText").textContent = held.length +
+        " job(s) held - the printer reports offline/out of paper.";
+      $("heldBanner").classList.add("show");
+    } else {
+      $("heldBanner").classList.remove("show");
     }
   } else {
     box.innerHTML = '<div class="empty">' + PrintHubI18n.t("popNoJobs") + '</div>';
+    $("heldBanner").classList.remove("show");
   }
 }
 
@@ -195,6 +237,22 @@ $("bTest").addEventListener("click", async () => {
 $("bPause").addEventListener("click", async () => {
   const r = await send({ type: "queueAction", action: paused ? "resume" : "pause" });
   if (r.ok) refresh(); else msg("Failed: " + r.error, "err");
+});
+
+/* v2.2.1: print every HELD job right now (printer-status hold bypass) */
+$("bPrintHeld").addEventListener("click", async () => {
+  msg("Sending held jobs to the printer...", "info");
+  const jobs = await send({ type: "hubJobs", limit: 50 });
+  if (!jobs.ok) return msg("Failed: " + (jobs.error || "hub offline"), "err");
+  const held = (jobs.jobs || []).filter((j) => j.status === "held");
+  let okn = 0;
+  for (const j of held) {
+    const r = await send({ type: "jobPrintNow", id: j.id });
+    if (r.ok) okn++;
+  }
+  msg(okn + " of " + held.length + " held job(s) now printing", okn ? "info" : "err");
+  $("heldBanner").classList.remove("show");
+  setTimeout(refresh, 1500);
 });
 
 $("bOpts").addEventListener("click", () => chrome.runtime.openOptionsPage());

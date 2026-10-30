@@ -6,6 +6,63 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is
 
 ---
 
+## [2.2.1] — 2026-10-30 — "OK means OK: nothing can silently stall the queue"
+
+Bug-fix release for the report *"Extension shows the OK icon but the
+printer never prints; the history list shows queued; toggling queue
+on/off does not help."* Root causes found and fixed.
+
+### Fixed
+- **The print worker could die silently.** Any unexpected exception
+  (driver glitch, DB hiccup, OSError) killed the worker thread; the hub
+  kept answering `ok` while EVERY later job stayed `queued` forever.
+  The worker loop is now exception-proof: errors are logged + audited
+  (`worker.error`), the affected job leaves `printing`
+  (failed → retry), and a **watchdog thread respawns the worker within
+  30 s** even if the loop itself somehow dies
+  (`worker.restarted` in the audit log).
+- **"Queued" looked green and healthy.** The popup and the Options
+  history styled `queued` with the SAME green as `printed`. Now every
+  status has its own color: printed = green, queued = gray (waiting),
+  printing = blue, held = orange, scheduled = purple, failed/dead =
+  red.
+- **The extension history recorded every job as "queued" forever** -
+  `POST /print` did not return a `status` field, so the stored copy
+  kept the fallback. The response now carries the truthful initial
+  `status` (`queued` / `printing` / `scheduled`), and a **1-minute
+  verification alarm** checks submitted jobs against the hub and folds
+  the real outcome (printed/failed/held + the actual error text) back
+  into the extension history.
+- **A silent queue can no longer hide.** Held jobs (printer reported
+  offline/out of paper) now show an amber banner in the popup with the
+  count and the reason; the hub queue state `PAUSED` is red in the
+  popup; job rows show the actual `held_reason` / `error` text.
+
+### Added
+- **`POST /jobs/{id}/print-now`** - force ONE job out right now,
+  bypassing the global pause AND the printer-status hold. Available as
+  a **"Print now"** button on every stuck job row (popup, Options
+  history, dashboard queue) and as **"Print all now"** on the popup's
+  held-jobs banner. This is the one-click remedy for "nothing prints".
+- **`GET /jobs/{id}`** - single-job status (used by the extension
+  verifier; handy for Laravel polling).
+- **`/health`** now reports `worker_alive` and `hold_offline`.
+- **Dashboard: "Printer status hold" toggle** (writes
+  `hold_offline` via `POST /config`). Windows often mis-reports a
+  network printer as offline (WorkOffline stuck) which HELD every job;
+  users can now switch the check off from the UI. Held-job reasons
+  point to it explicitly.
+- **Options → History** auto-refreshes every 8 s while open, shows the
+  error/held reason under the status chip and offers Print now /
+  Retry / Reprint buttons.
+
+### Upgrade notes
+- No config or API breaking changes. If jobs previously piled up as
+  `held`/`queued`, after updating: open the popup - held jobs show
+  **Print now**; or use the dashboard's *Printer status hold* toggle.
+
+---
+
 ## [2.2.0] — 2026-10-27 — "You can SEE every feature now"
 
 v2.1.0 shipped the new machinery as API endpoints only; the extension UI

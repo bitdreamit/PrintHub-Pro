@@ -145,6 +145,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm && alarm.name === RETRY_ALARM) {
     flushRetries("alarm");
   }
+  if (alarm && alarm.name === VERIFY_ALARM) {
+    verifyJobs();              // v2.2.1: did the job really print?
+  }
 });
 
 /* v2.2.0: the moment the user fixes the token or hub URL (Options page,
@@ -285,12 +288,12 @@ async function applyEnabledBadge() {
   } catch (_) {}
 }
 
-async function flashBadge(ok, text) {
+async function flashBadge(ok, text, color) {
   const cfg = await loadCfg();
   if (!cfg.badge || cfg.enabled === false) return;
   try {
     await chrome.action.setBadgeBackgroundColor(
-      { color: ok ? "#16a34a" : "#dc2626" });
+      { color: color || (ok ? "#16a34a" : "#dc2626") });
     await chrome.action.setBadgeText({ text });
     setTimeout(() => chrome.action.setBadgeText({ text: "" }), 4000);
   } catch (_) {}
@@ -301,6 +304,97 @@ async function rememberJob(record) {
   const history = st.history || [];
   history.unshift(Object.assign({ at: new Date().toISOString() }, record));
   await chrome.storage.local.set({ history: history.slice(0, 100) });
+  // v2.2.1: check back on this job so the user learns the TRUTH - the
+  // green OK badge only means "the hub accepted it", not "it printed".
+  if (record.id && !["saved", "canceled"].includes(record.status)) {
+    await trackJobOutcome(record.id);
+  }
+}
+
+/* ---------------- outcome verification (v2.2.1) --------------------- */
+/* "Extension shows OK but nothing prints" - fixed by closing the loop:
+ * every submitted job id is checked against the hub once a minute until
+ * it reaches a final state. failed/dead -> red "!" + a notification with
+ * the actual error; held -> amber "WAIT"; printed -> record the truth in
+ * the extension history. No more silent gaps. */
+const VERIFY_ALARM = "printhub-verify";
+
+async function trackJobOutcome(jobId) {
+  const st = await chrome.storage.local.get({ verifyIds: {} });
+  const v = st.verifyIds || {};
+  v[jobId] = { at: Date.now() };
+  // keep the newest 30, drop anything older than 15 minutes
+  const entries = Object.entries(v)
+    .filter(([, meta]) => Date.now() - (meta.at || 0) < 15 * 60 * 1000)
+    .sort((a, b) => b[1].at - a[1].at)
+    .slice(0, 30);
+  await chrome.storage.local.set({ verifyIds: Object.fromEntries(entries) });
+  try {
+    await chrome.alarms.create(VERIFY_ALARM, { periodInMinutes: 1 });
+  } catch (_) {}
+}
+
+async function verifyJobs() {
+  const st = await chrome.storage.local.get({ verifyIds: {} });
+  const v = st.verifyIds || {};
+  const ids = Object.keys(v).map(Number).filter((n) => n);
+  if (!ids.length) {
+    try { await chrome.alarms.clear(VERIFY_ALARM); } catch (_) {}
+    return;
+  }
+  let jobs = [];
+  try {
+    const r = await hubFetch("/jobs?limit=50");
+    jobs = r.jobs || [];
+  } catch (_) {
+    return;                     // hub offline - try again next tick
+  }
+  const byId = new Map(jobs.map((j) => [j.id, j]));
+  const keep = {};
+  const updates = {};
+  for (const id of ids) {
+    const j = byId.get(id);
+    if (!j) {
+      // not in the last 50 - stop tracking after the 15 min window
+      if (Date.now() - (v[id].at || 0) > 15 * 60 * 1000) continue;
+      keep[id] = v[id];
+      continue;
+    }
+    if (j.status === "failed" || j.status === "dead") {
+      await flashBadge(false, "!");
+      try {
+        chrome.notifications.create({
+          type: "basic", iconUrl: "icons/icon128.png",
+          title: "PrintHub Pro - job NOT printed",
+          message: (j.title || ("Job #" + id)) + ": " +
+                   (j.error || "printer error") });
+      } catch (_) {}
+    } else if (j.status === "held") {
+      await flashBadge(true, "WAIT", "#d97706");
+    }
+    if (j.status !== "queued" && j.status !== "printing" &&
+        j.status !== "scheduled") {
+      updates[id] = { status: j.status, error: j.error || "",
+                      printer: j.printer || "" };
+    } else {
+      keep[id] = v[id];          // still moving - check again next tick
+    }
+  }
+  await chrome.storage.local.set({ verifyIds: keep });
+  // fold the true statuses into the extension history copy
+  if (Object.keys(updates).length) {
+    const h = await chrome.storage.local.get({ history: [] });
+    const history = (h.history || []).map((rec) =>
+      updates[rec.id]
+        ? Object.assign({}, rec, { status: updates[rec.id].status,
+                                   error: updates[rec.id].error,
+                                   printer: updates[rec.id].printer || rec.printer })
+        : rec);
+    await chrome.storage.local.set({ history });
+  }
+  if (!Object.keys(keep).length) {
+    try { await chrome.alarms.clear(VERIFY_ALARM); } catch (_) {}
+  }
 }
 
 /* ---------------- print pipelines ---------------- */
@@ -847,6 +941,12 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           reply(await hubFetch(`/jobs/${msg.id}/${msg.action}`,
                                { method: "POST", body: {} }));
           break;
+        case "jobPrintNow":
+          // v2.2.1: force one job out right now - bypasses the global
+          // pause and the printer-status hold ("nothing prints" remedy)
+          reply(await hubFetch(`/jobs/${msg.id}/print-now`,
+                               { method: "POST", body: {} }));
+          break;
         case "jobRetry":
           reply(await hubFetch(`/jobs/${msg.id}/retry`, {
             method: "POST",
@@ -1035,6 +1135,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await applyEnabledBadge();
   await updateRetryBadge();
   await flushRetries("installed");
+  await verifyJobs();          // v2.2.1: resume checking submitted jobs
   await rebuildMenus();
   await applyHook();
 });
@@ -1043,6 +1144,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await applyEnabledBadge();
   await updateRetryBadge();
   await flushRetries("startup");
+  await verifyJobs();          // v2.2.1: resume checking submitted jobs
   await rebuildMenus();
   await applyHook();
 });

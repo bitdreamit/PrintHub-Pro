@@ -19,6 +19,37 @@ new Setup.exe over the old one keeps all settings and history.
 
 ---
 
+## What's new in v2.2.1 — "OK means OK: nothing can silently stall the queue"
+
+Fixes the *"extension shows OK but the printer never prints; history
+shows queued; queue on/off does not help"* report at every layer:
+
+- **The print worker can no longer die silently.** One unexpected error
+  used to kill the print thread — the hub kept saying `ok` while every
+  later job waited forever. The loop is now exception-proof and a
+  watchdog respawns it within 30 s (`worker.error` / `worker.restarted`
+  in the audit log; `/health` shows `worker_alive`).
+- **One-click "Print now"** on every stuck job (popup, Options history,
+  dashboard queue) — bypasses the paused queue AND the printer-status
+  hold. The popup also gained a **Print all now** button on the new
+  held-jobs banner.
+- **Honest colors**: `queued` is now GRAY (waiting) — only `printed`
+  is green. Held jobs are orange with the reason written under them
+  (usually *Windows reports the printer offline*).
+- **The extension checks back**: one minute after submitting, a
+  verification alarm folds the real outcome (printed / failed + the
+  actual error / held) into the extension history and shows a red `!`
+  badge + notification when a job failed.
+- **Dashboard "Printer status hold" toggle** — Windows mis-reports many
+  network printers as offline (stuck *Use Printer Offline*), which HELD
+  jobs; turn the check off with one click (`hold_offline`).
+- `POST /print` now returns a truthful `status`, `GET /jobs/{id}` gives
+  one job for polling, `/health` reports `worker_alive` +
+  `hold_offline`. Full walk-through: docs/API.md → *"Troubleshooting:
+  jobs stay queued, nothing prints"*.
+
+---
+
 ## What's new in v2.2.0 — "You can SEE every feature now"
 
 v2.1.0 shipped the print-option, LAN-sharing and queue-shift machinery as

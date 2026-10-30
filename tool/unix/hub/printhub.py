@@ -57,7 +57,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 BRANDING = ("PrintHub Pro - Version %s - by Bitdream IT - MIT license - "
             "100%% local - no cloud, no tracking" % VERSION)
 APP_NAME = "PrintHub Pro"
@@ -1547,63 +1547,127 @@ def _execute_job(job, t0):
 
 def worker():
     # recover jobs stuck in 'printing' from a previous crash/restart
-    for j in db_list(limit=200, status="printing"):
-        log("[RECOVER] job #%d was interrupted -> requeued" % j["id"])
-        db_update(j["id"], status="queued",
-                  error="requeued after hub restart")
+    try:
+        for j in db_list(limit=200, status="printing"):
+            log("[RECOVER] job #%d was interrupted -> requeued" % j["id"])
+            db_update(j["id"], status="queued",
+                      error="requeued after hub restart")
+    except Exception as e:
+        log("[WORKER] recovery pass failed: %s" % e)
     while True:
-        RESUME_EVENT.wait()                     # pause support
+        # v2.2.1: the loop body is exception-proof. Earlier a single
+        # unexpected error (driver glitch, DB hiccup, OSError) killed this
+        # thread and EVERY later job stayed 'queued' forever while the hub
+        # still answered OK - the "extension shows OK but nothing prints"
+        # report. Now the error is logged + audited and the loop keeps
+        # running; the watchdog below respawns the thread even if this
+        # last line of defence is somehow bypassed.
+        job = None                  # v2.2.1: for the crash handler below
         try:
-            db_promote_scheduled()              # scheduled prints -> queue
-            _release_held_jobs()                # offline printers -> back up
+            RESUME_EVENT.wait()                 # pause support
+            try:
+                db_promote_scheduled()          # scheduled prints -> queue
+                _release_held_jobs()            # offline printers -> back up
+            except Exception:
+                pass
+            job = db_next_queued()
+            if not job:
+                time.sleep(0.35)
+                continue
+            # HOLD: printer offline / out of paper / error state (raw jobs
+            # skip the status check - receipt printers rarely report state)
+            if CFG.get("hold_offline", True) and job.get("kind") != "raw":
+                pstat = printer_ready(job.get("printer") or "")
+                if pstat in ("offline", "paper-out", "error"):
+                    _hold_job(job, "printer '%s' is %s - job held until it"
+                                  " is ready ('Print now' overrides this,"
+                                  " or switch off 'Printer status hold' in"
+                                  " the dashboard)"
+                                  % (job.get("printer") or "default", pstat))
+                    continue
+                if pstat != "ready" and _try_peer_forward(job):
+                    continue
+            t0 = time.time()
+            db_update(job["id"], status="printing", error=None)
+            if job.get("kind") == "raw":
+                try:
+                    with open(job["file_path"], "rb") as f:
+                        data = f.read()
+                    target = print_raw(data, job.get("printer") or "",
+                                       job_id=job["id"],
+                                       title=job.get("title") or "raw")
+                    ms = int((time.time() - t0) * 1000)
+                    db_update(job["id"], status="printed", error=None,
+                              duration_ms=ms, printer=target)
+                    db_audit("print.completed", job_id=job["id"],
+                             printer=target, actor=job.get("source"),
+                             site=job.get("site"), ip=job.get("origin_ip"),
+                             doc_hash=job.get("content_hash"))
+                    log("[OK] job #%d raw-printed on %s"
+                        % (job["id"], target))
+                except Exception as e:
+                    latest = db_get(job["id"]) or {}
+                    if latest.get("status") == "canceled":
+                        log("[CANCELED] job #%d killed mid-print"
+                            % job["id"])
+                    else:
+                        db_update(job["id"], status="failed",
+                                  error=str(e)[:500])
+                        db_audit("print.failed", job_id=job["id"],
+                                 printer=job.get("printer"),
+                                 details=str(e)[:200])
+                        _retry_or_dead(job, e)
+            else:
+                _execute_job(job, t0)
+            finally_guard(job)
+        except SystemExit:
+            raise
+        except Exception as e:                  # v2.2.1: NEVER let it die
+            try:
+                log("[WORKER] unexpected error (queue keeps running): %s"
+                    % e)
+                db_audit("worker.error", details=str(e)[:300])
+                # do not leave the job as 'printing' forever
+                if job is not None:
+                    latest = db_get(job["id"]) or {}
+                    if latest.get("status") == "printing":
+                        db_update(job["id"], status="failed",
+                                  error="hub error: %s" % str(e)[:300])
+                        db_audit("print.failed", job_id=job["id"],
+                                 printer=job.get("printer"),
+                                 details="worker crash: %s" % str(e)[:200])
+                        _retry_or_dead(job, e)
+            except Exception:
+                pass
+            time.sleep(1.0)
+
+_WORKER_THREAD = [None]
+
+def _spawn_worker():
+    t = threading.Thread(target=worker, daemon=True, name="printhub-worker")
+    _WORKER_THREAD[0] = t
+    t.start()
+
+def _worker_watchdog():
+    """v2.2.1 safety net: if the print worker thread ever disappears
+    (native crash, OOM kill, unforeseen bug), respawn it within 30 s so
+    the queue can never stall silently again."""
+    while True:
+        time.sleep(30)
+        try:
+            t = _WORKER_THREAD[0]
+            if t is None or not t.is_alive():
+                log("[WORKER] worker thread is GONE - restarting it "
+                    "(jobs left in 'queued' will now print)")
+                try:
+                    db_audit("worker.restarted",
+                             details="worker thread was dead - respawned "
+                                     "by watchdog")
+                except Exception:
+                    pass
+                _spawn_worker()
         except Exception:
             pass
-        job = db_next_queued()
-        if not job:
-            time.sleep(0.35)
-            continue
-        # HOLD: printer offline / out of paper / error state (raw jobs skip
-        # the status check - receipt printers rarely report usable state)
-        if CFG.get("hold_offline", True) and job.get("kind") != "raw":
-            pstat = printer_ready(job.get("printer") or "")
-            if pstat in ("offline", "paper-out", "error"):
-                _hold_job(job, "printer '%s' is %s - job held until it is"
-                              " ready" % (job.get("printer") or "default",
-                                          pstat))
-                continue
-            if pstat != "ready" and _try_peer_forward(job):
-                continue
-        t0 = time.time()
-        db_update(job["id"], status="printing", error=None)
-        if job.get("kind") == "raw":
-            try:
-                with open(job["file_path"], "rb") as f:
-                    data = f.read()
-                target = print_raw(data, job.get("printer") or "",
-                                   job_id=job["id"],
-                                   title=job.get("title") or "raw")
-                ms = int((time.time() - t0) * 1000)
-                db_update(job["id"], status="printed", error=None,
-                          duration_ms=ms, printer=target)
-                db_audit("print.completed", job_id=job["id"], printer=target,
-                         actor=job.get("source"), site=job.get("site"),
-                         ip=job.get("origin_ip"),
-                         doc_hash=job.get("content_hash"))
-                log("[OK] job #%d raw-printed on %s" % (job["id"], target))
-            except Exception as e:
-                latest = db_get(job["id"]) or {}
-                if latest.get("status") == "canceled":
-                    log("[CANCELED] job #%d killed mid-print" % job["id"])
-                else:
-                    db_update(job["id"], status="failed",
-                              error=str(e)[:500])
-                    db_audit("print.failed", job_id=job["id"],
-                             printer=job.get("printer"),
-                             details=str(e)[:200])
-                    _retry_or_dead(job, e)
-        else:
-            _execute_job(job, t0)
-        finally_guard(job)
 
 def finally_guard(job):
     # keep the file for reprint (unless keep_files is off)
@@ -1617,7 +1681,9 @@ def finally_guard(job):
             pass
 
 def start_worker():
-    threading.Thread(target=worker, daemon=True, name="printhub-worker").start()
+    _spawn_worker()
+    threading.Thread(target=_worker_watchdog, daemon=True,
+                     name="printhub-watchdog").start()
 
 def save_job_file(kind, title, data, ext="pdf"):
     """Write payload bytes into the jobs dir; returns full path."""
@@ -2481,6 +2547,9 @@ class Handler(BaseHTTPRequestHandler):
                 "autostart": autostart_enabled(),
                 "service": service_state(),
                 "queue_bypass": True,
+                "hold_offline": bool(CFG.get("hold_offline", True)),
+                "worker_alive": bool(_WORKER_THREAD[0]
+                                     and _WORKER_THREAD[0].is_alive()),
                 "share_lan": bool(CFG.get("share_lan")),
                 "lan_active": bool(BOUND_LAN),
                 "lan_url": ("http://%s:%d" % (lan_ip(), CFG["port"]))
@@ -2700,6 +2769,12 @@ class Handler(BaseHTTPRequestHandler):
                                     "message": "queued - check your printer"})
         if route.startswith("/jobs/"):
             parts = route.strip("/").split("/")
+            if len(parts) == 2 and parts[1].isdigit():
+                j = db_get(int(parts[1]))
+                if not j:
+                    return self._send(404, {"ok": False,
+                                            "error": "job not found"})
+                return self._send(200, {"ok": True, "job": j})
             if len(parts) == 3 and parts[2] == "file":
                 j = db_get(int(parts[1]) if parts[1].isdigit() else 0)
                 if j and j.get("file_path") and os.path.exists(j["file_path"]):
@@ -2866,6 +2941,44 @@ class Handler(BaseHTTPRequestHandler):
                    if new_printer else ""))
             return self._send(200, {"ok": True, "job_id": j["id"],
                                     "printer": new_printer or j.get("printer")})
+
+        # POST /jobs/{id}/print-now - v2.2.1: force THIS job out of the
+        # queue RIGHT NOW, bypassing the global pause and the printer-status
+        # hold. Works on queued/held/scheduled/failed/dead/saved jobs - the
+        # one-click remedy when "nothing prints".
+        if route.startswith("/jobs/") and route.endswith("/print-now"):
+            jid = route.strip("/").split("/")[1]
+            j = db_get(int(jid) if jid.isdigit() else 0)
+            if not j:
+                return self._send(404, {"ok": False, "error": "job not found"})
+            if j["status"] in ("printing", "forwarded"):
+                return self._send(409, {"ok": False,
+                                        "error": "job is already %s"
+                                                 % j["status"]})
+            if j["status"] == "canceled":
+                return self._send(409, {"ok": False,
+                                        "error": "job was canceled - use"
+                                                 " /retry instead"})
+            if not (j.get("file_path") and os.path.exists(j["file_path"])):
+                return self._send(410, {"ok": False,
+                                        "error": "original file no longer"
+                                                 " stored"})
+            db_update(j["id"], status="printing", error=None,
+                      held_reason=None, next_attempt_at=None, attempts=0)
+            db_audit("job.print_now", job_id=j["id"],
+                     printer=j.get("printer"), ip=ip, site=site,
+                     details="forced print (was %s)" % j["status"])
+            log("[NOW] job #%d forced to print (was %s)"
+                % (j["id"], j["status"]))
+            threading.Thread(
+                target=_print_now,
+                args=(j["id"], j["file_path"], j.get("kind") or "a4",
+                      j.get("printer") or "", j.get("copies") or 1),
+                daemon=True, name="printhub-now-%d" % j["id"]).start()
+            return self._send(200, {"ok": True, "job_id": j["id"],
+                                    "status": "printing",
+                                    "message": "printing now (bypasses"
+                                               " pause and hold)"})
 
         # POST /jobs/{id}/priority {"priority": 1..9}
         if route.startswith("/jobs/") and route.endswith("/priority"):
@@ -3279,12 +3392,18 @@ class Handler(BaseHTTPRequestHandler):
                 "queue_mode": "on" if queue_mode else "off",
                 "duplicate": dup is not None,
                 "priority": priority,
+                # v2.2.1: truthful initial status so clients (extension
+                # history) stop recording everything as "queued"
+                "status": ("scheduled" if run_at else
+                           "queued" if queue_mode else "printing"),
                 "message": ("queued to printer" if queue_mode
                             else "printing immediately (queue mode off)"),
             }
             if dup is not None:
                 resp["message"] = ("duplicate blocked - identical job #%d"
                                    " already accepted recently" % dup)
+                resp["status"] = (db_get(job) or {}).get("status") \
+                    or "queued"
             if run_at:
                 resp["scheduled_for"] = run_at
                 resp["status"] = "scheduled"
@@ -3543,6 +3662,7 @@ DOCS_HTML = r"""<!DOCTYPE html>
  <a href="#quality">Quality: presets + DPI</a>
  <a href="#lan">LAN sharing (print from other PCs)</a>
  <a href="#queue">Queue on/off + shift to another PC</a>
+ <a href="#stuck">Nothing prints? (stuck jobs)</a>
  <a href="#laravel">Laravel / PHP auto print</a>
  <a href="#bangla">Bangla receipts</a>
  <a href="#files">Files &amp; endpoints</a>
@@ -3678,6 +3798,34 @@ curl -X POST http://127.0.0.1:@@PORT@@/print \
       <code>"peer_hubs": [{"url":"http://192.168.0.60:@@PORT@@",
       "token":"..."}]</code> in <span class="mono">@@CFGPATH@@</span>.</li>
  </ul>
+</div>
+
+<h2 id="stuck">5b. Jobs stay queued - nothing prints? (v2.2.1)</h2>
+<div class="box">
+ <p>The OK icon only means <b>the hub accepted the job</b>. If no paper
+    comes out, the cause is now always visible - check in this order:</p>
+ <ol>
+  <li><b>Queue paused?</b> The popup shows <span class="st held">PAUSED</span>
+      in red. Resume it (popup Pause button or dashboard
+      "Resume queue").</li>
+  <li><b>Printer-status hold?</b> Held jobs are
+      <span class="st held">held</span> with the reason written below
+      them (usually "Windows reports the printer offline"). Remedies:
+      press <b>Print now</b> on the job (popup, Options &rarr; History,
+      or the dashboard queue) - it bypasses pause and the hold - or
+      switch OFF "Printer status hold" in the dashboard's LAN card, or
+      fix the Windows printer tile (uncheck "Use Printer Offline").</li>
+  <li><b>Backend error?</b> <span class="st failed">failed</span> jobs
+      show the real error (SumatraPDF missing, CUPS lp missing, wrong
+      printer name). The extension also raises a red <b>!</b> badge and
+      a notification within a minute.</li>
+  <li><b>Worker crashed?</b> Fixed in v2.2.1 - the queue worker is
+      exception-proof and a watchdog respawns it (audit events
+      <span class="mono">worker.error</span> /
+      <span class="mono">worker.restarted</span>).</li>
+ </ol>
+ <p>API for one job: <code>GET /jobs/{id}</code> &middot; force it out:
+    <code>POST /jobs/{id}/print-now</code>.</p>
 </div>
 
 <h2 id="laravel">6. Laravel / PHP - scheduled &amp; automatic printing</h2>
@@ -3949,7 +4097,8 @@ async function refresh(){
           "'>"+esc(j.status)+(j.held_reason?" - "+esc(j.held_reason):"")+
           "</span></td><td><button onclick=\"act('/jobs/"+j.id+
           "/cancel').then(refresh)\">Cancel</button> "+
-          (j.status!=="printing"?"<button onclick=\"shiftJob("+j.id+")\">Shift</button>":"")+"</td></tr>";
+          (j.status!=="printing"?"<button onclick=\"act('/jobs/"+j.id+"/print-now').then(refresh)\">Print now</button> "+
+          "<button onclick=\"shiftJob("+j.id+")\">Shift</button>":"")+"</td></tr>";
     }
     document.getElementById("queue").innerHTML=
       qh||"<tr><td>Queue is empty.</td></tr>";
@@ -3995,6 +4144,8 @@ async function loadLan(){
     if(!b)return;
     const on=!!hl.share_lan;
     const active=!!hl.lan_active;
+    HOLD_OFF=hl.hold_offline!==false;
+    try{const qq=await jget("/queue");HELD_N=qq.held||0;}catch(_){HELD_N=0;}
     const url=hl.lan_url||("http://<this-PC-ip>:"+location.port);
     let rows="<tr><td><b>LAN sharing: </b>"+(on?"<span class='st queued'>ON</span>":"<span class='st held'>OFF</span>")+"</td>"+
       "<td class='mono'>"+esc(on?url:"127.0.0.1 (this PC only)")+"</td>"+
@@ -4002,6 +4153,7 @@ async function loadLan(){
       (on?"<button onclick='copyLan()'>Copy URL</button>":"")+"</td></tr>";
     if(on&&!active)
       rows+="<tr><td colspan='3'><b>Restart the hub to apply</b> - tray icon → Exit, then start PrintHub Pro again (the listener rebinds to the LAN on start).</td></tr>";
+    rows+="<tr><td><b>Printer status hold: </b>"+(HOLD_OFF?"<span class='st queued'>ON</span>":"<span class='st held'>OFF</span>")+"</td><td class='mono'>jobs wait while the printer reports offline</td><td><button onclick='toggleHold(+(!HOLD_OFF)+")'>"+(HOLD_OFF?"Disable":"Enable")+"</button></td></tr>";
     try{const pr=await jget("/peers");PEERS=(pr&&pr.peers)||pr||[];}catch(_){PEERS=[];}
     for(const p of (PEERS||[])){
       rows+="<tr><td><span class='st "+(p.alive?"queued":"offline")+"'>peer "+(p.alive?"online":"offline")+"</span> "+esc(p.url)+" <small>"+esc(p.version||"")+"</small></td>"+
@@ -4011,6 +4163,13 @@ async function loadLan(){
       rows+="<tr><td colspan='3'><small>Tip: add fixed peer PCs (\"peer_hubs\") in config.json - see <a href='/docs@@Q@@'>Docs</a>. Or from the other PC, set its extension Hub URL to this machine's LAN URL.</small></td></tr>";
     b.innerHTML=rows;
   }catch(e){}
+}
+let HOLD_OFF=true,HELD_N=0;
+async function toggleHold(on){
+  const r=await act("/config",{hold_offline:on});
+  if(r.ok)msg(on?"Printer status hold ON - jobs wait while the printer reports offline/out of paper.":"Printer status hold OFF - jobs are sent to the printer even when Windows reports it offline (fixes stuck-queued when the status is misreported).");
+  else msg(r.error||"failed");
+  setTimeout(loadLan,400);
 }
 async function toggleLan(on){
   const r=await act("/config",{share_lan:on});

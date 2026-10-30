@@ -1,4 +1,4 @@
-/* PrintHub Pro v2.2.0 - UI language: English + Bangla (বাংলা).
+/* PrintHub Pro v2.2.1 - UI language: English + Bangla (বাংলা).
  * Shared by popup + options. The language comes from:
  *   1. chrome.storage.local.lang ("en" | "bn"), set in Options
  *   2. fallback: the browser UI language (auto-detect)
