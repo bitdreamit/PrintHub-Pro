@@ -26,7 +26,7 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.3.0"
+    assert d["version"] == "2.5.0"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
@@ -495,11 +495,13 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert printhub.VERSION == "2.3.0"
-    ext = os.path.join(os.path.dirname(printhub.__file__), "..",
-                       "extension", "manifest.json")
+    assert printhub.VERSION == "2.5.0"
+    # repo/package layout: tool/windows/portable/hub -> root/extension
+    root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.dirname(printhub.__file__)))))
+    ext = os.path.join(root, "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.3.0"
+        assert json.load(f)["version"] == "2.5.0"
 
 
 def test_log_rotation(tmp_path):
@@ -706,7 +708,7 @@ def test_v22_docs_page_served(hub):
     body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
             else d if isinstance(d, str) else json.dumps(d))
     assert "LAN sharing" in body and "POST /print" in body
-    assert "2.3.0" in body
+    assert "2.5.0" in body
 
 
 def test_v22_docs_wrong_token_json(hub):
@@ -719,7 +721,7 @@ def test_v22_dashboard_has_lan_card_and_docs(hub):
     assert 'id="lanBody"' in html and "LAN sharing" in html
     assert "/docs" in html and "shiftJob" in html
     assert 'id="dbgBody"' in html and "toggleDebug" in html
-    assert "2.3.0" in html
+    assert "2.5.0" in html
 
 
 def test_v22_health_lan_active(hub):

@@ -157,7 +157,7 @@ The hub API is CORS + Private-Network friendly, so page JS can call it directly 
 ```js
 await fetch("http://127.0.0.1:9235/print", {
   method: "POST",
-  headers: { "Content-Type": "application/json", "X-PrintHub-Token": "<your token - v2.0 installs use a private random token>" },
+  headers: { "Content-Type": "application/json", "X-PrintHub-Token": "PrintHub-2024" },
   body: JSON.stringify({ text: "|center|HELLO", paper: "thermal" })
 });
 ```

@@ -18,7 +18,7 @@ import pytest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(ROOT, "hub"))
+sys.path.insert(0, os.path.join(ROOT, "tool", "windows", "portable", "hub"))
 
 import printhub  # noqa: E402  (path set above)
 

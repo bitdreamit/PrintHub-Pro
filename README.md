@@ -1,246 +1,45 @@
 # PrintHub Pro — Print from Any Web Page to Any Printer
 
-**PrintHub Pro — Version 2.3.0 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.**
+**Silent. Local. Open source. No subscription.**
 
 PrintHub Pro prints from any web page to **any printer** — thermal, receipt, label, or standard — with **no print dialog and no confirmation**. It is a free, 100%-local, MIT-licensed alternative to paid products like Ultraprint Hub: a small **desktop hub** (single Python file, zero pip dependencies) plus a **Chrome extension** that talk to each other on `localhost` only.
 
 ```
 Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) ──► ANY printer
-             (right-click /       • queue: priority · retry · schedule   thermal · receipt
-              popup / API /       • audit: who / site / doc hash / time  label · A4 · POS
-              auto rules)         • dashboard + CSV + REPRINT watermark  80mm roll · ZPL
+             (right-click /       • queue: pause · resume · cancel      thermal · receipt
+              popup / API /       • history: last 100 jobs (SQLite)     label · A4 · POS
+              auto rules)         • screenshot & HTML → PDF              80mm roll
 ```
 
-**Downloads / updates:** everything ships on the GitHub Releases page —
-**https://github.com/bitdreamit/PrintHub-Pro/releases**
-Update anytime: run `PrintHub Tool` → **8: Check for updates**, or click
-**Check for update** in the extension Options → About tab. Installing a
-new Setup.exe over the old one keeps all settings and history.
-
 ---
 
-## What's new in v2.3.0 — "Instant print + /debug: see WHY nothing prints"
+## What's new in v2.5.0 (the merge release — git-repo parity)
 
-- **Instant (direct) print mode is now a first-class citizen.** It was
-  always there (popup / Settings → **Queue mode OFF**) — now it says so
-  and behaves exactly as expected: every job goes straight to the
-  printer the moment it arrives, nothing waits behind earlier jobs.
-  API-wise it is `POST /print` with `"queue": false` or the new
-  `"mode": "instant"` alias (also `direct`, `now` — `mode: "queue"`
-  goes back to FIFO).
-- **Instant + no active printer = auto-queue fallback.** When the
-  printer is offline / paper-out / in error, an instant job is NOT
-  fired into a doomed direct print — it is **auto-queued** (audit event
-  `print.auto_queued`), waits with the usual printer-status hold and
-  prints automatically when the printer is back. The `POST /print`
-  answer says the truth: `status: "queued"`, `auto_queued: true`, and
-  a message that says so. Turn the fallback off with
-  `POST /config {"instant_auto_queue": false}`.
-- **`GET /debug` — one URL answers WHEN / WHY / WHERE.** The hub's own
-  verdict (worker dead? queue paused? printer offline + held jobs?
-  SumatraPDF / browser missing? failed jobs with their real error) as a
-  `problems` list, each entry with a FIX, plus `recent_jobs`, queue and
-  printer state. Same `?token=` rule as every GET.
-- **`POST /debug/report` — the browser talks back.** With **Debug mode
-  ON** the extension reports every error it hits (network failures,
-  rejected token, parked jobs, JS exceptions, jobs that ended
-  failed/dead) to the hub; `/debug` shows them under `client_reports`
-  with source, level, time and context. The hub keeps the last 100
-  reports (`debug_reports.json`), so they survive restarts.
-- **Debug ON/OFF button in the settings** — one switch drives both
-  sides: extension Options → Settings → **Debug mode** (also syncs the
-  hub config) and a new **Debug card** on the dashboard with an
-  Enable/Disable button, the problem list and a **Copy report** button
-  for bug reports. New extension **Debug tab** (popup footer → Debug):
-  live state line, problems table, client error reports, "Send test
-  report" to prove the pipeline, "Open /debug JSON".
-- Verbose `[DEBUG]` log lines while Debug is ON (exact printer
-  command lines, worker picks, instant decisions); quiet operation
-  when OFF (the default — nothing changes until you ask).
+- **Package = your git repo, 1:1.** The zip now unpacks to the exact tree of `github.com/bitdreamit/PrintHub-Pro`: `tool/` (windows portable hub + service + runtime, unix hub), `extension/` (incl. `i18n.js` Bangla strings restored), `docs/`, `tests/` + `pytest.ini` + `.gitignore` at the root. Extract `full.zip` over your repo working copy and `git status` shows only real changes — no renames, no deletions. (`doc/` in the repo is an old duplicate of `docs/` — `git rm -r doc` once.)
+- **Honest fix: v2.4.0/2.4.1 were rebuilt from an older 1.5.0 tree after a dev-machine reset and accidentally dropped v2.0–v2.3 features.** v2.5.0 merges the REAL 2.3.0 source (recovered from this git repo) with the 2.4.x fixes, so **everything is back**: LAN sharing (`share_lan`, `/peers`, peer forwarding), the full **ESC/POS + ZPL raw printing** suite with Bangla auto-routing via headless Chrome, **scheduled prints** (`run_at`), printer groups + profiles, priority queue, dedupe, exponential retry.
+- **SumatraPDF detection made service-proof** — per-user `%LOCALAPPDATA%\SumatraPDF` (dynamic user name), both Program Files, **registry (HKCU+HKLM, 32/64 views)**, `PATH`, portable folder scan, and a new **all-users profile scan** (`C:\Users\*`) so it is found even when the hub runs as a Windows **service** under a different account. Fresh re-scan on every job + `sumatra_path` manual override (dashboard Settings → Save).
+- **Virtual PDF printers save directly** to `Downloads\PrintHub` (status `saved`, no Save-As dialog) — printing to *Microsoft Print to PDF* works with **no physical printer** and no SumatraPDF.
+- **Dashboard live test tool** (kept from 2.4.x, now inside the 2.3.0 dashboard): *"Send test print & watch live"* with the verdict **REAL PRINTER HIT / SAVED / HELD / FAILED+reason**, *Release ALL held jobs*, and a Settings box for `sumatra_path`.
+- `/client/report` alias for `POST /debug/report` (extension browser-error reporting), `POST /jobs/{id}/release` + `POST /jobs/release_all` (dashboard/extension friendly names for print-now).
+- **Tests**: 78 pytest (your repo suite, layout-fixed) + 64-check smoke — all green on the merged hub.
 
----
+## What's new in v2.4.1 (packaging & docs release)
 
-## What's new in v2.2.1 — "OK means OK: nothing can silently stall the queue"
+- **Frozen folder format** — the folder layout changed too often between releases (v1.x zips were loose, v2.0–v2.4.0 put the version in the root folder name, so every update "moved everything"). From v2.4.1 every zip unpacks to **`PrintHubPro/`** — no version in the name. Extract over the old folder, reload the extension, done — **the layout never changes again**. Full explanation + per-folder reference: `docs/FOLDER-MAP.md`.
+- **`docs/EXTENSION-TEST.md`** — the missing test guide: a 5-minute, step-by-step extension tool test that ends with the proof the **real printer was hit** (live dashboard verdict + where the physical proof shows up: paper, Windows print queue, or the PDF in `Downloads\PrintHub`), plus a symptom → where-to-look → fix table.
+- Version strings synced everywhere (hub, extension, installers, installers' metadata) — `popup` and `options` all report **2.4.1**.
 
-Fixes the *"extension shows OK but the printer never prints; history
-shows queued; queue on/off does not help"* report at every layer:
+## What's new in v2.4.0 (debug & reliability release)
 
-- **The print worker can no longer die silently.** One unexpected error
-  used to kill the print thread — the hub kept saying `ok` while every
-  later job waited forever. The loop is now exception-proof and a
-  watchdog respawns it within 30 s (`worker.error` / `worker.restarted`
-  in the audit log; `/health` shows `worker_alive`).
-- **One-click "Print now"** on every stuck job (popup, Options history,
-  dashboard queue) — bypasses the paused queue AND the printer-status
-  hold. The popup also gained a **Print all now** button on the new
-  held-jobs banner.
-- **Honest colors**: `queued` is now GRAY (waiting) — only `printed`
-  is green. Held jobs are orange with the reason written under them
-  (usually *Windows reports the printer offline*).
-- **The extension checks back**: one minute after submitting, a
-  verification alarm folds the real outcome (printed / failed + the
-  actual error / held) into the extension history and shows a red `!`
-  badge + notification when a job failed.
-- **Dashboard "Printer status hold" toggle** — Windows mis-reports many
-  network printers as offline (stuck *Use Printer Offline*), which HELD
-  jobs; turn the check off with one click (`hold_offline`).
-- `POST /print` now returns a truthful `status`, `GET /jobs/{id}` gives
-  one job for polling, `/health` reports `worker_alive` +
-  `hold_offline`. Full walk-through: docs/API.md → *"Troubleshooting:
-  jobs stay queued, nothing prints"*.
-
----
-
-## What's new in v2.2.0 — "You can SEE every feature now"
-
-v2.1.0 shipped the print-option, LAN-sharing and queue-shift machinery as
-**API endpoints only** — install it and the extension looked exactly like
-v2.0. v2.2.0 puts every one of those features on screen, and the
-documentation can no longer go missing:
-
-- **Extension Options → "Default print options"**: copies, pages
-  (all / **odd** / **even** / custom range), per-sheet n-up (1/2/4/6/9/16),
-  **quality — draft / normal / high AND DPI (300/600/1200 or any custom
-  value)**, scale %, margins mm, duplex (two-sided), paper size, layout
-  (portrait/landscape). Saved once, sent with **every** job from that
-  browser; page scripts and rules still override per job.
-- **Extension Options → "LAN / PCs" tab** (the big miss is back in the
-  UI): turn **LAN sharing** on/off, copy this PC's LAN URL
-  (`http://192.168.x.x:9235`), see peer PCs with online status, and
-  **shift the whole waiting queue — or any single job from the Queue tab —
-  to another PC**, where it prints immediately.
-- **Quality accepts both spellings**: `"quality": "draft"` → CUPS
-  `print-quality=3`; `"quality": "600dpi"` (or `"600"`, or `"dpi": 600`)
-  → CUPS `printer-resolution=600dpi`. The capabilities endpoint reports
-  presets + DPI list per printer; on Windows the driver decides the real
-  DPI and the choice is logged on the job.
-- **Documentation ships INSIDE the hub**: open
-  `http://127.0.0.1:9235/docs?token=…` — the full user guide (feature
-  click-map, every print option with backend support matrix, LAN sharing
-  steps + firewall command, queue shift, Laravel cron/webhook recipes,
-  Bangla receipt notes). Buttons: extension About → *Open user guide*,
-  dashboard → *Docs (user guide)*.
-- **Dashboard LAN card**: live share_lan state, copy URL, per-peer
-  "Shift all waiting jobs", per-row Shift buttons in the queue — plus an
-  honest "restart the hub to apply" hint until the listener rebinds.
-
-## What's new in v2.1.0 — "Every printer option, LAN sharing, Bangla receipts"
-
-- **All printer options in the API**: `pages` accepts `odd`/`even`, plus
-  `per_sheet`, `quality` (draft/normal/high), `scale_pct`, `margin_mm`,
-  `orientation` — alongside the existing `copies`, `duplex`, `paper_size`,
-  `tray`. `GET /printers/{name}/capabilities` reports exactly what THIS
-  printer supports so UIs show only those options.
-- **LAN printer sharing** (`share_lan: true`): other PCs print through
-  this PC's printers over `http://<lan-ip>:9235` (token required);
-  `POST /queue/shift` moves individual jobs (`ids`) or the whole queue
-  (`scope:"all"`) to another PC; pause/resume unchanged.
-- **Bangla receipts that actually print**: non-Latin thermal text is
-  auto-rendered via headless Chrome (Nirmala UI / Noto Sans Bengali)
-  instead of turning into `????`; `escpos_codepage` configurable.
-- **New: docs/LARAVEL.md** — scheduled & webhook printing from Laravel
-  (PrintHubService + scheduler recipes + retry/backoff pattern).
-
-## What's new in v2.0.2 — "One token opens every page"
-
-Hotfix on top of v2.0.1, from user feedback: the same correct token opened
-`/dashboard?token=…` but was **rejected on `/audit?token=…`** — the Options
-tab's *Audit* button and any manually opened audit/stats link returned
-`401 invalid or missing token`. The v2.0.0 browser-navigation exception was
-whitelisted per-route, and `/audit`, `/stats`, `/jobs`, `/diagnostics` were
-missing from that list. v2.0.2 replaces the whitelist with one simple rule:
-
-- **Every GET endpoint accepts `?token=`** — a token that opens the
-  dashboard equally opens `/audit`, `/stats`, `/printers`, `/jobs`,
-  `/queue`, `/config`, `/peers` and the CSV exports. Read-only pages are
-  exactly what a browser follows links to; no more "works here, fails
-  there" surprises.
-- **Mutating calls stay hardened** — every POST (print, queue actions,
-  config, token rotate) still requires the `X-PrintHub-Token` header when
-  `token_header_only: true` (the v2.0 default). A leaked URL therefore
-  cannot trigger prints or change settings.
-- **Readable browser errors everywhere** — following any GET link with a
-  wrong/missing token now shows the same friendly HTML fix-it page the
-  dashboard already used, instead of a raw JSON blob. API clients
-  (curl / fetch / Laravel) keep getting the JSON error.
-
-### Fixed in v2.0.1 (previous hotfix)
-
-On multi-Chrome PCs a single stale token could lock the whole machine out
-of the hub for 5 minutes. Fixes that shipped in v2.0.1:
-
-- **The owner's PC is never locked out** — the loopback IP is exempt from
-  the wrong-token lockout by default (`lockout_exempt_loopback: true` in
-  config.json). Remote/LAN IPs keep the full 10-strikes → 5-minute lock.
-- **Sliding window + instant recovery** — failures only count inside a
-  5-minute window, and one successful auth clears the counter immediately.
-- **Self-limiting extension** — on a `401` the extension stops retrying at
-  once (circuit breaker, red `KEY` badge, popup banner), instead of
-  feeding the hub's failure counter every minute; the moment you save a
-  fixed token it retries automatically. On a `429` jobs are parked and
-  delivered after the lock expires.
-- **Readable errors** — every `401` answer now carries an actionable hint
-  ("the old default token no longer works — use the tray menu or
-  `python printhub.py token`"); browsers opening `/dashboard` with a wrong
-  token get a friendly HTML fix-it page instead of a raw JSON blob.
-- **Quieter audit log** — wrong-token attempts are audited at most once
-  per 10 s per IP (a polling stale client no longer floods `auth.failed`).
-
-## What's new in v2.0.0 — "Security, Audit & Production Control"
-
-**Security**
-- **Random install token** — new installs generate a private random token; the shared default `PrintHub-2024` is gone. Old installs keep working and show a *change default token* warning until rotated.
-- **Header-only tokens** on new installs (query/body tokens rejected; browser-navigation endpoints keep accepting `?token=`).
-- **Allowed origins** — restrict which websites may print (`allowed_origins: ["*.htncr.org"]`). Empty list = allow all, like 1.x.
-- **SSRF-guarded `pdf_url`** — `file://`, `ftp://` and private/local addresses are blocked (exempt list: `pdf_url_allowed_hosts`).
-- **IP lockout (v2.0.1)** — 10 wrong tokens from a **remote** IP ⇒ locked 5 minutes. The loopback IP (`127.0.0.1`) is **never locked by default** — all Chrome windows/profiles share that one IP, so a stale token in one window can no longer lock out the dashboard, tray and extension of the others (`lockout_exempt_loopback`). Failures count only inside a sliding 5-minute window and any successful auth clears the counter. Wrong-token 401 answers carry a fix-it hint; the dashboard shows a friendly HTML error page instead of raw JSON.
-- **Token rotation** — dashboard button, `POST /token/rotate`, CLI `token-rotate`.
-
-**Printers**
-- **Printer status** (ready / offline / paper-out / error) everywhere; jobs **hold** while a printer is offline and print automatically when it returns.
-- **Printer groups + fallback** — `"Front": ["A","B"]` prints on the first ready member.
-- **Raw printing** — ESC/POS (cut, cash drawer, barcode, QR) and ZPL, no driver, no PDF.
-- **Print profiles** (paper, tray, duplex, copies) and **page ranges** (`"pages": "1-3,5"`).
-
-**Queue**
-- **Exponential retry**, **priority** (urgent first), **duplicate blocking**, **scheduled prints** (`run_at`), **dead-letter list** with *retry on another printer*, and **peer hubs** (dead peers skipped, optional forwarding).
-
-**Audit**
-- **Audit log** — who / which site / document hash / printer / time.
-- **Reprint reason** (optionally required) + optional **REPRINT watermark**.
-- **Log rotation**, **diagnostics export**, **CSV history/audit export**, and a built-in **web dashboard** (`/dashboard`) with success rate + queue size.
-
-**Extension**
-- **Better rules** — glob *or* regex, page-title filter, per-site on/off.
-- **Offline banner + automatic retry** when the hub is unreachable.
-- **English + বাংলা (Bangla) UI**.
-
-**Repository**
-- **pytest suite** (35 tests), **GitHub Actions** CI + tag-driven Release pipeline (zips, .deb, NSIS Setup exe, SHA256SUMS), **.gitignore**, **CHANGELOG.md**.
-
-*(v1.7.2 additions remain: PrintHub Tool one-stop menu, optional Windows service, silent `/S` install, master Enable/Disable switch, Queue Mode On/Off, tabbed Options, GitHub update checks.)*
-
----
-
-## Package layout (this zip)
-
-```
-PrintHub-Pro-2.0.0/
-├── README.md            ← you are here
-├── CHANGELOG.md         every version, what changed
-├── doc/                 guides + API reference
-│   ├── PrintHub-Pro-Full-Guide.pdf / .html   (step-by-step manual)
-│   ├── API.md           full HTTP reference (v2.0 endpoints)
-│   ├── EXTENSION-API.md window.printhub + rules + GPO
-│   └── PRIVACY-POLICY.md
-├── extension/           Chrome/Edge/Brave extension (load unpacked)
-├── tool/
-│   ├── windows/         PrintHub-Pro-Setup-2.0.0.exe  ← the installer
-│   │                    (+ portable\ variant in the FULL zip)
-│   └── unix/            install-unix.sh · uninstall-unix.sh · .deb · hub source
-├── tests/               pytest suite (python -m pytest tests)
-└── .github/workflows/   CI + Release automation for the GitHub repo
-```
+- **LIVE debug & test tool** — open `http://127.0.0.1:9235/dashboard?token=<your token>` in any browser: send a real test print and **watch every step live** (queued → printing → printed / saved / held / failed) with a final verdict: *REAL PRINTER HIT* or the exact reason why not. Includes Release-held-jobs ("Print now"), settings toggles and one-click `/debug` + `/audit` views.
+- **`GET /debug`** — one JSON page that answers *"why is it not printing?"*: hub version/uptime, worker alive, queue + held counts, every printer with ready/offline status, SumatraPDF found + **the exact list of paths searched**, recent jobs with errors, 7-day success rate, and a prioritized `problems[]` list with fixes. Token required (`?token=`).
+- **`GET /audit`** — persistent audit trail (SQLite): `print.submitted` (with SHA-256 doc hash), `print.held`, `print.requeued`, `print.saved`, `auth.failed` (wrong token, per-attempt), `config.changed`, `queue.paused/resumed`.
+- **SumatraPDF detection rebuilt** — the user name is **never hardcoded**: per-user install (`%LOCALAPPDATA%\SumatraPDF\SumatraPDF.exe` — resolves to the CURRENT user, e.g. `C:\Users\<name>\...`), both Program Files, Windows **registry** (App Paths + Uninstall, per-user and per-machine), `PATH`, folder scan, plus a manual **`sumatra_path` override** in Settings. Detection re-runs **fresh on every job** — installing SumatraPDF takes effect on the next print, **no hub restart needed**. Failed jobs auto-retry 2× (60 s apart).
+- **Instant / direct print mode** — `POST /print` with `"instant": true` (or extension toggle / `mode:"instant"`) jumps the queue and prints immediately. If no printer is ready, the job **auto-falls back to the normal queue** (`instant_auto_queue`) — nothing is ever lost.
+- **Hold-while-offline done right** — jobs for an offline printer are parked as `held` (with reason), auto-released by a watcher every 5 s when the printer comes back, and can be force-printed any time ("Print now" / `POST /jobs/{id}/release` / `POST /jobs/release_all`).
+- **Virtual PDF printers solved** — printing to *Microsoft Print to PDF* would pop a Save-As dialog; the hub now **saves the PDF directly** to your Downloads/PrintHub folder (status `saved`, path shown in dashboard & `/debug`). Works even with **no physical printer installed**.
+- **Debug on/off switch** — in the dashboard Settings AND extension options. When on, the **extension reports browser-side JS errors** to the hub (`POST /client/report`) and `/debug` shows them next to the desktop-side errors — you can see whether the problem is in the web side or the desktop side. Every toggle is audit-logged (`config.changed: debug`).
+- **`POST /config` / `GET /config`** — live-editable settings persisted to `<data>/config.json`: `debug`, `hold_offline`, `instant_auto_queue`, `sumatra_path`, `file_dir`, `printer`, `token_header_only`.
 
 ---
 
@@ -249,21 +48,20 @@ PrintHub-Pro-2.0.0/
 | | PrintHub Pro |
 |---|---|
 | **Any printer** | Thermal, receipt, label, or standard. If the OS sees it, the hub can print to it. |
-| **Printer status + fallback** | Live ready/offline/paper-out/error per printer; jobs hold while offline; groups fail over automatically. |
-| **Raw ESC/POS + ZPL** | Receipts with cut / cash drawer / barcode / QR straight to the printer — no driver, no PDF. |
-| **Production queue** | Priority, exponential retry, duplicate blocking, scheduled prints, dead-letter list, printer groups, peer hubs. |
-| **Audit trail** | Who, which site, document hash, printer, time — plus reprint reasons, optional REPRINT watermark, CSV export. |
-| **Dashboard** | Built-in web dashboard: success rate, queue size, live queue, printers, audit trail, token rotation. |
-| **Hardened by default** | Random install token, header-only tokens, origin allowlist, SSRF-guarded pdf_url, IP lockout, rotation. |
-| **Save as PDF (File)** | Any job can go to a **File** destination instead of paper — `~/Downloads/PrintHub` (configurable). |
-| **No print dialog** | Straight to the OS print system (SumatraPDF on Windows, CUPS `lp` on Linux/macOS). |
-| **Auto-routing rules** | Glob *or* regex + page-title filter + per-site on/off; auto-print on open with zero browser view. |
-| **Print interception** | `window.print()` **and Ctrl+P / Cmd+P** silently rerouted — CSP-safe on strict sites. |
-| **Developer API** | `printPdfLink()` one-liner + `window.printhub` + plain HTTP with `priority / pages / profile / run_at / lang / reason / watermark`. |
-| **One-stop Tool** | Start / stop / status / service add-remove / auto-run / update / uninstall in one numbered menu. |
-| **English + Bangla** | Popup and Options in English or বাংলা (auto-detect or manual). |
-| **Enterprise ready** | Managed-storage schema (`managed.json`) for GPO/MDM deployment. |
-| **Private by design** | No data collection, no external servers, no accounts. Localhost bind + token. |
+| **Save as PDF (File)** | Any job can go to a **File** destination instead of paper — the hub writes the PDF into `~/Downloads/PrintHub` (configurable). No dialog, no paper. |
+| **No print dialog** | Jobs are sent straight to the OS print system (SumatraPDF on Windows, CUPS `lp` on Linux/macOS). |
+| **Auto-routing rules** | Match URLs to printers automatically — orders page → receipt printer, shipping page → label printer. |
+| **Auto-print on open** | Open a report URL (e.g. your Laravel `/medical_reports/pdf-test/...` route) and it prints instantly — the tab closes right after, so there is **zero browser view**. |
+| **Print interception** | `window.print()` calls **and Ctrl+P / Cmd+P** from any web app (Odoo, SAP, POS) are rerouted silently. Injection is CSP-safe: it works even on strict-CSP sites with no console errors. |
+| **Works everywhere** | Any web application: ERP, POS, e-commerce, logistics, healthcare. |
+| **Developer API** | Global one-liner `printPdfLink(url, title)` on every page (silent + automatic browser fallback) + `window.printhub` API + plain HTTP `POST /print` (raw binary PDF = no base64) for any language. |
+| **Screenshot printing** | Capture and print the visible page with one click. |
+| **Print queue** | Pause, resume, cancel — live, and the queue survives hub restarts. |
+| **Job history** | Last 100 jobs with status, printer, timing — reprint any job in one click. |
+| **Enterprise ready** | Managed-storage schema (`managed.json`) for GPO/MDM deployment of settings and locked rules. |
+| **Private by design** | No data collection, no external servers, no accounts. Hub binds to `127.0.0.1` and is token-protected. |
+
+**Extra features beyond the paid original:** auto-print PDF URLs with login cookies (Laravel signed routes work), silent printing of raw text to 80 mm thermal rolls, **save-as-PDF File destination for every job type**, reprint-from-history via HTTP and CLI, `doctor` self-diagnosis, optional LAN mode for shared office printers.
 
 ---
 
@@ -271,152 +69,119 @@ PrintHub-Pro-2.0.0/
 
 ### 1. Install the hub (one-time, zero questions)
 
-**Windows — recommended:**
+**Easiest — native installers (v2.4.1):**
 
+| | file | what it does |
+|---|---|---|
+| **Windows** | `PrintHub-Pro-Setup-2.4.1.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "PrintHub Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray icon** (right-click = status page, test page, pause, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
+| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_2.4.1_all.deb` | `sudo apt install ./printhub-pro_2.4.1_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
+| **macOS / other Linux** | `tool/unix/install-unix.sh` | same auto-run via LaunchAgent / systemd --user / XDG, no sudo needed. |
+
+**Or the portable way (both platforms):**
+
+**Windows** — double-click one file:
 ```
-tool\windows\PrintHub-Pro-Setup-2.0.0.exe
-```
-
-**STANDALONE installer — Python is included inside** (bundled 3.11 runtime +
-`PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`,
-registers **auto-run as a visible Startup app**, starts the hub, adds Start
-Menu shortcuts (**Start PrintHub Pro · PrintHub Tool · Uninstall**) and a real
-**Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray
-icon**. No admin, no Python install, never shows as "python".
-
-- **Silent install:** `PrintHub-Pro-Setup-2.0.0.exe /S`
-- **Optional Windows service:** tick *Install as Windows Service (advanced)*, or PrintHub Tool → 5.
-- Unsigned EXE → SmartScreen may ask once. If an EXE ever reports "corrupted":
-  re-download and compare the SHA-256 in `SHA256SUMS-2.0.0.txt`.
-
-**Linux (Debian/Ubuntu/Mint):**
-
-```
-sudo apt install ./tool/unix/printhub-pro_2.0.0_all.deb
+tool\windows\portable\install\install-windows.bat        ← starts the hub NOW + auto-run at every logon,
+                                     uses the BUNDLED Python runtime (installer\runtime)
+                                     if present - no system Python needed, no prompts
 ```
 
-**macOS / other Linux:** `bash tool/unix/install-unix.sh` · **Windows portable:** FULL zip → `tool\windows\portable\install-windows.bat`.
+**Linux / macOS** — one command:
+```
+bash tool/unix/install-unix.sh       ← starts the hub NOW + auto-run at every login,
+                                     no sudo needed (systemd --user / LaunchAgent)
+```
 
-> **v2.0 token:** a fresh install creates a **private random token**. Read it
-> with `python printhub.py token` (or in the hub console / dashboard link) and
-> paste it once into the extension Options. **Old installs** keep their current
-> token and the UI shows a yellow *default token* warning until you rotate it.
+Both installers register **auto-run automatically** — after a reboot the hub is
+always there, no shortcut needed. To undo it:
+
+| | stop auto-run + hub | keep / remove print data |
+|---|---|---|
+| **Windows** | `tool\windows\portable\install\UNINSTALL-WINDOWS.bat` | data in `%USERPROFILE%\.printhub` |
+| **Linux / macOS** | `bash tool/unix/uninstall-unix.sh` | data in `~/.printhub` |
+
+Windows notes (v2.4.1): the hub runs as `PrintHubPro.exe` (a renamed
+`pythonw.exe`), so Task Manager shows **"PrintHubPro"** — not "python".
+Auto-run is a normal **Startup app** shortcut: open **Task Manager →
+Startup apps** and you will find "PrintHub Pro" there with its icon —
+right-click → Enable/Disable any time (same switch as the tray icon
+menu, or `UNINSTALL-WINDOWS.bat`). The installer also removes
+Mark-of-the-Web from the downloaded files automatically, and the
+installer/upgrader deletes the invisible scheduled task that v1.2–v1.4
+used to create. If the hub ever fails to start after a reboot, open
+`%USERPROFILE%\.printhub\hub.log` — the hub logs every
+startup and print there.
+
+The hub starts on `http://127.0.0.1:9235` with default token `PrintHub-2024`.
 
 ### 2. Load the extension
 
-1. Open `chrome://extensions` → enable **Developer mode**
-2. **Load unpacked** → select the `extension/` folder
+1. Open `chrome://extensions` in Chrome / Edge / Brave
+2. Enable **Developer mode** (top-right)
+3. Click **Load unpacked** → select the `extension/` folder
 
 ### 3. Connect & print
 
-1. Click the PrintHub icon → popup shows **Connected** (enter your token in Options if asked)
+1. Click the PrintHub icon → the popup shows **Connected**
 2. Right-click any page → **PrintHub Pro → Print this page**
-3. Or open a URL matching a routing rule — it prints with no dialog and the tab closes
-
----
-
-## The PrintHub Tool (Windows Start Menu → "PrintHub Tool")
-
-```
-[1] Start PrintHub            [5] Windows service - install
-[2] Stop PrintHub             [6] Windows service - remove
-[3] Status                    [7] Start at logon: ON / OFF
-[4] Print test page           [8] Check for updates (GitHub)
-[9] Show recent jobs         [10] Uninstall / remove
-[0] Exit
-```
+3. Or open a URL matching a routing rule (the default rule auto-prints `*://www.htncr.org/lab/medical_reports/*`) — it prints with no dialog
 
 ---
 
 ## The HTTP API (any language, any tool)
 
 ```bash
-# list printers WITH live status
-curl -H "X-PrintHub-Token: $TOKEN" http://127.0.0.1:9235/printers
+# list printers
+curl -H "X-PrintHub-Token: PrintHub-2024" http://127.0.0.1:9235/printers
 
-# urgent PDF print, only pages 1-3, double-sided
+# print a PDF from a URL (silent)
 curl -X POST http://127.0.0.1:9235/print \
-  -H "X-PrintHub-Token: $TOKEN" -H "Content-Type: application/json" \
-  -d '{"pdf_url":"https://example.com/invoice.pdf","title":"Invoice 42",
-       "priority":1,"pages":"1-3","duplex":"long"}'
+  -H "X-PrintHub-Token: PrintHub-2024" -H "Content-Type: application/json" \
+  -d '{"pdf_url":"https://example.com/invoice.pdf","title":"Invoice 42"}'
 
-# raw ESC/POS receipt with cut + cash drawer + QR (no driver needed)
+# print a thermal receipt
 curl -X POST http://127.0.0.1:9235/print \
-  -H "X-PrintHub-Token: $TOKEN" -H "Content-Type: application/json" \
-  -d '{"lang":"escpos","text":"|center|MY SHOP\nItem 1   10.00\n|qr:order-42|\n|drawer|\n|cut|","printer":"XP-58"}'
+  -H "X-PrintHub-Token: PrintHub-2024" -H "Content-Type: application/json" \
+  -d '{"text":"|center|MY SHOP\nItem 1      10.00\nTOTAL        10.00","paper":"thermal"}'
 
-# schedule a print for 9:00 tomorrow
-curl -X POST http://127.0.0.1:9235/print -H "X-PrintHub-Token: $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"morning report","run_at":"2026-10-27T09:00:00"}'
-
-# recover a dead-letter job on ANOTHER printer
-curl -X POST -H "X-PrintHub-Token: $TOKEN" \
-  http://127.0.0.1:9235/jobs/42/retry -d '{"printer":"BackupLab"}' \
-  -H "Content-Type: application/json"
-
-# web dashboard (success rate, queue, audit trail) + CSV exports
-start http://127.0.0.1:9235/dashboard?token=$TOKEN
-curl -H "X-PrintHub-Token: $TOKEN" http://127.0.0.1:9235/export/history.csv -o history.csv
+# pause / resume / clear the queue
+curl -X POST -H "X-PrintHub-Token: PrintHub-2024" http://127.0.0.1:9235/queue/pause
 ```
 
-Full reference: [`doc/API.md`](doc/API.md) · Browser API: [`doc/EXTENSION-API.md`](doc/EXTENSION-API.md)
+Full reference: [`docs/API.md`](docs/API.md) · Browser API: [`docs/EXTENSION-API.md`](docs/EXTENSION-API.md)
 
 ---
 
 ## Configuration
 
-Settings now live in **`config.json`** inside the data dir (`~/.printhub/config.json`) —
-editable by hand, via `POST /config`, or from the dashboard. Environment
-variables still override config.json for the classic keys.
-
-| config.json key | Default | Meaning |
-|---|---|---|
-| `token` | *(random on new installs)* | API token — rotate with `token-rotate` / `POST /token/rotate` |
-| `token_header_only` | `false` (old installs) / `true` (new) | Reject `?token=`/body tokens except browser-navigation endpoints |
-| `allowed_origins` | `[]` = allow all | Which websites may print, e.g. `["*.htncr.org"]` |
-| `pdf_url_allowed_hosts` | `[]` | Hosts exempt from the private-IP block |
-| `max_auth_failures` / `lockout_minutes` | `10` / `5` | Wrong-token lockout (remote IPs) |
-| `lockout_exempt_loopback` | `true` | v2.0.1: never lock 127.0.0.1/::1 (all Chrome windows share it) |
-| `printer_groups` | `{}` | `{"Front": ["A", "B"]}` fallback order |
-| `profiles` | `{}` | `{"Invoice": {"paper_size":"A4","duplex":"long","copies":2}}` |
-| `max_retries` / `retry_base_seconds` | `2` / `30` | Exponential retry (0 = off, 1.7.2 behaviour) |
-| `dedupe_minutes` | `5` | Duplicate-job blocking window |
-| `hold_offline` | `true` | Hold jobs while the printer is offline |
-| `audit_enabled` | `true` | Audit log on/off |
-| `reprint_watermark` | `false` | Stamp REPRINT on reprints |
-| `reprint_reason_required` | `false` | Require a reason for every reprint |
-| `peer_hubs` / `peer_forwarding` | `[]` / `false` | Backup hubs + auto-forwarding |
-| `log_max_mb` / `log_backups` | `5` / `3` | hub.log rotation |
-
 | Environment variable | Default | Meaning |
 |---|---|---|
-| `PRINTHUB_TOKEN` | — | Overrides config.json token (1.x compatibility) |
+| `PRINTHUB_TOKEN` | `PrintHub-2024` | API token (header `X-PrintHub-Token`) |
 | `PRINTHUB_PORT` | `9235` | HTTP port |
-| `PRINTHUB_HOST` | `127.0.0.1` | Bind address — `0.0.0.0` for office LAN sharing |
+| `PRINTHUB_HOST` | `127.0.0.1` | Bind address — set `0.0.0.0` for office LAN sharing |
 | `PRINTHUB_PRINTER` | *(OS default)* | Force a specific printer |
-| `PRINTHUB_FILE_DIR` | `~/Downloads/PrintHub` | Where File-destination PDFs are saved |
-| `PRINTHUB_DATA` | `~/.printhub` | Data folder (SQLite history + job files + config.json) |
+| `PRINTHUB_FILE_DIR` | `~/Downloads/PrintHub` | Where `destination:"file"` PDFs are saved |
+| `PRINTHUB_DATA` | `~/.printhub` | Data folder (SQLite history + job files) |
 
-**CLI:** `python hub/printhub.py serve | testprint [a4|thermal] | printers | history [n] | reprint <id> [reason] | queue | doctor | token | token-rotate | diagnostics | service-install | service-remove | service-status | update-check | help`
+**CLI:** `python hub/printhub.py serve | testprint [a4|thermal] | printers | history [n] | reprint <id> | queue | doctor | help`
 
-**LAN mode:** set `PRINTHUB_HOST=0.0.0.0` and point the extension at your PC's LAN IP. Token is always required; consider `allowed_origins` for websites.
+**LAN mode:** set `PRINTHUB_HOST=0.0.0.0` and point the extension (Options → Hub URL) at your PC's LAN IP, e.g. `http://192.168.1.20:9235`. Token is always required.
 
 ---
 
 ## Privacy & security
 
-- **No data collection.** No telemetry, no account, no analytics — 100% local, no cloud, no tracking.
-- **Localhost only** unless you explicitly enable LAN mode.
-- **Hardened auth:** constant-time token compare, header-only mode on new installs, origin allowlist, IP lockout, SSRF-guarded `pdf_url`, rotation.
-- **Open source, MIT.** Audit every line — the hub is one readable Python file; tests in `tests/`.
+- **No data collection.** There is no telemetry, no account, no analytics.
+- **Localhost only.** The hub binds to `127.0.0.1` unless you explicitly enable LAN mode.
+- **Token-protected.** Every endpoint (except `/health`) requires the token, compared in constant time.
+- **Open source, MIT.** Audit every line — the whole hub is one readable Python file.
 
 ## Requirements
 
-- Python 3.8+ (no pip packages) — the Windows Setup EXE bundles its own runtime
-- **Windows:** [SumatraPDF](https://www.sumatrapdfreader.org/) (free; setup offers it via winget). Raw ESC/POS printing needs no Sumatra.
+- Python 3.8+ (no pip packages)
+- **Windows:** [SumatraPDF](https://www.sumatrapdfreader.org/) (free, installer offers it via winget)
 - **Linux/macOS:** CUPS (`cups-client`)
-- Optional: Chrome/Chromium/Edge — only for *page* printing (HTML → PDF)
+- Optional: Chrome/Chromium/Edge — used only for *page* printing (HTML → PDF); PDF/image/text printing works without it
 
 ## License
 

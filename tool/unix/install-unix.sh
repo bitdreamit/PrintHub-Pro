@@ -10,7 +10,7 @@
 #         Linux + systemd -> systemd --user service
 #         macOS           -> LaunchAgent
 #         other desktop   -> XDG autostart
-#  Undo = bash install/uninstall-unix.sh
+#  Undo = bash uninstall-unix.sh (same folder)
 # ============================================================
 set -u
 
@@ -173,5 +173,5 @@ echo "  Setup finished - automatic from now on:"
 echo "    hub   : http://127.0.0.1:$PORT      logs: ~/.printhub/hub.out"
 echo "    Chrome: chrome://extensions > Developer mode > Load unpacked"
 echo "            select the extension/ folder, then press Connect"
-echo "    uninstall:  bash install/uninstall-unix.sh"
+echo "    uninstall:  bash uninstall-unix.sh (same folder)"
 echo ""

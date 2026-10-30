@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  PrintHub Pro v2.3.0  -  Print from any web page to any printer
+#  PrintHub Pro v2.5.0  -  Print from any web page to any printer
 #  by Bitdream IT  -  MIT licensed, 100% local & open source
 #  PrintHub Pro - Version 2.3.0 - by Bitdream IT - MIT license
 #  100% local - no cloud, no tracking.
@@ -57,7 +57,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "2.3.0"
+VERSION = "2.5.0"
 BRANDING = ("PrintHub Pro - Version %s - by Bitdream IT - MIT license - "
             "100%% local - no cloud, no tracking" % VERSION)
 APP_NAME = "PrintHub Pro"
@@ -143,6 +143,10 @@ CFG = {
                                       #  printer is NOT active -> the job
                                       #  is auto-queued instead of failing
                                       #  and prints when the printer is back
+    "sumatra_path": "",               # v2.5: manual override - full path to
+                                      #  SumatraPDF.exe (dashboard Settings /
+                                      #  config.json / PRINTHUB_SUMATRA).
+                                      #  Empty = auto-find (dynamic per user).
 }
 
 # env overrides that win over config.json (back-compat for 1.x users)
@@ -158,7 +162,7 @@ CONFIG_KEYS = ("token", "token_header_only", "allowed_origins",
                "reprint_reason_required", "peer_hubs", "peer_forwarding",
                "share_lan", "escpos_codepage", "thermal_text_engine",
                "log_max_mb", "log_backups", "debug", "instant_auto_queue",
-               "printer", "file_dir")
+               "printer", "file_dir", "sumatra_path")
 CONFIG_TYPES = {"token_header_only": bool, "allowed_origins": list,
                 "pdf_url_allowed_hosts": list, "max_auth_failures": int,
                 "lockout_minutes": int, "lockout_exempt_loopback": bool,
@@ -170,7 +174,8 @@ CONFIG_TYPES = {"token_header_only": bool, "allowed_origins": list,
                 "reprint_watermark": bool, "reprint_reason_required": bool,
                 "peer_hubs": list, "peer_forwarding": bool,
                 "log_max_mb": int, "log_backups": int,
-                "debug": bool, "instant_auto_queue": bool}
+                "debug": bool, "instant_auto_queue": bool,
+                "sumatra_path": str}   # v2.5: manual SumatraPDF.exe override
 
 DEFAULT_TOKEN_WARNING = False   # True while the legacy default token is active
 BOUND_LAN = False               # True once the listener actually bound 0.0.0.0
@@ -634,22 +639,107 @@ def audit_purge(days):
 # ------------------------------------------------------------
 # Printer + browser discovery (best effort, pure stdlib)
 # ------------------------------------------------------------
+# ------------------------------------------------------------
+# SumatraPDF discovery (v2.5 - fully dynamic, service-safe)
+# ------------------------------------------------------------
+SUMATRA_LAST = {"found": None, "tried": []}   # last search report -> /debug
+
+def _winreg_lookup_sumatra():
+    """SumatraPDF registers its location for BOTH per-user (%LOCALAPPDATA%)
+    and per-machine installs. HKLM works even when the hub runs as a
+    Windows SERVICE (where %LOCALAPPDATA% points at the service account)."""
+    if not winreg:
+        return []
+    out = []
+    APP = r"Software\Microsoft\Windows\CurrentVersion\App Paths\SumatraPDF.exe"
+    UNI = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\SumatraPDF"
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        for view in (0, winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY):
+            for sub, name in ((APP, ""), (UNI, "InstallPath")):
+                try:
+                    with winreg.OpenKey(hive, sub, 0,
+                                        winreg.KEY_READ | view) as k:
+                        val, _ = winreg.QueryValueEx(k, name)
+                except OSError:
+                    continue
+                if not val:
+                    continue
+                val = str(val)
+                out.append(val if val.lower().endswith(".exe")
+                           else os.path.join(val, "SumatraPDF.exe"))
+    return out
+
 def find_sumatra():
-    """Locate SumatraPDF.exe on common Windows paths."""
+    """Locate SumatraPDF.exe. The user name is NEVER hardcoded:
+    %LOCALAPPDATA% / ~ resolve to the CURRENT Windows user's profile
+    (e.g. C:\\Users\\<whatever>\\AppData\\Local\\SumatraPDF). As a last
+    resort every profile is globbed (C:\\Users\\*\\...) so the hub finds
+    SumatraPDF even when running as a SERVICE under a different account.
+    Detection is re-run fresh on every call - installing SumatraPDF takes
+    effect on the NEXT print job, no hub restart needed. Manual override:
+    dashboard Settings (config.json "sumatra_path") or PRINTHUB_SUMATRA."""
+    tried = []
     if not IS_WIN:
+        SUMATRA_LAST["found"] = None
+        SUMATRA_LAST["tried"] = []
         return None
-    cands = [
+    la = os.environ.get("LOCALAPPDATA") or os.path.join(
+        os.path.expanduser("~"), "AppData", "Local")
+    pf = os.environ.get("ProgramFiles") or r"C:\Program Files"
+    pfx86 = os.environ.get("ProgramFiles(x86)") or r"C:\Program Files (x86)"
+    roots = [
+        CFG.get("sumatra_path"),                     # Settings override wins
+        os.environ.get("PRINTHUB_SUMATRA"),
+        os.path.join(la, "SumatraPDF", "SumatraPDF.exe"),   # per-user install
+        os.path.join(os.path.expanduser("~"), "AppData", "Local",
+                     "SumatraPDF", "SumatraPDF.exe"),
+        os.path.join(pf, "SumatraPDF", "SumatraPDF.exe"),   # per-machine
+        os.path.join(pfx86, "SumatraPDF", "SumatraPDF.exe"),
         r"C:\Tools\SumatraPDF.exe",
-        r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
-        r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\SumatraPDF\SumatraPDF.exe"),
-        os.path.expandvars(r"%ProgramFiles(x86)%\SumatraPDF\SumatraPDF.exe"),
-        shutil.which("SumatraPDF.exe"),
     ]
-    for c in cands:
-        if c and os.path.exists(c):
+    roots += _winreg_lookup_sumatra()
+    roots.append(shutil.which("SumatraPDF.exe"))
+    for c in roots:
+        if not c:
+            continue
+        c = os.path.expandvars(os.path.expanduser(str(c)))
+        tried.append(c)
+        if os.path.isfile(c):
+            SUMATRA_LAST["found"] = c
+            SUMATRA_LAST["tried"] = tried
             return c
+    # last resort 1: portable zips sometimes keep the exe in a subfolder
+    for base in (os.path.join(la, "SumatraPDF"), os.path.join(pf, "SumatraPDF"),
+                 os.path.join(pfx86, "SumatraPDF"), r"C:\Tools"):
+        if base and os.path.isdir(base):
+            for pat in ("Sumatra*.exe", "*\\Sumatra*.exe"):
+                for hit in sorted(glob.glob(os.path.join(base, pat))):
+                    if os.path.basename(hit).lower().endswith("sumatrapdf.exe"):
+                        tried.append(hit + "  (found by folder scan)")
+                        SUMATRA_LAST["found"] = hit
+                        SUMATRA_LAST["tried"] = tried
+                        return hit
+    # last resort 2 (v2.5): hub running as a SERVICE? %LOCALAPPDATA% then
+    # belongs to the service account, not the logged-in user - scan ALL
+    # user profiles so 'Admin is dynamic for every pc own user name'.
+    for hit in glob.glob(os.path.join("C:\\", "Users", "*", "AppData",
+                                      "Local", "SumatraPDF",
+                                      "SumatraPDF.exe")):
+        tried.append(hit + "  (found by all-users profile scan)")
+        SUMATRA_LAST["found"] = hit
+        SUMATRA_LAST["tried"] = tried
+        return hit
+    SUMATRA_LAST["found"] = None
+    SUMATRA_LAST["tried"] = tried
     return None
+
+VIRTUAL_PDF_PRINTERS = ("Microsoft Print to PDF",)
+
+def is_virtual_pdf_printer(name):
+    """A virtual PDF printer needs no renderer and would pop a Save-As
+    dialog - the hub saves the PDF directly instead (status 'saved')."""
+    n = (name or "").lower()
+    return any(v.lower() in n for v in VIRTUAL_PDF_PRINTERS)
 
 def find_browser():
     """Locate a Chromium browser for headless HTML->PDF (Chrome, Edge, Chromium)."""
@@ -1485,6 +1575,33 @@ def _hold_job(job, why):
              details=why[:200])
     log("[HOLD] job #%d: %s" % (job["id"], why))
 
+def _save_virtual_pdf(job):
+    """v2.5: write the job's PDF straight into the save-as-PDF folder
+    (Downloads\\PrintHub by default). Status 'saved' - no Save-As dialog,
+    works even with NO physical printer installed."""
+    jid = job["id"]
+    try:
+        fdir = default_file_dir()
+        os.makedirs(fdir, exist_ok=True)
+        safe = "".join(c for c in (job.get("title") or "document")
+                       if c.isalnum() or c in "-_ ")[:50].strip() or "document"
+        base = "%s-%s" % (safe.replace(" ", "_"),
+                          datetime.now().strftime("%Y%m%d-%H%M%S"))
+        fpath = os.path.join(fdir, base + ".pdf")
+        n = 1
+        while os.path.exists(fpath):
+            fpath = os.path.join(fdir, "%s-%d.pdf" % (base, n)); n += 1
+        shutil.copyfile(job["file_path"], fpath)
+        db_update(jid, status="saved", printer="File (PDF)",
+                  held_reason=None, error=None, file_path=fpath)
+        db_audit("print.saved", job_id=jid,
+                 printer=job.get("printer") or "File (PDF)",
+                 details="virtual printer -> PDF saved to %s" % fpath)
+        log("[FILE] job #%d: virtual printer -> saved %s" % (jid, fpath))
+    except Exception as e:
+        db_update(jid, status="failed", error="save-as-PDF failed: %s" % e)
+        log("[FAIL] job #%d save-as-PDF: %s" % (jid, e))
+
 def _release_held_jobs():
     """Every ~15 s: printers that came back online release their held jobs."""
     if time.time() - _UNHOLD_TS[0] < 15:
@@ -1679,6 +1796,13 @@ def worker():
                     continue
                 if pstat != "ready" and _try_peer_forward(job):
                     continue
+            # v2.5: virtual PDF printer (Microsoft Print to PDF etc.) ->
+            # save the PDF directly - no renderer, no Save-As dialog.
+            if job.get("kind") != "raw" and is_virtual_pdf_printer(
+                    job.get("printer") or CFG.get("printer")
+                    or default_printer() or ""):
+                _save_virtual_pdf(job)
+                continue
             t0 = time.time()
             db_update(job["id"], status="printing", error=None)
             if job.get("kind") == "raw":
@@ -2650,6 +2774,7 @@ class Handler(BaseHTTPRequestHandler):
                 "browser_found": find_browser() is not None,
                 "paused": not RESUME_EVENT.is_set(),
                 "pending": db_count_pending() if os.path.isfile(db_path()) else 0,
+                "held": db_count_held() if os.path.isfile(db_path()) else 0,
                 "jobs_today": st.get("jobs_today", 0),
                 "file_dir": default_file_dir(),
                 "token_set": bool(CFG["token"]),
@@ -3063,11 +3188,35 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "job_id": j["id"],
                                     "printer": new_printer or j.get("printer")})
 
+        # POST /jobs/release_all - v2.5: force EVERY held job out right now
+        # (dashboard "Release ALL held jobs" button).
+        if route == "/jobs/release_all":
+            held = db_list(limit=200, status="held")
+            n = 0
+            for j in held:
+                if j.get("file_path") and os.path.exists(j["file_path"]):
+                    db_update(j["id"], status="printing", error=None,
+                              held_reason=None, next_attempt_at=None,
+                              attempts=0)
+                    db_audit("job.print_now", job_id=j["id"],
+                             printer=j.get("printer"), ip=ip, site=site,
+                             details="release_all (was %s)" % j["status"])
+                    threading.Thread(
+                        target=_print_now,
+                        args=(j["id"], j["file_path"], j.get("kind") or "a4",
+                              j.get("printer") or "", j.get("copies") or 1),
+                        daemon=True,
+                        name="printhub-now-%d" % j["id"]).start()
+                    n += 1
+            return self._send(200, {"ok": True, "released": n})
+
         # POST /jobs/{id}/print-now - v2.2.1: force THIS job out of the
         # queue RIGHT NOW, bypassing the global pause and the printer-status
         # hold. Works on queued/held/scheduled/failed/dead/saved jobs - the
-        # one-click remedy when "nothing prints".
-        if route.startswith("/jobs/") and route.endswith("/print-now"):
+        # one-click remedy when "nothing prints". ("/release" is a v2.5
+        # alias used by the extension and tests.)
+        if route.startswith("/jobs/") and route.endswith(("/print-now",
+                                                          "/release")):
             jid = route.strip("/").split("/")[1]
             j = db_get(int(jid) if jid.isdigit() else 0)
             if not j:
@@ -3223,7 +3372,7 @@ class Handler(BaseHTTPRequestHandler):
         # the desktop tool send every error HERE so /debug can show why
         # a job did not print - browser-side problems (JS exceptions,
         # failed fetches, token errors) never reach hub.log otherwise.
-        if route == "/debug/report":
+        if route in ("/debug/report", "/client/report"):
             b = body or {}
             entry = add_debug_report(
                 source=str(b.get("source") or "client"),
@@ -3356,6 +3505,9 @@ class Handler(BaseHTTPRequestHandler):
             # v2.3: friendlier alias mode=instant|direct|now (and
             # mode=queue); a given "queue" value always wins.
             mode_req = str(bget("mode") or "").strip().lower()
+            if not mode_req and bget("instant"):
+                mode_req = "instant"     # v2.5: {"instant": true} alias
+                queue_mode = False
             queue_mode = bget("queue")
             if queue_mode is None:
                 if mode_req in ("instant", "direct", "now"):
@@ -3870,6 +4022,11 @@ def build_debug_report():
                      for n, s in printers_status().items()],
         "default_printer": default_printer(),
         "sumatra_found": (find_sumatra() is not None) if IS_WIN else None,
+        "sumatra_path": (SUMATRA_LAST["found"]
+                         or CFG.get("sumatra_path") or ""),
+        "sumatra_searched": (list(SUMATRA_LAST["tried"])
+                             if (IS_WIN and not SUMATRA_LAST["found"])
+                             else []),
         "browser_found": find_browser() is not None,
         "db": st,
         "recent_jobs": [{k: j.get(k) for k in
@@ -3884,10 +4041,14 @@ def dashboard_html(query=""):
     """The built-in web dashboard (v2.0): success rate, queue size,
     printers, live queue, history, audit trail - one file, no assets."""
     q = ("?" + query) if query else ""
+    tok = ""
+    if "token=" in q:
+        tok = q.split("token=", 1)[1].split("&", 1)[0]
     return (DASHBOARD_HTML
             .replace("@@VERSION@@", VERSION)
             .replace("@@BRANDING@@", BRANDING.replace(" - ", " &middot; "))
-            .replace("@@Q@@", q))
+            .replace("@@Q@@", q)
+            .replace("@@TOKEN@@", tok))
 
 
 def docs_html():
@@ -4402,9 +4563,23 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <th>Time</th><th>Event</th><th>Job</th><th>Site / IP</th><th>Printer</th><th>Reason / details</th>
   </tr></thead><tbody id="audit"><tr><td>-</td></tr></tbody></table></div>
 </main>
+<section id="livetest">
+  <h2>Live debug &amp; test tool <small>(v2.5)</small></h2>
+  <p>Send a REAL test print and watch every step live until it hits the
+     printer - or see exactly why it did not (offline, held, SumatraPDF...).</p>
+  <p><label>Printer: <input id="ltPrinter" placeholder="(default printer)"></label>
+     <button onclick="ltSend()">Send test print &amp; watch live</button>
+     <button onclick="ltRelease()">Release ALL held jobs</button></p>
+  <pre id="ltOut">idle - click the button above</pre>
+  <h2>Settings</h2>
+  <p><label>SumatraPDF.exe full path (empty = auto-find):<br>
+     <input id="ltSumatra" size="46" placeholder="C:\\Users\\you\\AppData\\Local\\SumatraPDF\\SumatraPDF.exe"></label>
+     <button onclick="ltSaveSumatra()">Save</button> <span id="ltCfgMsg"></span></p>
+</section>
 <div id="msg"></div>
 <script>
 const Q = location.search || "";
+const TOKEN = "@@TOKEN@@";
 const H = {"X-PrintHub-Token": new URLSearchParams(Q).get("token") || ""};
 function msg(t){const m=document.getElementById("msg");m.textContent=t;
   m.style.display="block";setTimeout(()=>m.style.display="none",4000);}
@@ -4590,6 +4765,43 @@ async function rotateToken(){
   else msg(r.error||"failed");
 }
 refresh();loadLan();loadDebug();setInterval(refresh,5000);setInterval(loadLan,15000);setInterval(loadDebug,15000);
+async function ltSend(){
+  const out=document.getElementById("ltOut");
+  const pr=(document.getElementById("ltPrinter").value||"").trim();
+  out.textContent="sending test print...";
+  try{
+    const r=await fetch("/testprint?kind=a4"+(pr?"&printer="+encodeURIComponent(pr):"")+Q);
+    const d=await r.json();
+    if(!d.ok){out.textContent="test print failed: "+(d.error||("HTTP "+r.status));return;}
+    const jid=d.job_id; let n=0;
+    const timer=setInterval(async()=>{
+      try{
+        const s=await (await fetch("/jobs/"+jid+Q)).json();
+        if(!s.job){return;}
+        const j=s.job, st=j.status;
+        out.textContent="job #"+jid+" ["+st+"] "
+          +(j.held_reason?(" - "+j.held_reason+" "):"")
+          +(j.error?(" - "+j.error+" "):"");
+        if(st==="printed"){clearInterval(timer);
+          out.textContent="VERDICT: job #"+jid+" REAL PRINTER HIT -> '"+j.printer+"'";}
+        else if(st==="saved"){clearInterval(timer);
+          out.textContent="VERDICT: job #"+jid+" SAVED to "+(j.file_path||"the save-as-PDF folder")+" (virtual printer, no paper needed)";}
+        else if(st==="failed"||st==="canceled"||st==="dead"){clearInterval(timer);
+          out.textContent="VERDICT: job #"+jid+" "+st.toUpperCase()+" - "+(j.error||"open /debug for details");}
+        else if(++n>60){clearInterval(timer);
+          out.textContent="job #"+jid+" still '"+st+"' after 60 s - open /debug";}
+      }catch(e){clearInterval(timer);out.textContent="poll error: "+e;}
+    },900);
+  }catch(e){out.textContent="error: "+e;}
+}
+async function ltRelease(){
+  const r=await act("/jobs/release_all",{});
+  document.getElementById("ltOut").textContent="release_all -> "+JSON.stringify(r);}
+async function ltSaveSumatra(){
+  const v=document.getElementById("ltSumatra").value.trim();
+  const r=await act("/config",{sumatra_path:v});
+  document.getElementById("ltCfgMsg").textContent=
+    r.ok?("saved"+(r.changed&&r.changed.length?" ("+r.changed.join(", ")+")":"")):"failed";}
 </script></body></html>"""
 
 # ------------------------------------------------------------

@@ -1,4 +1,4 @@
-' PrintHub Pro - hidden launcher, no console window  (v2.0.0)
+' PrintHub Pro - hidden launcher, no console window  (v2.5.0)
 ' MANUAL / FALLBACK launcher only: normal installs start the hub
 ' as the Startup app "PrintHub Pro" (Task Manager > Startup apps)
 ' or from the tray icon. Double-click this file only when both
@@ -17,7 +17,7 @@ hub  = base & "\hub\printhub.py"
 ' ---- 1) resolve the launcher -------------------------------------------
 py = ""
 
-' 1pre) BUNDLED runtime (full package) - v2.0.0 prefers
+' 1pre) BUNDLED runtime (full package) - v2.4.0 prefers
 '       PrintHubPro.exe (= pythonw.exe renamed: Task Manager shows
 '       "PrintHubPro" instead of "python")
 If fso.FileExists(base & "\installer\runtime\PrintHubPro.exe") Then

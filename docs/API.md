@@ -1,16 +1,8 @@
-# PrintHub Pro — Hub HTTP API (v2.2.0)
+# PrintHub Pro — Hub HTTP API
 
 Base URL: `http://127.0.0.1:9235` (default)
-
-Auth: header `X-PrintHub-Token: <token>`.
-- **New installs (v2.0):** the token is a private random value printed at first start and stored in `config.json`. All **mutating endpoints (POST)** require the **header** — query/body tokens are rejected there. Every **GET** endpoint (v2.0.2, one uniform rule) additionally accepts `?token=` for plain browser navigation — `GET /dashboard?token=…`, `GET /audit?token=…`, `GET /jobs?token=…`, `GET /stats?token=…`, `GET /jobs/{id}/file?token=…`, `GET /export/*.csv?token=…` — because browsers cannot send headers when following a link. A leaked GET URL can therefore only *read* data, never print or change settings.
-- **Old installs:** keep working exactly as before (header, `?token=` query or JSON `"token"` field all accepted) and raise `default_token_warning: true` in `/health` until the token is rotated.
-- **IP lockout (fixed in v2.0.1):** 10 wrong tokens from one **remote** IP locks it for 5 minutes (HTTP 429). The loopback IP `127.0.0.1`/`::1` is **never locked by default** (`lockout_exempt_loopback: true`) — every Chrome window/profile shares that one IP, so a stale token in one window must not lock out the dashboard, tray and extension of all the others. Failures only count inside a sliding `lockout_minutes` window and any successful auth clears the counter immediately. Every 401 answer carries an actionable hint (and points out the old default token `PrintHub-2024` specifically when it is used). Browsers opening any GET link (`/dashboard`, `/audit`, `/stats`, …) with a wrong token get a readable HTML fix-it page instead of raw JSON (v2.0.2: extended from the dashboard to every GET endpoint); API clients keep the JSON error.
-
-All responses are JSON with an `"ok"` field. The API is CORS-open with
-`Access-Control-Allow-Private-Network: true`. When `allowed_origins` is set in
-config.json, only listed origins (glob, e.g. `*.htncr.org`) and browser
-extensions are served; everything else gets **403**.
+Auth: header `X-PrintHub-Token: <token>` (default `PrintHub-2024`), or `?token=` query, or `"token"` JSON field.
+All responses are JSON with an `"ok"` field. The API is CORS-open with `Access-Control-Allow-Private-Network: true`, so browser JS from any site can call it.
 
 ---
 
@@ -18,17 +10,17 @@ extensions are served; everything else gets **403**.
 
 ```json
 {
-  "ok": true, "app": "PrintHub Pro", "version": "2.0.0",
-  "branding": "PrintHub Pro - Version 2.0.0 - by Bitdream IT - MIT license - 100% local - no cloud, no tracking",
-  "os": "windows", "default_printer": "HP LaserJet Pro",
-  "sumatra_found": true, "browser_found": true,
-  "paused": false, "pending": 0, "jobs_today": 12,
-  "file_dir": "C:\\Users\\me\\Downloads\\PrintHub",
-  "token_set": true,
-  "default_token_warning": false,
-  "token_header_only": true,
-  "held": 0, "success_rate": 97.4, "printers_ready": 2,
-  "audit": true, "v2": true
+  "ok": true,
+  "app": "PrintHub Pro",
+  "version": "1.0.0",
+  "os": "windows",
+  "default_printer": "HP LaserJet Pro",
+  "sumatra_found": true,
+  "browser_found": true,
+  "paused": false,
+  "pending": 0,
+  "jobs_today": 12,
+  "token_set": true
 }
 ```
 
@@ -38,192 +30,180 @@ extensions are served; everything else gets **403**.
 
 ```json
 { "ok": true,
-  "printers": [
-    {"name": "HP LaserJet Pro", "is_default": true,  "status": "ready",  "is_group": false},
-    {"name": "XP-80C Thermal",  "is_default": false, "status": "paper-out","is_group": false},
-    {"name": "Front Desk",      "is_default": false, "status": "group",  "is_group": true,
-     "members": ["HP LaserJet Pro", "XP-80C Thermal"]}
-  ],
-  "default": "HP LaserJet Pro", "groups": {"Front Desk": ["HP LaserJet Pro", "XP-80C Thermal"]} }
+  "printers": [ {"name": "HP LaserJet Pro", "is_default": true},
+                {"name": "XP-80C Thermal", "is_default": false} ],
+  "default": "HP LaserJet Pro" }
 ```
-
-Status values: `ready` · `offline` · `paper-out` · `error` · `unknown` · `group`.
-
-### GET /printers/{name}/capabilities *(v2.1)*
-
-What THIS printer + backend actually supports — drives the extension UI
-and API clients so only supported options are offered. Windows reports the
-SumatraPDF capability map (driver-level extras noted); Linux queries CUPS
-`lpoptions -p <name> -l` live:
-
-```json
-{ "ok": true, "backend": "cups", "printer": "XP-80C",
-  "pages": {"type": "ranges", "odd_even": true},
-  "copies": {"min": 1, "max": 50},
-  "duplex": ["one-sided", "two-sided-long-edge", "two-sided-short-edge"],
-  "per_sheet": [1, 2, 4, 6, 9, 16],
-  "quality": {"presets": ["draft", "normal", "high"], "dpi": [300, 600, 1200]},
-  "paper": ["A4", "A5", "Letter"], "tray": ["Tray1"], "raw_options": { } }
-```
-
-`quality.dpi` is `null` on Windows — the print driver decides the real
-DPI there (both spellings are still accepted and logged per job).
 
 ---
 
 ## POST /print
 
-One payload source is required. **Common fields:**
-
-| Field | Default | Meaning |
-|---|---|---|
-| `title` | `"document"` | Shown in history/dashboard |
-| `printer` | *(OS default)* | Printer name, or a **printer group** name; `"__file__"` = save as PDF |
-| `copies` | `1` | 1–50 |
-| `source` | `"api"` | Free tag recorded in history + audit |
-| `destination` | `"printer"` | `"file"` = save as PDF, no paper |
-| `queue` | `true` | `false` = **Queue Mode OFF** for this job (prints immediately, bypasses FIFO) |
-| `priority` | `5` | v2.0: `1` (urgent) … `9` (low); urgent jobs jump the FIFO |
-| `pages` | — | v2.0: page range `"1-3,5"`; **v2.1: also `"odd"` / `"even"`** (CUPS `page-set` / SumatraPDF) |
-| `duplex` | — | v2.0: `simplex` \| `duplex` \| `long` \| `short` |
-| `paper_size` | — | v2.0: e.g. `A4`, `Letter` (CUPS media / Sumatra paper=) |
-| `tray` | — | v2.0: e.g. `Tray2` (CUPS only — SumatraPDF cannot select trays) |
-| `per_sheet` | `1` | v2.1: n-up printing — `2` `4` `6` `9` `16` (CUPS `number-up`; SumatraPDF logs it as unsupported) |
-| `quality` | — | **v2.2: BOTH spellings** — presets `draft` \| `normal` \| `high` (aliases `best`/`fine` → `high`) → CUPS `print-quality=3/4/5`; **or DPI**: `"600"`, `"600dpi"` → CUPS `printer-resolution=600dpi`. Windows: accepted + recorded, driver decides |
-| `dpi` | — | v2.2: explicit DPI number (72–2400) — same effect as `quality:"600dpi"` |
-| `scale_pct` | — | v2.1: 25–400 % scale for hub-rendered jobs (text/HTML) |
-| `margin_mm` | — | v2.1: page margins in mm for hub-rendered jobs |
-| `orientation` | — | v2.1: `portrait` \| `landscape` |
-| `profile` | — | v2.0: name of a profile from config.json `profiles` (request values win) |
-| `run_at` | — | v2.0: schedule — ISO datetime `"2026-10-27T09:00:00"` or relative `+5m` `+2h` `+30s` |
-| `reason` | — | v2.0: free text recorded in the audit log |
-| `watermark` | `false` | v2.0: stamp a diagonal `REPRINT`-style watermark on the PDF (`watermark_text` overrides the text) |
-| `dedupe` | `true` | v2.0: `false` disables duplicate blocking for this request |
-| `lang` | — | v2.0: `"escpos"` or `"zpl"` → **raw printing** (with `text`) |
-| `cut` / `drawer` | `true` / `false` | v2.0: ESC/POS builder extras |
-
-**Payload sources:**
+One of the payload sources is required. Common optional fields: `title`, `printer` (empty = default), `copies` (1–50), `source` (free tag shown in history), `destination` (`"printer"` default or `"file"` to save as PDF without printing).
 
 | Source field | Meaning | Notes |
 |---|---|---|
 | `pdf_base64` | Raw PDF bytes, base64 | Must start with `%PDF-` |
-| `pdf_url` | Download a PDF | **v2.0 SSRF guard:** `file://`, `ftp://` and private/local hosts are blocked unless in `pdf_url_allowed_hosts` |
+| `pdf_url` | Download a PDF | Max 25 MB, must be a real PDF |
 | `image_base64` | JPEG bytes, base64 | Wrapped to PDF (`paper: a4|thermal`, `landscape`) |
 | `html` | HTML string | Rendered by headless Chrome/Edge |
 | `page_url` | URL of a page | Rendered by headless Chrome/Edge |
-| `text` | Plain text | Thermal receipt or A4 page (`paper`) |
-| `raw_base64` | v2.0: pre-built ESC/POS or ZPL bytes | Sent to the printer **raw** (no driver) |
-| `text` + `lang` | v2.0: `"escpos"` builds a receipt, `"zpl"` passes through | ESC/POS markers below |
-
-**ESC/POS text markers:** `#big ` double size · `|center|` centered · `|right|` right · `|cut|` paper cut · `|drawer|` open cash drawer · `|barcode:123456|` CODE128 · `|qr:any text|` QR code.
-
-**Raw binary uploads** (no base64):
-- `POST /print` with `Content-Type: application/pdf` → PDF bytes
-- `POST /print?kind=raw` (or `?lang=escpos|zpl`) with `Content-Type: application/octet-stream` → raw printer bytes
+| `text` | Plain text | `paper:"thermal"` → 80 mm roll; `paper:"a4"` → A4. Markers: `#big `, `|center| ` |
 
 ```bash
-curl -X POST "http://127.0.0.1:9235/print?title=Retail-42&printer=XP-58&token=$TOKEN" \
-  --data-binary @receipt.bin -H "Content-Type: application/octet-stream"
+curl -X POST http://127.0.0.1:9235/print \
+  -H "X-PrintHub-Token: PrintHub-2024" -H "Content-Type: application/json" \
+  -d '{"pdf_base64":"JVBERi0...","title":"Invoice 42","printer":"HP LaserJet Pro","copies":2}'
 ```
 
-**Response (printer destination):**
+Response: `{"ok": true, "job_id": 17, "kind": "a4", "copies": 2, "destination": "printer", "message": "queued to printer"}`
 
-```json
-{ "ok": true, "job_id": 17, "kind": "a4", "copies": 1,
-  "destination": "printer", "queue_mode": "on",
-  "duplicate": false, "priority": 1 }
+### Raw binary PDF — no base64 (fastest path)
+
+POST the PDF bytes **directly** with `Content-Type: application/pdf` — no base64 encode, no JSON, no +33% size overhead. Parameters ride the **query string** (`title`, `printer`, `copies`, `destination`, `paper`, `token` also accepted as query param).
+
+```bash
+curl -X POST "http://127.0.0.1:9235/print?title=Lab%20report&copies=1" \
+  -H "X-PrintHub-Token: PrintHub-2024" \
+  -H "Content-Type: application/pdf" \
+  --data-binary @report.pdf
 ```
 
-`duplicate: true` means an identical job was already accepted within
-`dedupe_minutes` — the response points at the original `job_id`.
-For `run_at` requests: `"status": "scheduled"`, `"scheduled_for": "..."`.
-For `destination:"file"`: `"status": "saved"`, `"file": "<path>"`.
+**Laravel (mPDF, zero encoding):**
+
+```php
+Http::withHeaders(['X-PrintHub-Token' => 'PrintHub-2024'])
+    ->withBody($pdf->output(), 'application/pdf')
+    ->post('http://127.0.0.1:9235/print?title=' . urlencode('Lab report 197253'));
+```
+
+**Laravel multipart (`Http::attach`)** — file field `pdf`/`file`, text fields become parameters:
+
+```php
+Http::withHeaders(['X-PrintHub-Token' => 'PrintHub-2024'])
+    ->attach('pdf', $pdf->output(), 'report.pdf')
+    ->post('http://127.0.0.1:9235/print', ['title' => 'Lab report 197253']);
+```
+
+**No bytes at all — `pdf_url`:** the hub downloads the PDF itself (max 25 MB). For login-protected Laravel routes use a signed URL: `URL::temporarySignedRoute('reports.pdf', now()->addMinutes(5), [...])`.
+
+Raw limits: max 25 MB, body must start with `%PDF-`; anything else → `400`.
+
+### Destination "file" — save as PDF, no paper
+
+Add `"destination": "file"` (or set `printer` to the extension alias `"__file__"`) and the hub **saves the rendered PDF into a folder instead of printing** — no dialog, no paper, no queue. Default folder: `~/Downloads/PrintHub` (override with `PRINTHUB_FILE_DIR`).
+
+```bash
+curl -X POST http://127.0.0.1:9235/print \
+  -H "X-PrintHub-Token: PrintHub-2024" -H "Content-Type: application/json" \
+  -d '{"text":"Daily summary","paper":"a4","title":"summary","destination":"file"}'
+```
+
+Response: `{"ok": true, "job_id": 18, "kind": "a4", "destination": "file", "status": "saved", "file": "/home/me/Downloads/PrintHub/summary-20240101-120000.pdf", "url_path": "/jobs/18/file", "message": "saved as PDF file - no paper used"}`
+
+The job appears in history with status `saved`; download it any time via `GET /jobs/18/file`, or print it later with `POST /jobs/18/reprint` (goes to the OS default printer).
+
+Errors: `400` bad payload · `401` bad token · `500` render failure (html/page).
 
 ---
-
-## Job endpoints
-
-| Endpoint | Meaning |
-|---|---|
-| `GET /jobs?limit=100[&status=queued]` | History. Statuses: `queued` `printing` `printed` `failed` `canceled` `saved` **`held`** **`scheduled`** **`dead`** **`forwarded`** |
-| `GET /jobs/{id}/file` | Download the stored document |
-| `POST /jobs/{id}/reprint` | Reprint. Body: `reason` (audit; required when `reprint_reason_required`), `watermark: true`, `printer` override |
-| `POST /jobs/{id}/cancel` | Cancel queued / kill printing / release scheduled+held |
-| `POST /jobs/{id}/retry` | **v2.0:** requeue a `failed`/`dead`/`canceled`/`held` job — body `{"printer":"OtherName"}` retries on **another printer** |
-| `POST /jobs/{id}/priority` | **v2.0:** body `{"priority": 1..9}` |
 
 ## Queue control
 
-`GET /queue` (adds `"held": n`) · `POST /queue/pause` · `POST /queue/resume` · `POST /queue/clear`
+| Endpoint | Effect |
+|---|---|
+| `GET /queue` | `{"ok":true,"paused":false,"pending":2,"current":{...job...}}` |
+| `POST /queue/pause` | Worker stops taking jobs (already-running job finishes) |
+| `POST /queue/resume` | Worker continues; queued jobs print in FIFO order |
+| `POST /queue/clear` | All `queued` jobs become `canceled` |
 
-### POST /queue/shift *(v2.1)* — move jobs to ANOTHER PC
-
-```json
-{ "target": "http://192.168.0.60:9235",   // other hub's LAN URL
-  "target_token": "PEER-TOKEN",            // optional if target is in peer_hubs
-  "scope": "all" }                          // or "job" + "ids": [12,13]
-```
-
-Waiting (`queued`/`held`/`scheduled`/`failed`/`dead`/`retrying`) jobs are
-re-uploaded to the target hub, marked **`forwarded`** here and audited.
-The UI equivalents: extension Options → **LAN / PCs** tab (whole queue) and
-**Shift to PC** buttons in the Queue tab; dashboard LAN card. Response:
-`{"ok":true,"target":…,"shifted":[12,13],"shifted_count":2,"errors":[]}`.
+The queue is **DB-driven** (SQLite): pending jobs survive hub restarts, and jobs stuck in `printing` after a crash are re-queued at startup.
 
 ---
 
-## Security endpoints
+## Jobs & history
 
 | Endpoint | Meaning |
 |---|---|
-| `POST /token/rotate` | Generate a fresh random token; old one stops immediately. Response: `{"ok": true, "token": "..."}` |
-| `GET /config` | Redacted view of config.json |
-| `POST /config` | Update any config key at runtime (persisted): `allowed_origins`, `printer_groups`, `profiles`, `pdf_url_allowed_hosts`, `max_retries`, `retry_base_seconds`, `dedupe_minutes`, `hold_offline`, `audit_enabled`, `reprint_watermark`, `reprint_reason_required`, `max_auth_failures`, `lockout_minutes`, `lockout_exempt_loopback`, `peer_hubs`, `peer_forwarding`, `log_max_mb`, `log_backups`. The token is rejected here — use `/token/rotate`. |
-| `GET /peers` | Health-probe every configured peer hub — `{"url","alive","version","latency_ms"}`; dead peers are skipped by forwarding |
-
-## Audit, exports, dashboard, diagnostics
-
-| Endpoint | Meaning |
-|---|---|
-| `GET /stats` | Success rate (7 d), queue size, jobs today, printers, uptime |
-| `GET /audit?limit=50[&event=print.failed]` | Audit entries |
-| `GET /audit.csv` · `GET /export/audit.csv` | Audit CSV download |
-| `GET /export/history.csv` | Full job history CSV (id, site, hash, priority, attempts…) |
-| `GET /dashboard?token=…` | Built-in web dashboard — success rate, queue size, live queue with cancel + **Shift**, **LAN sharing card**, printers, recent jobs with retry/reprint, audit trail, token rotation |
-| `GET /docs?token=…` | **v2.2: the built-in user guide** — every option, LAN sharing how-to, queue shift, Laravel recipes, Bangla receipts. Served by the hub so the docs can never go missing |
-| `GET /diagnostics` | Support bundle JSON: versions, config (token masked), DB stats, printers, peers, log tail |
-
-## Misc
-
-`GET /autostart` · `POST /autostart {"enabled":bool}` · `GET /testprint?kind=a4|thermal`
+| `GET /jobs?limit=100` | Last N jobs (newest first). Statuses: `queued printing printed saved failed canceled` |
+| `GET /jobs/{id}/file` | Download the original PDF of a job |
+| `POST /jobs/{id}/reprint` | Queue an exact copy of the job |
+| `POST /jobs/{id}/cancel` | Cancel a queued job; if it is printing, the print process is killed |
 
 ---
 
-## config.json reference
+## GET /testprint?kind=a4|thermal
 
-Lives in the data dir (`~/.printhub/config.json`). See the README table for
-every key with defaults. **Defaults keep 1.x behaviour** except where the
-feature itself is the point (`max_retries: 2`, `dedupe_minutes: 5`,
-`hold_offline: true`). New installs additionally get `token_header_only: true`.
-Auth-related keys: `max_auth_failures` (10), `lockout_minutes` (5) and
-`lockout_exempt_loopback` (`true` = never lock 127.0.0.1/::1 — set `false`
-to lock loopback too, the strict v2.0.0 behaviour).
+Queue a built-in test page/receipt. No body needed.
 
-## CLI
+---
+
+## CLI equivalents
 
 ```
-python printhub.py serve|testprint|printers|history|reprint <id> [reason]
-python printhub.py queue|doctor|token|token-rotate|diagnostics
-python printhub.py service-install|service-remove|service-status|update-check|help
+python hub/printhub.py serve          # start (default command)
+python hub/printhub.py testprint a4   # test page
+python hub/printhub.py printers       # list printers
+python hub/printhub.py history 20     # last 20 jobs
+python hub/printhub.py reprint 17     # reprint job 17
+python hub/printhub.py queue          # paused? pending? current?
+python hub/printhub.py doctor         # environment self-check
 ```
 
-## Peer hubs (multi-PC fallback)
+## Browser fallback form
 
-```json
-"peer_hubs": [ {"url": "http://192.168.1.50:9235", "token": "PEER-TOKEN"} ],
-"peer_forwarding": true
-```
+Strict CSP environments can POST `application/x-www-form-urlencoded` with a single field `payload` containing the JSON — same endpoints, same responses.
 
-When the local printer is unreachable and `peer_forwarding` is on, the job is
-handed to the first **alive** peer that actually has that printer (dead peers
-are skipped). The job is recorded locally as `forwarded` with the peer URL.
+---
+
+## v2.4.0 — debug, instant print, held jobs
+
+### GET /debug?token=...
+Full diagnostics — answers "why is it not printing?" in one JSON:
+`version`, `uptime_s`, `worker_alive`, `paused`, `hold_offline`,
+`instant_auto_queue`, `token` (masked), `printers[]` (name+status),
+`default_printer`, `sumatra_found`, `sumatra_path`,
+`sumatra_searched[]` (every path checked, when not found), `db`
+(by_status, queue_size, success_rate, printed_7d, failed_7d),
+`recent_jobs[]`, `problems[]` (level/check/message/fix),
+`client_reports[]` (browser-side errors, when debug is on).
+
+### GET /dashboard?token=...
+The LIVE debug & test tool (HTML, open in a browser): send a real test
+print to any printer, watch every status change live, final verdict
+REAL PRINTER HIT / saved / held / failed (+fix). Release held jobs,
+pause/resume, settings toggles.
+
+### GET /audit?token=...[&limit=100]
+Audit trail (SQLite, survives restarts). Events: `print.submitted`
+(actor/site/ip/doc_hash), `print.held`, `print.requeued`, `print.saved`,
+`auth.failed` (attempt counter), `config.changed`, `queue.paused`,
+`queue.resumed`.
+
+### GET /config?token=... · POST /config
+Live settings, persisted to `<data dir>/config.json`.
+POST body (header auth as usual): `{"debug":true, "hold_offline":true,
+"instant_auto_queue":true, "sumatra_path":"C:\\...\\SumatraPDF.exe",
+"file_dir":"D:\\pdfs", "printer":"", "token_header_only":true}`.
+Response: `{"ok":true,"changed":["debug"]}`. Every change is audit-logged.
+
+### POST /client/report
+Browser-side error reports (extension sends them when Debug is on).
+Body: `{"level":"error","message":"...","url":"https://..."}`.
+Shown in `/debug` → `client_reports[]` and the dashboard.
+
+### Instant / direct print
+`POST /print` accepts `instant:true` or `mode:"instant"` — the job jumps
+the queue (priority dispatch). If no printer is ready it auto-falls back
+to the normal queue (`instant_auto_queue`), response then contains
+`"auto_queued": true`. The job is never lost.
+
+### Held jobs (hold_offline)
+Jobs for an offline printer are parked as `held` with `held_reason`
+(a watcher releases them when the printer is ready). Force-print:
+`POST /jobs/{id}/release` (single) · `POST /jobs/release_all` (all).
+`GET /jobs/{id}` returns one job (used by the live watcher).
+
+### Virtual PDF printers
+Printing to "Microsoft Print to PDF" is auto-routed to a direct PDF save
+(status `saved`, `file` = full path) — no renderer, no Save-As dialog,
+works with no physical printer installed.

@@ -1,425 +1,130 @@
-# PrintHub Pro — Changelog
+# Changelog — PrintHub Pro
 
-All notable changes to **PrintHub Pro** are documented here.
-Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is
-[SemVer](https://semver.org/).
+## v2.5.0 — the merge release (2026-10-30)
 
----
-
-## [2.3.0] — 2026-10-30 — "Instant print + /debug: see WHY nothing prints"
-
-Feature release for the request *"print direct instant print mode where . also
-instant print mode when queue off if no printer active it then auto queue.
-debug api url need like ip:port/debug it identify why not work js or desktop
-tool any error to show . so debug on/off button need in setting so early
-identify when why where is problem exist"*.
+### Fixed
+- **Feature regression in 2.4.0/2.4.1** — those builds were assembled from a
+  stale 1.5.0 tree (dev-machine reset) and silently dropped the v2.0–v2.3
+  feature set. v2.5.0 is built on the REAL 2.3.0 source (recovered from
+  github.com/bitdreamit/PrintHub-Pro) and re-unites everything: LAN sharing
+  (`share_lan` 0.0.0.0 bind + `/peers` + peer forwarding), ESC/POS + ZPL raw
+  printing (cut/drawer/barcode/QR, `escpos_codepage`, Bangla auto-routed via
+  headless Chrome), scheduled prints (`run_at` + promotion), printer groups,
+  profiles, priority queue, dedupe, exponential retry, `/capabilities`,
+  `/stats`, `/diagnostics`, in-hub `/docs` guide, Windows service wrapper
+  (`service_main.py` + PrintHubProService.cs) and `tool.py` control menu.
+- **SumatraPDF under Windows services** — new all-users profile scan
+  (`C:\Users\*\AppData\Local\SumatraPDF`) + HKLM registry views: found even
+  when the hub's service account is not the logged-in user (user name stays
+  dynamic). `/debug` now reports `sumatra_path` + the full `sumatra_searched`
+  list; `sumatra_path` is a first-class config key (dashboard Settings box,
+  POST /config, PRINTHUB_SUMATRA env).
+- **Folder churn ended at the git level** — the package tree is now 1:1 with
+  the repo (`tool/`, `extension/`, `docs/`, `tests/`, `pytest.ini`,
+  `.gitignore`); full.zip extracts over the repo working copy cleanly.
+  `tests/conftest.py` path fixed (hub lives at `tool/windows/portable/hub`).
 
 ### Added
-- **Instant print mode surfaced + hard answer to "where":** it is the
-  popup / Options → Settings **Queue mode OFF** switch. Documented in
-  README, /docs §5 and API.md. New `POST /print` parameter
-  `mode: "instant" | "direct" | "now"` (alias of `queue: false`;
-  `mode: "queue"` = FIFO; a given `queue` value always wins). The
-  response gains `instant` and `auto_queued` fields.
-- **Auto-queue fallback for instant jobs:** queue mode OFF + the target
-  printer is `offline` / `paper-out` / `error` → the job is auto-queued
-  instead of fired into a failing direct print (audit event
-  `print.auto_queued`); with the default `hold_offline` it even waits
-  for the printer to come back and prints then. Raw/ESC-POS jobs skip
-  the check (receipt printers rarely report a usable status). New
-  config `instant_auto_queue` (default `true`), runtime-tunable via
-  `POST /config`.
-- **`GET /debug`** — one endpoint answers *when / why / where*:
-  `problems` (auto-verdict list: worker dead, queue paused, no/none
-  ready printers, SumatraPDF missing, browser missing, held jobs with
-  reason, failed/dead jobs with their error, default-token warning,
-  debug-off hint — each with a `fix`), `recent_jobs` (last 15 with
-  error + held_reason), queue/worker/printer state, and
-  `client_reports`. Accepts `?token=` like every GET; wrong token →
-  401.
-- **`POST /debug/report`** — client error reporting for the extension
-  (JS) and any desktop tool: `{source, level, message, context,
-  job_id}`. The hub keeps the last 100 reports in memory AND in
-  `debug_reports.json` (survives restarts), audits `debug.report`,
-  and shows them in `/debug` under `client_reports`.
-- **Debug ON/OFF switch in the settings** (new config `debug`, default
-  `false`): extension Options → Settings → **Debug mode** toggle (one
-  switch drives the extension's error reporting AND the hub's config),
-  new dashboard **Debug card** (Enable/Disable, worker/queue state,
-  problem list, client-report count, **Copy report**, "Open /debug"),
-  and a new extension **Debug tab** (state line, problems table,
-  client error reports, error-count tab badge, **Send test report**,
-  **Copy report**, **Open /debug JSON**; popup footer gained a
-  **Debug** link).
-- Verbose `[DEBUG]` logging while debug is ON: exact printer command
-  lines (lp/SumatraPDF), worker picks, instant-print decisions,
-  incoming client reports.
+- Virtual-PDF direct save ported onto the 2.3.0 worker (`_save_virtual_pdf`,
+  status `saved`, `print.saved` audit) — "Microsoft Print to PDF" works
+  without a physical printer and without SumatraPDF.
+- `POST /jobs/{id}/release` + `POST /jobs/release_all` (print-now aliases)
+  and `POST /client/report` (alias of `/debug/report`).
+- Dashboard "Live debug & test tool" panel: Send test print & watch live
+  (verdict REAL PRINTER HIT / SAVED / HELD / FAILED+reason), Release ALL
+  held jobs, Settings → sumatra_path; token injected via `@@TOKEN@@`.
+- `{"instant": true}` accepted as alias of `mode:"instant"`.
+- Repo parity files restored into the package: `i18n.js` (Bangla UI strings),
+  service bats/ps1, PrintHub-Tool.bat, RELEASE-NOTES-*.md, HOW-TO-*, sample
+  report, store assets.
 
-### Changed
-- `POST /print` answer is truthful in every instant case: with the
-  auto-queue fallback the response now says `status: "queued"` +
-  `auto_queued: true` + *"printer not active - job auto-queued"*
-  instead of claiming `printing`.
-- `/health` gains `debug` and `instant_auto_queue`; the root endpoint
-  list and `/docs` (new §5c + endpoint map) document `/debug`,
-  `/debug/report`, `mode` and `instant_auto_queue`.
-- Popup / Options copy for Queue mode OFF now says *"instant print -
-  auto-queues if no printer is active"* (English + Bangla).
+### Tests
+- pytest: 78/78 (repo suite; version anchors updated to 2.5.0, layout-aware
+  manifest check). Smoke: 64/64 (fake-lp end-to-end incl. virtual-PDF save,
+  release_all, dashboard token injection, sumatra_path round-trip).
 
----
-
-## [2.2.1] — 2026-10-30 — "OK means OK: nothing can silently stall the queue"
-
-Bug-fix release for the report *"Extension shows the OK icon but the
-printer never prints; the history list shows queued; toggling queue
-on/off does not help."* Root causes found and fixed.
+## v2.4.1 — packaging & docs release (2026-10-30)
 
 ### Fixed
-- **The print worker could die silently.** Any unexpected exception
-  (driver glitch, DB hiccup, OSError) killed the worker thread; the hub
-  kept answering `ok` while EVERY later job stayed `queued` forever.
-  The worker loop is now exception-proof: errors are logged + audited
-  (`worker.error`), the affected job leaves `printing`
-  (failed → retry), and a **watchdog thread respawns the worker within
-  30 s** even if the loop itself somehow dies
-  (`worker.restarted` in the audit log).
-- **"Queued" looked green and healthy.** The popup and the Options
-  history styled `queued` with the SAME green as `printed`. Now every
-  status has its own color: printed = green, queued = gray (waiting),
-  printing = blue, held = orange, scheduled = purple, failed/dead =
-  red.
-- **The extension history recorded every job as "queued" forever** -
-  `POST /print` did not return a `status` field, so the stored copy
-  kept the fallback. The response now carries the truthful initial
-  `status` (`queued` / `printing` / `scheduled`), and a **1-minute
-  verification alarm** checks submitted jobs against the hub and folds
-  the real outcome (printed/failed/held + the actual error text) back
-  into the extension history.
-- **A silent queue can no longer hide.** Held jobs (printer reported
-  offline/out of paper) now show an amber banner in the popup with the
-  count and the reason; the hub queue state `PAUSED` is red in the
-  popup; job rows show the actual `held_reason` / `error` text.
+- **Folder churn between releases** ("why does every folder change?") —
+  packaging is now a frozen contract: every zip (full.zip, portable zip,
+  extension zip) unpacks to the SAME root folder `PrintHubPro/` with no
+  version in the name. Updates = extract over the old folder. The v1.x loose
+  layout and the per-version root folders (`PrintHubPro-2.4.0/…`) are gone
+  for good; old folders are safe to delete (data lives in
+  `%USERPROFILE%\.printhub`, never inside the program folder).
+- Version strings synced in every surface: hub `VERSION`, extension
+  `manifest.json` + `window.printhub.version` + popup header, installer
+  metadata (NSIS `DisplayVersion` / `FileVersion` / `ProductVersion`), deb
+  `control`, smoke-test version anchor.
 
 ### Added
-- **`POST /jobs/{id}/print-now`** - force ONE job out right now,
-  bypassing the global pause AND the printer-status hold. Available as
-  a **"Print now"** button on every stuck job row (popup, Options
-  history, dashboard queue) and as **"Print all now"** on the popup's
-  held-jobs banner. This is the one-click remedy for "nothing prints".
-- **`GET /jobs/{id}`** - single-job status (used by the extension
-  verifier; handy for Laravel polling).
-- **`/health`** now reports `worker_alive` and `hold_offline`.
-- **Dashboard: "Printer status hold" toggle** (writes
-  `hold_offline` via `POST /config`). Windows often mis-reports a
-  network printer as offline (WorkOffline stuck) which HELD every job;
-  users can now switch the check off from the UI. Held-job reasons
-  point to it explicitly.
-- **Options → History** auto-refreshes every 8 s while open, shows the
-  error/held reason under the status chip and offers Print now /
-  Retry / Reprint buttons.
+- `docs/EXTENSION-TEST.md` — step-by-step extension tool test (hub → token →
+  debug mode → popup test page → live dashboard verdict → physical proof),
+  status-meaning table, troubleshooting table (symptom → where → fix), pass
+  checklist. Answers "did the REAL printer get hit?" with evidence.
+- `docs/FOLDER-MAP.md` — why layouts differed before, the frozen layout with
+  a one-line purpose for every folder/file, where user data lives, and the
+  2-minute migration from old per-version folders.
+- START-HERE.txt rewritten around the folder promise + the live test.
 
-### Upgrade notes
-- No config or API breaking changes. If jobs previously piled up as
-  `held`/`queued`, after updating: open the popup - held jobs show
-  **Print now**; or use the dashboard's *Printer status hold* toggle.
+## v2.4.0 — debug & reliability release (2026-10-30)
 
----
-
-## [2.2.0] — 2026-10-27 — "You can SEE every feature now"
-
-v2.1.0 shipped the new machinery as API endpoints only; the extension UI
-showed nothing new and the docs were easy to miss. This release surfaces
-everything.
+### Fixed
+- **SumatraPDF "not found" although installed** — detection is rebuilt and
+  fully dynamic: per-user install folder `%LOCALAPPDATA%\SumatraPDF` (resolves
+  to the CURRENT Windows user — the user name is never hardcoded), both
+  Program Files folders, Windows registry (App Paths + Uninstall for HKCU and
+  HKLM, 32/64-bit views), `PATH`, and a folder scan fallback. A manual
+  override (`sumatra_path` in Settings / `config.json` / `PRINTHUB_SUMATRA`
+  env var) always wins. `/debug` and `doctor` print the exact list of paths
+  searched, so a miss is instantly explainable.
+- **Stale detection / restart required** — SumatraPDF and printer status are
+  re-checked fresh on EVERY job. Installing SumatraPDF takes effect on the
+  next print; no hub restart. Failed jobs auto-retry 2× (60 s apart) with
+  `retry N/2 in 60s: <reason>` shown in history, then `failed` with the
+  reason.
 
 ### Added
-- **Extension Options → "Default print options"** section: copies, pages
-  (all / odd / even / custom range), per-sheet n-up (2/4/6/9/16), quality
-  (draft/normal/high **and** 300/600/1200 dpi or any custom DPI), scale %,
-  margins mm, duplex (one/two-sided long/short edge), paper size and
-  layout. Stored as `printDefaults` and merged into EVERY job this
-  browser sends (`applyPrintDefaults` in background.js) - per-call values
-  from page scripts, rules or the popup still win. A capability line shows
-  what the selected printer really supports
-  (`GET /printers/{name}/capabilities`).
-- **Extension Options → "LAN / PCs" tab**: LAN sharing on/off
-  (`POST /config {"share_lan": ...}`) with honest "restart the hub to
-  apply" state (`/health` now reports `lan_active`), copy-LAN-URL button,
-  firewall command, peers table (from `/peers`) with per-peer
-  **Shift all waiting jobs**, and a manual shift form (URL + optional
-  peer token). Queue tab rows gained **Shift to PC** buttons.
-- **Hub dashboard "LAN sharing & other PCs" card**: live state + LAN URL +
-  copy + enable/disable + per-peer shift-all + per-row Shift in the queue
-  + Docs button.
-- **`GET /docs`** - the full user guide served by the hub itself (feature
-  click-map, complete print-option table with Windows/CUPS support,
-  quality presets + DPI section, LAN sharing steps incl. firewall
-  command, queue on/off + shift, Laravel scheduler/webhook recipes,
-  Bangla thermal notes, endpoint map). Token-protected like the
-  dashboard; linked from the extension About tab and the dashboard.
-- **`quality` dual mode on POST /print**: named presets
-  (`draft|normal|high`, plus `best|fine` aliases) AND DPI values
-  (`"600"`, `"600dpi"`, or the separate `"dpi": 600` field, clamped
-  72-2400). Presets map to CUPS `print-quality=3/4/5`; DPI maps to
-  `printer-resolution=<n>dpi`. Capabilities now return
-  `quality: {presets, dpi}` per printer.
-- `window.printhub.print()` passes `per_sheet, quality, dpi, scale_pct,
-  margin_mm, duplex, paper_size, orientation` straight through.
+- **Live debug & test tool**: `GET /dashboard?token=...` — send a real test
+  print to any printer and watch every status change live with a final
+  verdict (REAL PRINTER HIT / saved as PDF / held / failed+fix hint);
+  Release held jobs, pause/resume, settings toggles, problems list.
+- **`GET /debug`** — full diagnostics JSON (same shape as the dashboard):
+  version, uptime, worker alive, paused, hold_offline, instant_auto_queue,
+  masked token, printers with ready/offline status, default printer,
+  sumatra_found + sumatra_path + sumatra_searched[], browser found,
+  db stats (by_status, queue_size, jobs_today, success_rate, printed_7d,
+  failed_7d), recent_jobs, problems[] with fixes, client_reports[].
+- **`GET /audit`** — persistent audit trail in SQLite (survives restarts):
+  print.submitted (actor/site/ip/doc_hash), print.held, print.requeued,
+  print.saved, auth.failed (attempt counter), config.changed,
+  queue.paused/resumed.
+- **Instant / direct print mode** — `POST /print` with `instant:true` or
+  `mode:"instant"` (extension toggle: "Instant / direct print mode") jumps
+  the queue (priority dispatch). If no printer is ready, the job
+  auto-falls back to the normal queue (`instant_auto_queue`, default on) —
+  the job is never lost.
+- **Held jobs** — with `hold_offline` (default on) a job for an offline
+  printer is parked as `held` with a reason; a watcher auto-releases it
+  when the printer is ready again; `POST /jobs/{id}/release` ("Print now")
+  and `POST /jobs/release_all` force it.
+- **Virtual PDF printers** — targeting "Microsoft Print to PDF" now saves
+  the PDF directly to the Downloads/PrintHub folder (status `saved`, path in
+  dashboard/`/debug`) instead of popping a Save-As dialog. Printing works
+  even with no physical printer installed.
+- **Debug on/off switch** — dashboard Settings card + extension options.
+  When on, the extension reports browser-side JS errors via
+  `POST /client/report`; `/debug` lists them next to desktop-side errors.
+  Toggling is audit-logged (`config.changed: debug`).
+- **`GET/POST /config`** — live settings (debug, hold_offline,
+  instant_auto_queue, token_header_only, sumatra_path, file_dir, printer,
+  token) persisted to `<data dir>/config.json`.
+- **`GET /jobs/{id}`** — single-job fetch (used by the live watcher).
 
-### Changed
-- Windows/Sumatra note for quality/DPI now explains per-case that the
-  Windows driver keeps control (Sumatra has no quality/resolution
-  switch); the requested value is still stored on the job and audited.
-- Extension + installer version sweep to 2.2.0.
-
-### Fixed
-- The v2.1.0 "invisible features" regression: LAN sharing, queue shift
-  and print options now have real UI instead of API-only access, and the
-  documentation ships inside the hub so it cannot go missing again.
-
-## [2.1.0] — 2026-10-26 — "Every printer option, LAN sharing, Bangla receipts"
-
-### Added
-- **Full print-option surface** on `POST /print` (API + Laravel guide):
-  `pages` now accepts **"odd" / "even"** (SumatraPDF + CUPS `page-set`),
-  plus new `per_sheet` (2/4/6/9/16, CUPS `number-up`), `quality`
-  (draft/normal/high, CUPS `print-quality`), `scale_pct` + `margin_mm` +
-  `orientation` (applied when the hub renders text/HTML jobs; injected as
-  `@page`/zoom CSS for HTML). `copies`, `duplex`, `paper_size`, `tray`
-  were already there - all now pass through the queue and the bypass path.
-- **`GET /printers/{name}/capabilities`** - what THIS printer actually
-  supports (Windows: SumatraPDF capability map; Linux: live
-  `lpoptions -l`). Drives UIs/APIs to show only supported options.
-- **LAN printer sharing is back** (`share_lan`, default false = old
-  behaviour): listen on 0.0.0.0 so OTHER PCs print through this PC's
-  printers; `/health` reports `share_lan` + `lan_url`; token always
-  required, remote IPs keep the full lockout.
-- **`POST /queue/shift`** - move queued/held/failed jobs to another PC's
-  hub over the LAN: `scope:"all"` (full shift) or `scope:"job","ids":[..]`
-  (individual shift); jobs are re-uploaded and marked `forwarded`.
-  Queue on/off remains `/queue/pause` + `/queue/resume`.
-- **Bangla / Unicode receipts** (`thermal_text_engine: auto`): text that
-  cannot be encoded in Latin-1 is rendered through headless Chrome with
-  system Bangla fonts (Nirmala UI / Noto Sans Bengali) so it prints
-  correctly on 80 mm rolls instead of `????`. `escpos_codepage` (default
-  cp437) makes raw ESC/POS codepages configurable; unencodable lines
-  fall back safely with a warning.
-- **docs/LARAVEL.md** - complete server-side guide: PrintHubService,
-  scheduler recipes (daily 9:00 auto-print, 15-minute invoice sweep),
-  webhook printing, `run_at` hub-side scheduling, status polling with
-  backoff, ESC/POS receipts, capabilities discovery, multi-PC LAN setup.
-
-### Fixed
-- Queue-Mode-OFF (bypass) jobs now honour `pages`/`duplex`/`paper`/`tray`
-  and the new options too (2.0 dropped them on the immediate path).
-
----
-
-## [2.0.2] — 2026-10-26 — "One token opens every page"
-
-### Fixed
-- **`/audit?token=…` was rejected while `/dashboard?token=…` worked** with
-  the same, correct token: the v2.0.0 "browser-navigation exception" was a
-  per-route whitelist (`/dashboard`, `/jobs/{id}/file`, `/export/*`,
-  `/audit.csv`) that forgot the JSON views — `/audit`, `/stats`, `/jobs`,
-  `/printers`, `/queue`, `/config`, `/diagnostics`, `/peers`. The
-  extension Options tab's *Audit* button opens exactly `/audit?token=…`
-  and returned `401 invalid or missing token` for every user. **v2.0.2
-  replaces the whitelist with one uniform rule: every GET endpoint
-  accepts `?token=` for browser navigation.**
-- **Friendly HTML auth-error page on every GET**: a browser following a
-  link with a wrong/missing token now gets the same readable fix-it page
-  the dashboard already used, instead of a raw JSON blob. API clients
-  (curl / fetch / Laravel Http) keep receiving the JSON error because
-  they do not send `Accept: text/html`.
-
-### Security
-- **Hardening unchanged where it matters**: all mutating endpoints (POST)
-  still require the `X-PrintHub-Token` header when
-  `token_header_only: true` (default on new installs) — a query token
-  alone can read, never print or change settings. The IP lockout,
-  sliding-window counting and loopback exemption from v2.0.1 are
-  untouched.
-
----
-
-## [2.0.1] — 2026-10-26 — "Lockout fix for multi-Chrome PCs"
-
-### Fixed
-- **Loopback is never locked out** (`lockout_exempt_loopback`, default
-  `true`): in v2.0.0 every Chrome window/profile shares the single IP
-  `127.0.0.1`, so one stale token (e.g. an old
-  `/dashboard?token=PrintHub-2024` bookmark) could hit 10 failed tokens
-  and lock the dashboard, tray, extension and all other windows out for
-  5 minutes — repeatedly, because the stale client kept retrying. The
-  hub now never locks its owner's loopback IP; remote/LAN IPs keep the
-  full lock. Set `lockout_exempt_loopback: false` for the strict
-  v2.0.0 behaviour.
-- **Sliding-window failure counting**: wrong tokens only count inside a
-  `lockout_minutes` window (old failures expire instead of accumulating
-  into a surprise lock days later); any successful auth clears that
-  IP's counter instantly.
-- **Extension circuit breaker**: on HTTP 401 the extension stops sending
-  immediately (no more per-minute retry storm), shows a red `KEY` badge
-  plus a popup banner, and resumes + flushes the moment a fixed token or
-  hub URL is saved. On HTTP 429 jobs are parked and auto-delivered after
-  the lock expires. `Flush` backoff doubles 1 → 2 → 4 → 8 → 15 min.
-- **Actionable 401 hints**: every invalid-token answer explains how to
-  get the current token (tray menu, config.json,
-  `python printhub.py token`) and specifically calls out the old default
-  `PrintHub-2024` when it is used.
-- **Dashboard HTML error page**: browsers opening `/dashboard` with a
-  wrong/missing token now get a styled fix-it page (tray icon, CLI and
-  config-file instructions) instead of a raw JSON blob.
-- **Audit spam throttle**: `auth.failed` is written at most once per
-  10 s per IP, so a polling stale client no longer floods the audit log
-  (and the `_AUTH_FAILS` map is capped/cleaned).
-
-### Changed
-- Version anchors 2.0.0 → 2.0.1 (hub `VERSION`, branding, extension
-  manifest/popup/options, docs, tests).
-- README security section, docs/API.md auth section and the config table
-  document the new key and behaviour.
-
----
-
-## [2.0.0] — 2026-10-26 — "Security, Audit & Production Control"
-
-The largest release ever: 22 features across security, printers, queue,
-audit, the extension and the repository. Old installs, old databases and
-old connect codes keep working; every new setting lives in `config.json`
-and defaults to the 1.x behaviour unless explicitly noted.
-
-### Security
-- **Random install token**: brand-new installs generate a private random
-  token (saved to `config.json`). The old shared default `PrintHub-2024`
-  is no longer used for new installs. Old installs keep working and raise
-  a `default_token_warning` in `/health` + the UI until the token is
-  rotated.
-- **Header-only tokens**: new installs accept the token only in the
-  `X-PrintHub-Token` header (query/body tokens are rejected). Old installs
-  keep accepting `?token=` (browser navigation endpoints `/dashboard`,
-  `/jobs/{id}/file`, `/export/*.csv` always accept it).
-- **Allowed origins**: `allowed_origins` in config.json (e.g.
-  `["*.htncr.org"]`). Empty list = allow all, exactly like 1.x. Browser
-  extension origins are always trusted.
-- **SSRF-guarded `pdf_url`**: `file://`, `ftp://` and every non-HTTP(S)
-  scheme are blocked; hosts resolving to private/loopback/link-local
-  addresses are blocked unless listed in `pdf_url_allowed_hosts`.
-- **IP lockout**: 10 wrong tokens from one IP locks that IP for 5 minutes
-  (`max_auth_failures` / `lockout_minutes`), all recorded in the audit log.
-- **Token rotation**: `POST /token/rotate`, CLI `python printhub.py
-  token-rotate`, and a one-click button in the dashboard.
-
-### Printers
-- **Printer status**: ready / offline / paper-out / error per printer
-  (Win32_Printer on Windows, `lpstat -p` on Unix), shown in `/printers`,
-  the Options page and the dashboard.
-- **Offline hold**: jobs are HELD while the target printer is offline /
-  out of paper and print automatically when it comes back
-  (`hold_offline`, default on).
-- **Printer groups + fallback**: `printer_groups: {"Front": ["A","B"]}` —
-  the first ready member prints; failures fall through the remaining
-  members.
-- **Raw printing**: ESC/POS (init, sizes, alignment, cut, cash drawer,
-  CODE128 barcode, QR) and ZPL passthrough — `POST /print` with
-  `lang: "escpos"|"zpl"` + `text`, or pre-built bytes via `raw_base64` /
-  `application/octet-stream?kind=raw`. Windows prints RAW via winspool
-  (ctypes), Unix via `lp -o raw`.
-- **Print profiles + page ranges**: named profiles (paper, tray, duplex,
-  copies, printer) in `profiles`; `pages: "1-3,5"` and `duplex` /
-  `paper_size` / `tray` per request (SumatraPDF page ranges + duplex;
-  tray via CUPS).
-
-### Queue
-- **Exponential retry** (`max_retries` = 2, backoff 30 s → 60 s → 120 s,
-  `retry_base_seconds`).
-- **Job priority** 1 (urgent) … 9 (low) — `priority` on `/print`,
-  `POST /jobs/{id}/priority`; urgent jobs jump the FIFO.
-- **Duplicate blocking**: identical documents (sha256 fingerprint +
-  printer) are blocked within `dedupe_minutes` (5); response reports
-  `duplicate: true`; `dedupe: false` opts out per request.
-- **Scheduled printing**: `run_at` (ISO datetime or `+5m`/`+2h`) — jobs
-  wait as `scheduled` and enter the queue automatically when due.
-- **Dead-letter list**: after the final retry the job becomes `dead`
-  (`GET /jobs?status=dead`) and can be recovered with
-  `POST /jobs/{id}/retry` — optionally **on another printer**.
-- **Peer hubs**: `peer_hubs` + `peer_forwarding` — `/peers` health-probes
-  every peer; dead peers are skipped; jobs can be handed to a live peer
-  that actually has the printer.
-
-### Audit
-- **Audit log**: who (source), which site (Origin/Referer), document
-  sha256, printer, time — `GET /audit` (+ `.csv`).
-- **Reprint reason**: `reason` on reprint, recorded in the audit log;
-  `reprint_reason_required` makes it mandatory; the UI always asks.
-- **REPRINT watermark**: `reprint_watermark` config or `watermark: true`
-  per reprint — a diagonal gray stamp on every page (pure-Python PDF
-  overlay; original bytes on any parse problem).
-- **Log rotation + diagnostics**: `hub.log` rotates at `log_max_mb`
-  keeping `log_backups` copies; `GET /diagnostics` / CLI `diagnostics`
-  export a support bundle (token redacted).
-- **CSV export + dashboard**: `GET /export/history.csv`,
-  `/export/audit.csv`, and a built-in web dashboard at
-  `/dashboard?token=…` (success rate, queue size, live queue, printers,
-  audit trail, token rotation).
-
-### Extension
-- **Better rules**: glob **or regex** patterns, page-title filter, and a
-  per-site on/off switch per rule.
-- **Offline banner + retry**: when the hub is unreachable, jobs are kept
-  in the browser, a red banner shows the waiting count, and a 1-minute
-  alarm delivers them automatically once the hub answers (`retryOffline`).
-- **English + Bangla UI**: popup + Options are fully translated
-  (English / বাংলা / auto-detect), selectable in Options.
-- Default-token warning banner in the popup, printer status in the
-  printer dropdowns, dashboard/audit shortcuts.
-
-### Repository
-- **pytest suite**: 35 tests booting the real hub over HTTP (no printer
-  needed) — security, queue, audit, raw printing, migration.
-- **GitHub Actions**: `ci.yml` (pytest + JS syntax + JSON checks on every
-  push) and `release.yml` (tag push → zips + .deb + NSIS Setup exe →
-  GitHub Release with SHA256SUMS).
-- **Hygiene**: `.gitignore` (binaries, `docs/node_modules`, build output,
-  data dirs) and this `CHANGELOG.md`.
-
-### Compatibility notes
-- Old `history.db` is migrated in place with `ALTER TABLE`; nothing is
-  rewritten or dropped.
-- `PRINTHUB_TOKEN` env var still overrides config.json.
-- The extension still connects to old 1.x hubs and vice versa (the hub
-  reports `v2: true` so the UI can enable new panels).
-
----
-
-## [1.7.2] — 2026-10-22 — "Simple Install & Control"
-- Setup-1.7.2.exe: install / uninstall / optional Windows service / silent
-  `/S` in one standalone NSIS installer.
-- PrintHub Tool menu (start/stop/service/autorun/history/update).
-- Extension: master Enable/Disable switch, Queue Mode On/Off, tabbed
-  Options (Queue | History | Settings | About, default tab = Queue when
-  data exists), GitHub update checks.
-- Package layout reduced to `doc/ + extension/ + tool/{windows,unix}`.
-- Windows service wrapper `service_main.py` (services.msc entry).
-
-## [1.7.0] — 2026-10-20 — "Network & Queue Edition"
-- Share Printer over LAN + Queue Mode + cross-PC failover (folded from
-  the v1.6.0 "Performance & Control" work).
-
-## [1.5.0] — 2026-10-18 — "Identity & Control"
-- System tray icon, Startup-app autostart (Task Manager visible),
-  `PrintHubPro.exe` process identity, double-start guard.
-
-## [1.4.0] / [1.3.0] — 2026-10-16
-- Chrome Web Store kit (privacy policy, listing texts, screenshots),
-  silent-print reliability fixes.
-
-## [1.2.0] — 2026-10-15
-- page-side snippet kit (`lab-report-print.js`), guard fixes, toast.
-
-## [1.1.0] — 2026-10-14
-- File destination (`__file__` → save-as-PDF), `PRINTHUB_FILE_DIR`.
-
-## [1.0.0] — 2026-10-12
-- First public release: pure-stdlib hub, MV3 extension, silent printing
-  via SumatraPDF / CUPS, DB-backed queue, SQLite history, token auth.
+### Notes
+- Auth rules unchanged: GET accepts `?token=` or header; POST is
+  header-only (`token_header_only`). Loopback is exempt from lockout;
+  remote IPs: 10 wrong-token attempts / 5 min → 5 min lock.
+- Extension bumped to 2.4.0 (instant + debug toggles, error reporting,
+  live-dashboard shortcuts). Reload the unpacked extension after update.

@@ -10,30 +10,15 @@
   body { font:14px/1.55 "Segoe UI",system-ui,sans-serif; color:var(--ink);
          background:var(--bg); padding-bottom:60px; }
   header { background:linear-gradient(135deg,#1e3a8a,#1d4ed8); color:#fff;
-           padding:20px 32px; display:flex; align-items:center; gap:12px; }
+           padding:22px 32px; display:flex; align-items:center; gap:12px; }
   header .logo { width:36px; height:36px; border-radius:9px; background:#fff;
                  color:var(--blue); font-weight:800; font-size:20px;
                  display:flex; align-items:center; justify-content:center; }
   header h1 { font-size:19px; font-weight:650; }
   header p { font-size:12px; opacity:.85; }
-  header .verchip { margin-left:auto; background:#ffffff2b; border:1px solid #ffffff55;
-                    border-radius:20px; padding:4px 12px; font-size:12px; font-weight:600; }
-  /* ---- tab bar ---- */
-  nav#tabs { max-width:860px; margin:18px auto 0; padding:0 20px;
-             display:flex; gap:6px; }
-  nav#tabs button { border:1px solid var(--line); background:#fff; color:var(--mut);
-                    border-radius:9px 9px 0 0; border-bottom:none; padding:10px 18px;
-                    font:600 13.5px "Segoe UI",system-ui,sans-serif; cursor:pointer; }
-  nav#tabs button .tbadge { display:inline-block; min-width:17px; text-align:center;
-                    background:var(--bad); color:#fff; border-radius:9px;
-                    font-size:10.5px; padding:1px 5px; margin-left:5px; display:none; }
-  nav#tabs button .tbadge.show { display:inline-block; }
-  nav#tabs button.active { color:var(--blue); background:#fff;
-                    box-shadow:inset 0 -2px 0 var(--blue); }
-  main { max-width:860px; margin:0 auto; padding:0 20px; }
-  section.panel { display:none; background:#fff; border:1px solid var(--line);
-            border-radius:0 12px 12px 12px; padding:20px 22px; margin-bottom:16px; }
-  section.panel.active { display:block; }
+  main { max-width:860px; margin:24px auto; padding:0 20px; }
+  section { background:#fff; border:1px solid var(--line); border-radius:12px;
+            padding:20px 22px; margin-bottom:16px; }
   h2 { font-size:15px; margin-bottom:4px; }
   .sub { color:var(--mut); font-size:12px; margin-bottom:14px; }
   .row { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
@@ -60,16 +45,9 @@
   td input[type=text] { min-width:0; width:100%; padding:6px 8px; }
   td select { min-width:0; width:100%; padding:6px 8px; }
   .st { font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:9px; }
-  .st.printed { background:#dcfce7; color:#166534; }
-  /* v2.2.1: queued is gray (waiting) - only printed is green */
-  .st.queued { background:#e2e8f0; color:#475569; }
-  .jerr { color:#b91c1c; font-size:10px; max-width:220px; white-space:nowrap;
-          overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .st.printed, .st.queued { background:#dcfce7; color:#166534; }
   .st.printing { background:#dbeafe; color:#1e40af; }
-  .st.saved, .st.scheduled { background:#fef9c3; color:#854d0e; }
-  .st.held { background:#ffedd5; color:#9a3412; }
-  .st.dead, .st.failed, .st.canceled { background:#fee2e2; color:#991b1b; }
-  .st.forwarded { background:#ede9fe; color:#5b21b6; }
+  .st.failed, .st.canceled { background:#fee2e2; color:#991b1b; }
   #saveMsg { display:inline-block; margin-left:10px; font-size:12px; font-weight:600; }
   .note { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af;
           border-radius:8px; padding:10px 12px; font-size:12.5px; margin-top:10px; }
@@ -77,27 +55,6 @@
         font:12px/1.6 Consolas,monospace; overflow-x:auto; margin-top:10px; }
   pre b { color:#93c5fd; font-weight:600; }
   .mono { font-family:Consolas,monospace; font-size:12px; }
-  /* queue tab */
-  .qstate { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
-            background:#f8fafc; border:1px solid var(--line); border-radius:10px;
-            padding:12px 14px; margin-bottom:14px; font-size:13px; }
-  .qstate b { font-size:13px; }
-  .dot { width:9px; height:9px; border-radius:50%; background:var(--ok); flex:none; }
-  .dot.paused { background:#d97706; }
-  .dot.offline { background:var(--bad); }
-  .power { border:1px solid #bfdbfe; background:#eff6ff; border-radius:10px;
-           padding:12px 16px; margin-bottom:18px; }
-  .power .toggle { padding:6px 0; }
-  .power h2 { color:#1e40af; }
-  .updlive { margin-top:8px; font-size:12.5px; }
-  .updlive a { color:var(--blue); font-weight:600; }
-  .kpi { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
-  .kpi .card { flex:1; min-width:120px; background:#f8fafc; border:1px solid var(--line);
-               border-radius:10px; padding:10px 12px; }
-  .kpi .card small { color:var(--mut); display:block; font-size:10.5px;
-                     text-transform:uppercase; letter-spacing:.05em; }
-  .kpi .card b { font-size:17px; }
-  .gh { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0; }
 </style>
 </head>
 <body>
@@ -107,47 +64,113 @@
     <h1>PrintHub Pro</h1>
     <p>Print from any web page to any printer &middot; silent &middot; 100% local &middot; MIT open source</p>
   </div>
-  <span class="verchip" id="verChip">v2.2.1</span>
 </header>
 
-<nav id="tabs">
-  <button data-tab="queue" id="tabBtnQueue">Queue<span class="tbadge" id="tabQBadge"></span></button>
-  <button data-tab="history">History</button>
-  <button data-tab="settings">Settings</button>
-  <button data-tab="debug" id="tabBtnDebug">Debug<span class="tbadge" id="tabDbgBadge"></span></button>
-  <button data-tab="lan" id="tabBtnLan">LAN / PCs</button>
-  <button data-tab="about">About</button>
-</nav>
-
 <main>
-  <!-- ================= QUEUE ================= -->
-  <section class="panel" id="panel-queue">
-    <h2>Live queue</h2>
-    <p class="sub">What the hub is printing right now. Auto-refreshes every 3 s while this tab is open.</p>
-    <div class="qstate">
-      <span class="dot" id="qDot"></span>
-      <b id="qState">checking...</b>
-      <span id="qInfo" class="mono" style="color:var(--mut)"></span>
-      <span style="flex:1"></span>
-      <button class="mini" id="bQPause">Pause</button>
-      <button class="mini danger" id="bQClear">Clear queue</button>
+  <section>
+    <h2>Connection</h2>
+    <p class="sub">Link the extension to the PrintHub Pro hub running on this computer.</p>
+    <div class="row">
+      <label>Hub URL</label>
+      <input type="text" id="hubUrl" placeholder="http://127.0.0.1:9235">
     </div>
-    <table>
-      <thead><tr><th>#</th><th>Title</th><th>Printer</th><th>Kind</th><th>Status</th><th style="width:90px"></th></tr></thead>
-      <tbody id="queueBody"></tbody>
-    </table>
-    <div class="row" style="margin-top:10px">
-      <button class="mini" id="bQRefresh">Refresh now</button>
+    <div class="row">
+      <label>Token</label>
+      <input type="password" id="token" placeholder="PrintHub-2024">
+      <button class="primary" id="bTestHub">Connect</button>
+      <span id="hubState" class="mono"></span>
     </div>
-    <div class="note">Queue mode can be switched in <b>Settings</b> or directly in the
-      popup: <b>ON</b> = jobs print in order (Pause holds them back);
-      <b>OFF</b> = every job prints immediately, skipping the line.</div>
+    <div class="note">Start the hub with <b>python printhub.py serve</b>.
+      Default token: <span class="mono">PrintHub-2024</span>. Change it with the
+      <span class="mono">PRINTHUB_TOKEN</span> environment variable.</div>
   </section>
 
-  <!-- ================= HISTORY ================= -->
-  <section class="panel" id="panel-history">
+  <section>
+    <h2>Printing</h2>
+    <p class="sub">Where jobs go when no routing rule matches.</p>
+    <div class="row">
+      <label>Default printer</label>
+      <select id="defaultPrinter"><option value="">OS default printer</option></select>
+      <button class="mini" id="bReloadPrinters">Reload list</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Auto-print &amp; routing rules</h2>
+    <p class="sub">First matching rule wins. Patterns are globs: <span class="mono">*://www.htncr.org/lab/medical_reports/*</span>.
+      <b>Auto</b> = print automatically when the URL is opened.</p>
+    <table id="rulesTable">
+      <thead><tr>
+        <th style="width:44%">URL pattern</th><th style="width:22%">Printer</th>
+        <th style="width:14%">Action</th><th style="width:8%">Auto</th><th></th>
+      </tr></thead>
+      <tbody id="rulesBody"></tbody>
+    </table>
+    <div class="row" style="margin-top:12px">
+      <button id="bAddRule">+ Add rule</button>
+      <span id="saveMsg"></span>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label>Reprint a PDF link</label>
+      <input type="text" id="pdfUrl" placeholder="https://www.htncr.org/lab/medical_reports/pdf-test/.../605310">
+      <button id="bPrintPdf">Print it</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Behavior</h2>
+    <div class="toggle">
+      <input type="checkbox" id="autoPrintAllPdfs">
+      <div><b>Print every PDF opened in the browser (simple mode)</b>
+        <p>ANY PDF you open - any site, any URL - is printed silently and its tab closes. No print view, no dialog, no rules needed. Turn off to auto-print only URLs matching your rules below.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="hookPrint">
+      <div><b>Intercept window.print()</b>
+        <p>Web apps (Odoo, POS, dashboards) that call window.print() are printed silently through the hub instead of opening the dialog. Also intercepts Ctrl+P / Cmd+P.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="closeAfterPrint">
+      <div><b>Close tab after auto-print</b>
+        <p>When a rule auto-prints an opened URL, the tab is closed right after the job is queued - zero browser view, the paper just comes out.</p></div>
+    </div>
+    <div class="toggle">
+      <select id="failFallback">
+        <option value="tab">Open the URL in a new tab</option>
+        <option value="none">Stay silent (no tab)</option>
+      </select>
+      <div><b>When a page print call fails</b>
+        <p>Controls the automatic fallback of printPdfLink() / printPdf() on web pages: if the hub cannot print a PDF (hub off, printer error, not a PDF), either open the URL in a normal tab so the browser prints it the default way, or stay completely silent - nothing opens, the failure is only logged in the job history. A per-call opts.fallback (true/false) in page JS overrides this setting.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="contextMenu">
+      <div><b>Right-click menu</b>
+        <p>Add "PrintHub Pro" to the context menu (print page / selection / linked PDF / screenshot).</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="badge">
+      <div><b>Toolbar badge</b>
+        <p>Green OK / red ! on the extension icon after every job.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="instantPrint">
+      <div><b>Instant / direct print mode</b>
+        <p>Jobs skip the queue and go straight to the printer. If no printer is ready, the hub automatically queues the job instead - nothing is ever lost. Pages can also request it per call with mode:"instant" via window.printhub.</p></div>
+    </div>
+    <div class="toggle">
+      <input type="checkbox" id="debugMode">
+      <div><b>Debug mode (find problems early)</b>
+        <p>Browser-side errors are reported to the hub and shown in the live dashboard + /debug right next to the desktop-side errors - so you can see WHY and WHERE a print failed (JS or desktop tool).</p></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="bSave">Save settings</button>
+      <button id="bTestPage">Send test page</button>
+    </div>
+  </section>
+
+  <section>
     <h2>Job history <span class="sub" style="display:inline">(last 100)</span></h2>
-    <p class="sub">Served by the hub from SQLite. Survives restarts. Reprint anything.</p>
+    <p class="sub">Served by the hub from SQLite. Survives restarts.</p>
     <table>
       <thead><tr><th>#</th><th>Time</th><th>Title</th><th>Printer</th>
         <th>Kind</th><th>Status</th><th style="width:130px"></th></tr></thead>
@@ -159,330 +182,29 @@
     </div>
   </section>
 
-  <!-- ================= SETTINGS ================= -->
-  <section class="panel" id="panel-settings">
-    <div class="power">
-      <h2>Power switches</h2>
-      <div class="toggle">
-        <input type="checkbox" id="enabled">
-        <div><b>PrintHub enabled (master switch)</b>
-          <p>OFF = the extension stops completely: no printing, no auto-print, no window.print() hook, no page API, no context menu. A gray OFF badge shows on the toolbar icon. Use it when you want the browser to behave 100% natively without uninstalling PrintHub.</p></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="queueMode">
-        <div><b>Queue mode</b>
-          <p>ON = every job goes through the hub queue in order (Pause/Resume in the popup or hub works, big jobs line up). OFF = <b>instant print</b> - each job is handed straight to the printer the moment it arrives (hub sends queue:false), nothing waits behind earlier jobs, Pause has no effect. <b>If no printer is active</b> (offline / paper-out / error) the job is <b>auto-queued</b> instead of failing and prints when the printer is back (v2.3, fallback can be turned off with POST /config {"instant_auto_queue": false}).</p></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="debugMode">
-        <div><b>Debug mode - find problems fast (v2.3)</b>
-          <p>ON = this extension reports every error it hits (network failures, rejected token, print-call exceptions, jobs that ended failed/dead) to the hub, and the hub logs verbosely. Open the <b>Debug</b> tab (or the dashboard Debug card, or <span class="mono">/debug</span>) to see WHEN / WHY / WHERE printing fails - no guessing. Turn off again when everything works.</p></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="retryOffline">
-        <div><b data-i18n="optRetryOffline">Retry when the hub comes back</b>
-          <p data-i18n="optRetryOfflineDesc">If the hub is offline, jobs are kept in the browser and sent automatically as soon as the hub answers again (checked every minute).</p></div>
-      </div>
-      <div class="toggle">
-        <select id="langSelect">
-          <option value="auto" data-i18n="optLangAuto">Automatic (browser language)</option>
-          <option value="en">English</option>
-          <option value="bn">বাংলা (Bangla)</option>
-        </select>
-        <div><b data-i18n="optLanguage">UI language</b>
-          <p>English or বাংলা for the popup and this Options page. "Automatic" follows the browser language.</p></div>
-      </div>
+  <section>
+    <h2>Live debug &amp; test tool</h2>
+    <p class="sub">Opens the hub's dashboard in a browser tab: send a REAL test print and watch every step live until it hits the printer - or see exactly why it did not (SumatraPDF missing, printer offline, queue paused...). Includes Release-held-jobs, settings toggles and the audit log.</p>
+    <div class="row">
+      <button class="primary" id="bDashboard">Open live debug dashboard</button>
+      <button id="bDebugJson">Open /debug JSON</button>
+      <button id="bAuditLog">Open /audit log</button>
     </div>
-
-    <section style="border:none;padding:0;margin:0">
-      <h2>Connection</h2>
-      <p class="sub">Link the extension to the PrintHub Pro hub running on this computer.</p>
-      <div class="row">
-        <label>Hub URL</label>
-        <input type="text" id="hubUrl" placeholder="http://127.0.0.1:9235">
-      </div>
-      <div class="row">
-        <label>Token</label>
-        <input type="password" id="token" placeholder="token from the hub">
-        <button class="primary" id="bTestHub">Connect</button>
-        <span id="hubState" class="mono"></span>
-      </div>
-      <div class="note">Start the hub with <b>python printhub.py serve</b>, or use the
-        installed "PrintHub Pro" shortcut / "PrintHub Tool" menu.
-        v2.0: new installs get a <b>private random token</b> - read it with
-        <span class="mono">python printhub.py token</span> or in the hub
-        dashboard. Old installs keep <span class="mono">PrintHub-2024</span>
-        until changed (the hub will warn you).</div>
-      <div class="row" style="margin-top:8px">
-        <button id="bDashboard" data-i18n="optDashboard">Open hub dashboard</button>
-        <button id="bAudit" data-i18n="optAudit">Open audit log</button>
-      </div>
-    </section>
-
-    <section style="border:none;padding:0;margin-top:18px">
-      <h2>Printing</h2>
-      <p class="sub">Where jobs go when no routing rule matches.</p>
-      <div class="row">
-        <label>Default printer</label>
-        <select id="defaultPrinter"><option value="">OS default printer</option></select>
-        <button class="mini" id="bReloadPrinters">Reload list</button>
-      </div>
-    </section>
-
-    <section style="border:none;padding:0;margin-top:18px">
-      <h2>Default print options <span class="sub" style="display:inline">(v2.2 - all printer options)</span></h2>
-      <p class="sub">Sent with EVERY job printed from this browser - rules, page
-        scripts and the popup can still override. Shown only as the printer
-        supports them (ask the hub: /printers/&lt;name&gt;/capabilities).</p>
-      <div class="row">
-        <label>Copies</label>
-        <input type="text" id="dCopies" placeholder="1" style="max-width:80px;min-width:80px">
-        <label style="min-width:auto">Pages</label>
-        <select id="dPagesMode" style="flex:none">
-          <option value="">All pages</option>
-          <option value="odd">Odd pages only</option>
-          <option value="even">Even pages only</option>
-          <option value="custom">Custom range...</option>
-        </select>
-        <input type="text" id="dPagesCustom" placeholder="1-3,5" style="max-width:110px;min-width:110px">
-      </div>
-      <div class="row">
-        <label>Quality</label>
-        <select id="dQuality" style="flex:none">
-          <option value="">Printer default</option>
-          <option value="draft">Draft (fast, light ink)</option>
-          <option value="normal">Normal</option>
-          <option value="high">High / Best</option>
-          <option value="300dpi">300 dpi</option>
-          <option value="600dpi">600 dpi</option>
-          <option value="1200dpi">1200 dpi</option>
-          <option value="custom">Custom DPI...</option>
-        </select>
-        <input type="text" id="dQualityCustom" placeholder="600" style="max-width:80px;min-width:80px">
-        <label style="min-width:auto">Per sheet (n-up)</label>
-        <select id="dPerSheet" style="flex:none">
-          <option value="">1 per sheet</option><option value="2">2</option>
-          <option value="4">4</option><option value="6">6</option>
-          <option value="9">9</option><option value="16">16</option>
-        </select>
-      </div>
-      <div class="row">
-        <label>Duplex (two sides)</label>
-        <select id="dDuplex" style="flex:none">
-          <option value="">Printer default</option>
-          <option value="simplex">One side (simplex)</option>
-          <option value="duplex">Two sides, long edge</option>
-          <option value="duplexlong">Two sides, long edge</option>
-          <option value="duplexshort">Two sides, short edge</option>
-        </select>
-        <label style="min-width:auto">Layout</label>
-        <select id="dOrient" style="flex:none">
-          <option value="">Auto (portrait)</option>
-          <option value="portrait">Portrait</option>
-          <option value="landscape">Landscape</option>
-        </select>
-      </div>
-      <div class="row">
-        <label>Scale %</label>
-        <input type="text" id="dScale" placeholder="100 (25-400)" style="max-width:110px;min-width:110px">
-        <label style="min-width:auto">Margins mm</label>
-        <input type="text" id="dMargin" placeholder="driver default" style="max-width:110px;min-width:110px">
-        <label style="min-width:auto">Paper</label>
-        <select id="dPaper" style="flex:none">
-          <option value="">Printer default</option>
-          <option>A4</option><option>A5</option><option>A3</option>
-          <option>Letter</option><option>Legal</option><option>Tabloid</option>
-          <option>Executive</option><option>Folio</option><option>Statement</option>
-        </select>
-      </div>
-      <div class="note" id="capsNote">Connect to the hub to see what the selected printer supports.</div>
-    </section>
-
-    <section style="border:none;padding:0;margin-top:18px">
-      <h2>Auto-print &amp; routing rules</h2>
-      <p class="sub">First matching rule wins. <b>Type</b>: glob (<span class="mono">*://www.htncr.org/lab/*</span>)
-        or <b>regex</b> (v2.0). <b>Title</b>: only match when the page title contains the text.
-        <b>On</b>: per-site on/off. <b>Auto</b> = print automatically when the URL is opened.</p>
-      <table id="rulesTable">
-        <thead><tr>
-          <th style="width:36%" data-i18n="optRulesRegex">URL pattern</th>
-          <th style="width:9%" data-i18n="optRulesType">Type</th>
-          <th style="width:15%" data-i18n="optRulesTitle">Title</th>
-          <th style="width:17%">Printer</th>
-          <th style="width:11%">Action</th>
-          <th style="width:5%" data-i18n="optRulesEnabled">On</th>
-          <th style="width:5%">Auto</th><th></th>
-        </tr></thead>
-        <tbody id="rulesBody"></tbody>
-      </table>
-      <div class="row" style="margin-top:12px">
-        <button id="bAddRule">+ Add rule</button>
-        <span id="saveMsg"></span>
-      </div>
-      <div class="row" style="margin-top:6px">
-        <label>Reprint a PDF link</label>
-        <input type="text" id="pdfUrl" placeholder="https://www.htncr.org/lab/medical_reports/pdf/...">
-        <button id="bPrintPdf">Print it</button>
-      </div>
-    </section>
-
-    <section style="border:none;padding:0;margin-top:18px">
-      <h2>Behavior</h2>
-      <div class="toggle">
-        <input type="checkbox" id="autoPrintAllPdfs">
-        <div><b>Print every PDF opened in the browser (simple mode)</b>
-          <p>ANY PDF you open - any site, any URL - is printed silently and its tab closes. No print view, no dialog, no rules needed. Turn off to auto-print only URLs matching your rules below.</p></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="hookPrint">
-        <div><b>Intercept window.print()</b>
-          <p>Web apps (Odoo, POS, dashboards) that call window.print() are printed silently through the hub instead of opening the dialog. Also intercepts Ctrl+P / Cmd+P.</p></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="closeAfterPrint">
-        <div><b>Close tab after auto-print</b>
-          <p>When a rule auto-prints an opened URL, the tab is closed right after the job is queued - zero browser view, the paper just comes out.</p></div>
-      </div>
-      <div class="toggle">
-        <select id="failFallback">
-          <option value="tab">Open the URL in a new tab</option>
-          <option value="none">Stay silent (no tab)</option>
-        </select>
-        <div><b>When a page print call fails</b>
-          <p>Controls the automatic fallback of printPdfLink() / printPdf() on web pages: if the hub cannot print a PDF (hub off, printer error, not a PDF), either open the URL in a normal tab so the browser prints it the default way, or stay completely silent. A per-call opts.fallback (true/false) in page JS overrides this setting.</p></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="contextMenu">
-        <div><b>Right-click menu</b>
-          <p>Add "PrintHub Pro" to the context menu (print page / selection / linked PDF / screenshot).</p></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="badge">
-        <div><b>Toolbar badge</b>
-          <p>Green OK / red ! on the extension icon after every job.</p></div>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button class="primary" id="bSave">Save settings</button>
-        <button id="bTestPage">Send test page</button>
-      </div>
-    </section>
+    <p class="sub" id="diagInfo"></p>
   </section>
 
-  <!-- ================= DEBUG (v2.3) ================= -->
-  <section class="panel" id="panel-debug">
-    <h2>Debug - WHEN / WHY / WHERE is the problem?</h2>
-    <p class="sub">One page answer to "nothing prints". Switch <b>Debug mode</b>
-      ON in Settings first - then this extension also sends its errors here
-      (the hub keeps the last 100 reports).</p>
-    <div class="row" style="gap:8px;flex-wrap:wrap">
-      <button class="primary" id="bDbgRefresh">Refresh</button>
-      <button id="bDbgTest">Send test report</button>
-      <button id="bDbgCopy">Copy report</button>
-      <button id="bDbgJson">Open /debug JSON</button>
-    </div>
-    <div class="qstate" style="margin-top:10px">
-      <span class="dot" id="dbgDot"></span>
-      <b id="dbgState">Loading debug report...</b>
-    </div>
-    <div class="note" id="dbgNote"></div>
-    <h2 style="margin-top:16px">Problems found by the hub</h2>
-    <table>
-      <thead><tr><th style="width:80px">Level</th><th style="width:130px">Check</th>
-        <th>What is wrong</th><th style="width:32%">Fix</th></tr></thead>
-      <tbody id="dbgProblems"><tr><td colspan="4">-</td></tr></tbody>
-    </table>
-    <h2 style="margin-top:16px">Browser / client error reports</h2>
-    <p class="sub">Errors this browser (and other clients) reported to the hub
-      while Debug mode was on - these never reach hub.log otherwise.</p>
-    <table>
-      <thead><tr><th style="width:135px">Time</th><th style="width:90px">Source</th>
-        <th style="width:70px">Level</th><th>Message</th></tr></thead>
-      <tbody id="dbgReports"><tr><td colspan="4">-</td></tr></tbody>
-    </table>
-  </section>
-
-  <!-- ================= LAN / PCs ================= -->
-  <section class="panel" id="panel-lan">
-    <h2>LAN sharing - let OTHER PCs print through this one</h2>
-    <p class="sub">v2.2 &middot; the hub listens on 127.0.0.1 only until you switch
-      this on. Other PCs must use your token - wrong tokens get locked out.</p>
-    <div class="qstate">
-      <span class="dot" id="lanDot"></span>
-      <b id="lanState">checking...</b>
-      <span id="lanUrl" class="mono"></span>
-      <span style="flex:1"></span>
-      <button class="mini" id="bLanToggle">Enable</button>
-      <button class="mini" id="bLanCopy">Copy URL</button>
-      <button class="mini" id="bLanRefresh">Refresh</button>
-    </div>
-    <div class="note" id="lanHint">After enabling: <b>restart the hub</b>
-      (tray icon &rarr; Exit, start PrintHub Pro again) and allow the port
-      through the firewall once:<br>
-      <span class="mono">netsh advfirewall firewall add rule name="PrintHub Pro"
-      dir=in action=allow protocol=TCP localport=9235</span></div>
-
-    <h2 style="margin-top:16px">Other PCs (peers)</h2>
-    <p class="sub">Fixed peers live in <span class="mono">"peer_hubs"</span> in the
-      hub's config.json. <b>Shift</b> re-uploads the waiting jobs to that PC
-      and marks them forwarded here.</p>
-    <table>
-      <thead><tr><th>PC (hub URL)</th><th>Status</th><th>Version</th>
-        <th style="width:180px"></th></tr></thead>
-      <tbody id="peersBody"><tr><td colspan="4">Connect to the hub first.</td></tr></tbody>
-    </table>
-    <div class="row" style="margin-top:12px">
-      <label>Shift whole queue to</label>
-      <input type="text" id="shiftTarget" placeholder="http://192.168.0.60:9235">
-      <input type="password" id="shiftToken" placeholder="that PC's token (optional for peers)" style="min-width:190px">
-      <button class="primary" id="bShiftAll">Shift all waiting</button>
-    </div>
-    <div class="note"><b>Print FROM another PC through this one:</b> install the
-      extension there, set <b>Settings &rarr; Hub URL</b> to this PC's LAN URL
-      (Copy button above) and the same token. Single jobs: the
-      <b>Shift to PC</b> buttons in the <b>Queue</b> tab. Full guide:
-      <b>About &rarr; Open user guide</b> (the hub serves it at /docs).</div>
-  </section>
-
-  <!-- ================= ABOUT ================= -->
-  <section class="panel" id="panel-about">
-    <div id="api" style="margin-top:-70px;padding-top:70px"></div>
-    <h2>About PrintHub Pro</h2>
-    <p class="sub">Version <b id="aboutVer">2.3.0</b> &middot; by Bitdream IT &middot; MIT license &middot; 100% local - no cloud, no tracking.</p>
-    <p class="sub">v2.3 highlights: <b>Debug tab</b> - see WHEN / WHY / WHERE printing fails (hub problems + browser error reports, one Copy button) &middot; <b>instant print</b> (Queue mode OFF) with auto-queue fallback when no printer is active &middot; v2.2: <b>Default print options</b> (copies, odd/even/custom pages, per-sheet n-up, <b>quality draft/normal/high AND DPI</b>, scale, margins, duplex, paper, layout) &middot; <b>LAN / PCs tab</b>: LAN sharing, peers, shift single jobs or the whole queue to another PC &middot; the hub serves the full user guide at <b>/docs</b>.</p>
-    <div class="gh">
-      <button class="primary" id="bOpenDocs">Open user guide (built-in docs)</button>
-    </div>
-
-    <h2 style="margin-top:14px">Updates</h2>
-    <p class="sub">New versions are published on GitHub Releases. Install over the old one - settings and history are kept.</p>
-    <div class="gh">
-      <button class="primary" id="bUpdateCheck">Check for update</button>
-      <a href="https://github.com/bitdreamit/PrintHub-Pro/releases/latest" target="_blank" rel="noreferrer"><button>Open GitHub releases</button></a>
-      <span id="updState" class="mono"></span>
-    </div>
-    <div class="updlive" id="updLive"></div>
-
-    <h2 style="margin-top:18px">Developer API - <span class="mono">window.printhub</span></h2>
+  <section id="api">
+    <h2>Developer API - <span class="mono">window.printhub</span></h2>
     <p class="sub">Available on every page (when the hook is enabled). All methods return Promises.</p>
 <pre>
 &lt;script&gt;
   <b>await</b> window.printhub.status();            <i>// hub health</i>
-  <b>await</b> window.printhub.printers();          <i>// [{name, is_default, status}]</i>
+  <b>await</b> window.printhub.printers();          <i>// [{name, is_default}]</i>
   <b>await</b> window.printhub.printPage({title});  <i>// print current page</i>
   <b>await</b> window.printhub.printPdf(url, {title, printer});
   <b>await</b> window.printhub.print({
     title: 'Receipt 12', printer: '', copies: 1,
-    priority: 1,                    <i>// v2.0: urgent first</i>
-    pages: '1-3,5',                 <i>// v2.0: range - v2.2: odd/even too</i>
-    per_sheet: 2,                   <i>// v2.1: n-up</i>
-    quality: 'draft',               <i>// v2.2: draft|normal|high|'600dpi'</i>
-    dpi: 600,                       <i>// v2.2: explicit DPI</i>
-    scale_pct: 150, margin_mm: 8,   <i>// v2.1: rendered jobs</i>
-    duplex: 'duplex',               <i>// two-sided</i>
-    paper_size: 'A4', orientation: 'landscape',
-    profile: 'Invoice',             <i>// v2.0: hub print profile</i>
-    text: '|center|HELLO|',         <i>// or:</i>
-    lang: 'escpos',                 <i>// v2.0: raw ESC/POS or ZPL</i>
+    text: '|center|HELLO|',        <i>// or:</i>
     html: '&lt;h1&gt;Invoice&lt;/h1&gt;',      <i>// or:</i>
     pdfBase64: 'JVBERi0...',       <i>// or:</i>
     pdfUrl: 'https://.../report.pdf'
@@ -491,14 +213,10 @@
 </pre>
     <div class="note">Direct HTTP also works from any language:
       <span class="mono">POST http://127.0.0.1:9235/print</span> with header
-      <span class="mono">X-PrintHub-Token</span> - add <span class="mono">"queue": false</span>
-      for immediate printing. New in v2.0: <span class="mono">priority, pages,
-      profile, run_at, lang, reason, watermark</span> - see docs/API.md.
-      Dashboard: <span class="mono">/dashboard?token=...</span></div>
+      <span class="mono">X-PrintHub-Token</span> - see docs/API.md in the package.</div>
   </section>
 </main>
 
-<script src="i18n.js"></script>
 <script src="options.js"></script>
 </body>
 </html>

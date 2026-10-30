@@ -161,7 +161,7 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
     Linux or macOS, connect the Chrome extension, print any PDF or web page silently,
     and fix every common problem. Everything stays on your computer&nbsp;— no cloud, no accounts.</div>
   <div class="meta">
-    <span class="chip">VERSION 2.0.0</span>
+    <span class="chip">VERSION 1.5.0</span>
     <span class="chip">WINDOWS</span>
     <span class="chip">LINUX</span>
     <span class="chip">MACOS</span>
@@ -241,48 +241,13 @@ ul.clean li{ font-size:13.8px; line-height:1.6; margin-bottom:5px; break-inside:
   <div class="step"><div class="num">1</div><div class="st"><b>Unzip the package first.</b>
     Right-click the downloaded ZIP → <b>Extract All</b>. Do not run the EXE from inside the
     ZIP window&nbsp;— it must be a real folder on disk, for example
-    <code>D:\printer\PrintHub-Pro-2.0.0</code>.</div></div>
+    <code>D:\printer\PrintHub-Pro-1.5.0</code>.</div></div>
   <div class="step"><div class="num">2</div><div class="st"><b>Remove the Windows block.</b>
     Windows marks downloaded files as "from the internet" and may show
     <i>"Windows cannot access the specified device, path, or file"</i>. Right-click the file
-    <code>installer\<div class="card" style="border-left:6px solid #1d4ed8;">
-<div class="step-num">N</div>
-<h3>What's new in v2.0.0 (one page)</h3>
-<div class="card" style="margin-top:10px">
-  <h4 style="margin:0 0 6px">PrintHub Pro 2.0.0 — Security, Audit &amp; Production Control</h4>
-  <table style="width:100%; font-size:12.5px">
-    <tr><td style="width:24%"><b>Security</b></td><td>Private <b>random token</b> on new installs (old installs keep working + show a change-token warning) &middot; header-only tokens &middot; <b>allowed origins</b> (e.g. *.htncr.org) &middot; pdf_url blocks file://, ftp:// and private IPs &middot; <b>IP lockout</b> after 10 wrong tokens &middot; one-click <b>token rotation</b>.</td></tr>
-    <tr><td><b>Printers</b></td><td>Live <b>status</b> (ready / offline / paper-out / error) &middot; jobs <b>hold</b> while a printer is offline and resume automatically &middot; <b>printer groups</b> with fallback &middot; <b>raw ESC/POS + ZPL</b> (cut, cash drawer, barcode, QR) &middot; <b>print profiles</b> + page ranges + duplex.</td></tr>
-    <tr><td><b>Queue</b></td><td><b>Exponential retry</b> &middot; <b>priority</b> (urgent first) &middot; <b>duplicate blocking</b> &middot; <b>scheduled prints</b> (run_at) &middot; <b>dead-letter list</b> with retry-on-another-printer &middot; <b>peer hubs</b> (dead peers skipped).</td></tr>
-    <tr><td><b>Audit</b></td><td><b>Audit log</b> (who / site / doc hash / printer / time) &middot; reprint <b>reason</b> + optional <b>REPRINT watermark</b> &middot; <b>log rotation</b> &middot; <b>diagnostics export</b> &middot; <b>CSV exports</b> &middot; built-in <b>web dashboard</b> (success rate, queue size) at /dashboard.</td></tr>
-    <tr><td><b>Extension</b></td><td>Rules: glob <b>or regex</b> + page-title filter + per-site on/off &middot; <b>offline banner</b> + automatic retry &middot; <b>English + বাংলা</b> UI.</td></tr>
-    <tr><td><b>New token?</b></td><td><code>python printhub.py token</code> shows it &middot; <code>token-rotate</code> makes a new one &middot; dashboard button too.</td></tr>
-  </table>
-</div>
-<div class="body-text" style="margin-top:6px;">
-<b>PrintHub Tool</b> — Start Menu shortcut with a numbered menu: start, stop, status,
-test page, <b>Windows service install/remove</b>, auto-run on/off, <b>GitHub update
-check</b>, recent jobs, uninstall. Non-technical users never need the command line.<br><br>
-<b>Real Windows service (optional)</b> — tick "Install as Windows Service (advanced)"
-in the installer (or Tool → 5). It then appears in <b>services.msc</b> as
-"PrintHub Pro Service" and can be started/stopped there. Uninstall removes it too.<br><br>
-<b>Silent install</b> — run <code>PrintHub-Pro-Setup-2.0.0.exe /S</code> (and
-<code>uninstall.exe /S</code>) for scripted setup.<br><br>
-<b>Extension master switch</b> — popup switch "PrintHub enabled": OFF = nothing prints,
-no auto-print, no print() hook, gray OFF badge — without uninstalling.<br><br>
-<b>Queue Mode ON/OFF</b> — popup switch: ON = jobs print in FIFO order (Pause works);
-OFF = every job prints immediately, skipping the line.<br><br>
-<b>Tabbed options</b> — Options now has <b>Queue | History | Settings | About</b> tabs.
-It opens on <b>Queue</b> automatically when jobs are waiting, otherwise on Settings.
-About tab has a <b>Check for update</b> button (GitHub Releases).<br><br>
-<b>Update through GitHub</b> — new versions: https://github.com/bitdreamit/PrintHub-Pro/releases/latest
-(Tool → 8 checks it for you). Install the new Setup.exe over the old one —
-settings and history are kept.
-</div>
-</div>
-PrintHub-Pro-Setup-2.0.0.exe</code> → <b>Properties</b> → tick
+    <code>installer\PrintHub-Pro-Setup-1.5.0.exe</code> → <b>Properties</b> → tick
     <b>Unblock</b> → OK. Or run the PowerShell line below once&nbsp;— it unblocks the whole folder:
-    <div class="inline-code" style="display:block; margin-top:7px; padding:8px 11px;">Get-ChildItem 'D:\printer\PrintHub-Pro-2.0.0' -Recurse -File | Unblock-File</div></div></div>
+    <div class="inline-code" style="display:block; margin-top:7px; padding:8px 11px;">Get-ChildItem 'D:\printer\PrintHub-Pro-1.5.0' -Recurse -File | Unblock-File</div></div></div>
   <div class="step"><div class="num">3</div><div class="st"><b>Double-click the Setup EXE.</b>
     If a blue <i>Windows protected your PC</i> screen appears, click
     <b>More info → Run anyway</b>. This warning appears once because the installer is not
@@ -331,7 +296,7 @@ PrintHub-Pro-Setup-2.0.0.exe</code> → <b>Properties</b> → tick
 
   <div class="step"><div class="num">1</div><div class="st"><b>Debian / Ubuntu / Mint —</b>
     open a terminal in the package folder and run:
-    <div class="inline-code" style="display:block; margin-top:7px; padding:8px 11px;">sudo apt install ./printhub-pro_2.0.0_all.deb</div>
+    <div class="inline-code" style="display:block; margin-top:7px; padding:8px 11px;">sudo apt install ./printhub-pro_1.5.0_all.deb</div>
     The service starts immediately and at every login.</div></div>
   <div class="step"><div class="num">2</div><div class="st"><b>macOS / other Linux —</b> run:
     <div class="inline-code" style="display:block; margin-top:7px; padding:8px 11px;">bash install/install-unix.sh</div>
@@ -499,15 +464,15 @@ PrintHub-Pro-Setup-2.0.0.exe</code> → <b>Properties</b> → tick
     device, path, or file"</span> when running the Setup EXE</div>
     <p>This is the download block, not a broken file. Right-click the EXE → <b>Properties</b> →
     tick <b>Unblock</b> → OK. Or unblock the whole folder once in PowerShell:</p>
-    <p><code>Get-ChildItem 'D:\printer\PrintHub-Pro-2.0.0' -Recurse -File | Unblock-File</code></p>
+    <p><code>Get-ChildItem 'D:\printer\PrintHub-Pro-1.5.0' -Recurse -File | Unblock-File</code></p>
     <p>If it still fails after unblocking, your antivirus is quarantining it&nbsp;— check
     <b>Windows Security → Protection history</b> and allow the file. The BAT installer is never
     blocked this way, so you can always use it instead.</p></div>
 
   <div class="fix"><div class="fx">#2 <span class="q">"Python 3 was not found on this PC"</span></div>
-    <p>This message belongs to version 1.3.0 or older. Version 2.0.0 <b>carries its own Python
+    <p>This message belongs to version 1.3.0 or older. Version 1.5.0 <b>carries its own Python
     runtime inside the installer</b>&nbsp;— the message can no longer appear. Download
-    <code>PrintHub-Pro-Setup-2.0.0.exe</code> (9.5 MB) and install it. No Python install from
+    <code>PrintHub-Pro-Setup-1.5.0.exe</code> (9.5 MB) and install it. No Python install from
     python.org is ever needed.</p></div>
 
   <div class="fix"><div class="fx">#3 <span class="q">Nothing prints&nbsp;— no paper, no error</span></div>
@@ -554,7 +519,7 @@ PrintHub-Pro-Setup-2.0.0.exe</code> → <b>Properties</b> → tick
       <tr><td>Health page</td><td><code>http://127.0.0.1:9235/health</code></td></tr>
       <tr><td>Security token</td><td><code>PrintHub-2024</code></td></tr>
       <tr><td>Windows install folder</td><td><code>%LOCALAPPDATA%\PrintHubPro</code></td></tr>
-      <tr><td>Bundled Python runtime</td><td><code>%LOCALAPPDATA%\PrintHubPro\runtime</code> (v2.0.0)</td></tr>
+      <tr><td>Bundled Python runtime</td><td><code>%LOCALAPPDATA%\PrintHubPro\runtime</code> (v1.5.0)</td></tr>
       <tr><td>Linux install folder</td><td><code>/opt/printhub</code></td></tr>
       <tr><td>Print data &amp; history</td><td><code>%USERPROFILE%\.printhub</code> / <code>~/.printhub</code></td></tr>
       <tr><td>Log file</td><td><code>.printhub\hub.log</code>&nbsp;— every job and error</td></tr>
@@ -584,7 +549,7 @@ PrintHub-Pro-Setup-2.0.0.exe</code> → <b>Properties</b> → tick
     <div class="stat"><div class="sv">0</div><div class="sl">Data Sent Online</div></div>
     <div class="stat"><div class="sv">1×</div><div class="sl">One-Time Setup</div></div>
   </div>
-  <div class="bye">Bitdream IT &middot; Manual for version 2.0.0 &middot; MIT License</div>
+  <div class="bye">Bitdream IT &middot; Manual for version 1.5.0 &middot; MIT License</div>
 </div>
 </body>
 </html>
