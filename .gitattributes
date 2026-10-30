@@ -1,0 +1,2 @@
+tool/windows/*.exe filter=lfs diff=lfs merge=lfs -text
+tool/unix/*.deb filter=lfs diff=lfs merge=lfs -text
