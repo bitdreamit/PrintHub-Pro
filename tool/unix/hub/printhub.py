@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  PrintHub Pro v2.0.1  -  Print from any web page to any printer
+#  PrintHub Pro v2.3.0  -  Print from any web page to any printer
 #  by Bitdream IT  -  MIT licensed, 100% local & open source
-#  PrintHub Pro - Version 2.0.0 - by Bitdream IT - MIT license
+#  PrintHub Pro - Version 2.3.0 - by Bitdream IT - MIT license
 #  100% local - no cloud, no tracking.
 # ------------------------------------------------------------
 #  Chrome extension <-> this hub (localhost) -> ANY printer
@@ -57,7 +57,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "2.2.1"
+VERSION = "2.3.0"
 BRANDING = ("PrintHub Pro - Version %s - by Bitdream IT - MIT license - "
             "100%% local - no cloud, no tracking" % VERSION)
 APP_NAME = "PrintHub Pro"
@@ -132,6 +132,17 @@ CFG = {
                                       #  scripts shape correctly on rolls
     "log_max_mb": 5,                  # hub.log rotates after this size
     "log_backups": 3,                 # ... keeping this many old logs
+
+    # ---- v2.3 settings ----
+    "debug": False,                   # Debug mode: verbose [DEBUG] logs +
+                                      #  GET /debug collects CLIENT error
+                                      #  reports (extension JS / desktop
+                                      #  tool) so "nothing prints" can be
+                                      #  answered with WHEN / WHY / WHERE
+    "instant_auto_queue": True,       # Instant print (queue OFF) + the
+                                      #  printer is NOT active -> the job
+                                      #  is auto-queued instead of failing
+                                      #  and prints when the printer is back
 }
 
 # env overrides that win over config.json (back-compat for 1.x users)
@@ -146,7 +157,8 @@ CONFIG_KEYS = ("token", "token_header_only", "allowed_origins",
                "hold_offline", "audit_enabled", "reprint_watermark",
                "reprint_reason_required", "peer_hubs", "peer_forwarding",
                "share_lan", "escpos_codepage", "thermal_text_engine",
-               "log_max_mb", "log_backups", "printer", "file_dir")
+               "log_max_mb", "log_backups", "debug", "instant_auto_queue",
+               "printer", "file_dir")
 CONFIG_TYPES = {"token_header_only": bool, "allowed_origins": list,
                 "pdf_url_allowed_hosts": list, "max_auth_failures": int,
                 "lockout_minutes": int, "lockout_exempt_loopback": bool,
@@ -157,7 +169,8 @@ CONFIG_TYPES = {"token_header_only": bool, "allowed_origins": list,
                 "share_lan": bool,
                 "reprint_watermark": bool, "reprint_reason_required": bool,
                 "peer_hubs": list, "peer_forwarding": bool,
-                "log_max_mb": int, "log_backups": int}
+                "log_max_mb": int, "log_backups": int,
+                "debug": bool, "instant_auto_queue": bool}
 
 DEFAULT_TOKEN_WARNING = False   # True while the legacy default token is active
 BOUND_LAN = False               # True once the listener actually bound 0.0.0.0
@@ -294,6 +307,76 @@ def log(msg):
         pass
 
 # ------------------------------------------------------------
+# v2.3 DEBUG: client error reports (extension JS / desktop tool)
+# The extension with Debug mode ON POSTs every print error to
+# POST /debug/report; the hub keeps the last 100 in memory AND in
+# debug_reports.json, so GET /debug can answer "why does nothing
+# print" with facts instead of guesses - including problems that
+# happen in the browser and never reach hub.log.
+# ------------------------------------------------------------
+_DBG_REPORTS = []               # newest last, capped at 100
+_DBG_LOADED = [False]
+
+def _dbg_reports_path():
+    return os.path.join(CFG["data_dir"], "debug_reports.json")
+
+def load_debug_reports():
+    """Read persisted reports once per process (survives restarts)."""
+    if _DBG_LOADED[0]:
+        return
+    _DBG_LOADED[0] = True
+    try:
+        with open(_dbg_reports_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            _DBG_REPORTS[:] = [r for r in data[-100:] if isinstance(r, dict)]
+    except Exception:
+        pass
+
+def save_debug_reports():
+    try:
+        ensure_dirs()
+        tmp = _dbg_reports_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_DBG_REPORTS[-100:], f, ensure_ascii=False)
+        os.replace(tmp, _dbg_reports_path())
+    except Exception:
+        pass
+
+def add_debug_report(source="client", level="error", message="",
+                     context=None, job_id=None, ip="-", site="-"):
+    """Store one client error report (never raises, never logs raw)."""
+    load_debug_reports()
+    try:
+        job_id = int(job_id)
+    except (TypeError, ValueError):
+        job_id = None
+    if isinstance(context, (dict, list)):
+        try:
+            context = json.dumps(context, ensure_ascii=False)[:2000]
+        except Exception:
+            context = str(context)[:2000]
+    else:
+        context = str(context or "")[:2000] or None
+    entry = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "source": str(source or "client")[:40],
+        "level": str(level or "error").lower()[:10],
+        "message": str(message or "")[:1000],
+        "context": context,
+        "job_id": job_id,
+        "ip": str(ip or "-")[:64],
+        "site": str(site or "-")[:200],
+    }
+    _DBG_REPORTS.append(entry)
+    del _DBG_REPORTS[:-100]
+    if CFG.get("debug"):
+        log("[DEBUG] client report %s/%s: %s"
+            % (entry["source"], entry["level"], entry["message"][:160]))
+    save_debug_reports()
+    return entry
+
+# ------------------------------------------------------------
 # Print history + queue state (SQLite) - thread-safe via one lock
 # v2.0: the v1.x schema is MIGRATED in place (ALTER TABLE) so old
 # databases keep working untouched - no export/import, no re-init.
@@ -324,10 +407,12 @@ JOB_COLUMNS = {
 }
 
 AUDIT_EVENTS = ("print.submitted", "print.completed", "print.failed",
-                "print.held", "print.requeued", "reprint", "job.canceled",
+                "print.held", "print.requeued", "print.auto_queued",
+                "reprint", "job.canceled",
                 "job.dead", "job.forwarded", "auth.failed", "auth.locked",
                 "token.rotated", "config.changed", "queue.paused",
-                "queue.resumed", "queue.cleared", "audit.purged")
+                "queue.resumed", "queue.cleared", "audit.purged",
+                "debug.report")
 
 
 def db():
@@ -1287,6 +1372,8 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None,
             if target:
                 cmd += ["-print-to", target]
             cmd.append(path)
+            if CFG.get("debug"):
+                log("[DEBUG] command: %s" % " ".join(cmd))
             log("[PRINT] SumatraPDF -> %s (%s, %d copy/copies%s%s)"
                 % (target or "OS default", kind, copies,
                    (", pages %s" % pages) if pages else "",
@@ -1332,6 +1419,8 @@ def print_file(path, kind="a4", printer="", copies=1, job_id=None,
                 cmd += ["-o", "media=%s" % re.sub(r"[^A-Za-z0-9,]", "", media)]
             cmd += ["-o", "fit-to-page" if kind in ("a4", "image") else "noscale",
                     path]
+            if CFG.get("debug"):
+                log("[DEBUG] command: %s" % " ".join(cmd))
             log("[PRINT] lp -> %s (%s, %d copy/copies%s%s%s)"
                 % (target or "OS default", kind, copies,
                    (", pages %s" % pages) if pages else "",
@@ -1574,6 +1663,9 @@ def worker():
             if not job:
                 time.sleep(0.35)
                 continue
+            if CFG.get("debug"):
+                log("[DEBUG] worker picked job #%d (%s) for printer %r"
+                    % (job["id"], job.get("kind"), job.get("printer")))
             # HOLD: printer offline / out of paper / error state (raw jobs
             # skip the status check - receipt printers rarely report state)
             if CFG.get("hold_offline", True) and job.get("kind") != "raw":
@@ -1742,6 +1834,22 @@ def enqueue_print(kind, title, data, printer="", copies=1,
     if status == "scheduled":
         log("[SCHEDULE] job #%d scheduled for %s" % (job_id, run_at))
         return job_id, None
+    # v2.3 INSTANT PRINT fallback: queue mode OFF + the printer is NOT
+    # active -> auto-queue the job instead of firing a doomed direct
+    # print. The FIFO worker then handles it like any other job (with
+    # hold_offline it even waits for the printer to come back and
+    # prints automatically). Raw/ESC-POS jobs skip the check - receipt
+    # printers rarely report a usable status.
+    if CFG.get("instant_auto_queue", True) and kind != "raw":
+        pstat = printer_ready(printer)
+        if pstat in ("offline", "paper-out", "error"):
+            db_audit("print.auto_queued", job_id=job_id, printer=printer,
+                     details="instant print: printer '%s' is %s - job"
+                             " auto-queued (prints when it is ready)"
+                             % (printer or "default", pstat))
+            log("[INSTANT] job #%d auto-queued - printer '%s' is %s"
+                % (job_id, printer or "default", pstat))
+            return job_id, None
     db_update(job_id, status="printing", error=None)
     threading.Thread(target=_print_now,
                      args=(job_id, path, kind, printer, copies),
@@ -1754,6 +1862,9 @@ def enqueue_print(kind, title, data, printer="", copies=1,
 def _print_now(job_id, path, kind, printer, copies):
     """Immediate-execution thread for queue:false jobs (bypasses FIFO)."""
     t0 = time.time()
+    if CFG.get("debug"):
+        log("[DEBUG] instant print job #%d -> %r (kind=%s, copies=%d)"
+            % (job_id, printer or "OS default", kind, copies))
     try:
         if kind == "raw":
             with open(path, "rb") as f:
@@ -2550,6 +2661,9 @@ class Handler(BaseHTTPRequestHandler):
                 "hold_offline": bool(CFG.get("hold_offline", True)),
                 "worker_alive": bool(_WORKER_THREAD[0]
                                      and _WORKER_THREAD[0].is_alive()),
+                "debug": bool(CFG.get("debug")),
+                "instant_auto_queue": bool(
+                    CFG.get("instant_auto_queue", True)),
                 "share_lan": bool(CFG.get("share_lan")),
                 "lan_active": bool(BOUND_LAN),
                 "lan_url": ("http://%s:%d" % (lan_ip(), CFG["port"]))
@@ -2659,6 +2773,7 @@ class Handler(BaseHTTPRequestHandler):
                               "/print (POST) [&queue=false] [+priority,run_at,"
                               "profile,pages,duplex,paper,tray,reason,watermark,raw]",
                               "/queue (GET)", "/queue/pause|resume|clear (POST)",
+                              "/debug", "/debug/report (POST - client errors)",
                               "/autostart (GET) + /autostart (POST)",
                               "/testprint?kind=a4|thermal",
                               "/stats", "/audit[?event=]", "/audit.csv",
@@ -2734,6 +2849,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._csv_response("audit", audit_list(limit=5000))
         if route == "/diagnostics":
             return self._send(200, build_diagnostics())
+        if route == "/debug":
+            # v2.3: one-stop "why is nothing printing?" - the hub's own
+            # verdict (worker, queue, printers, stuck jobs) PLUS the
+            # error reports collected from the browser extension /
+            # desktop tool. Same auth as every other GET endpoint.
+            return self._send(200, build_debug_report())
         if route == "/config":
             return self._send(200, redacted_config())
         if route == "/peers":
@@ -3098,6 +3219,28 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "changed": changed,
                                     "config": redacted_config()})
 
+        # POST /debug/report - v2.3: the extension (Debug mode ON) and
+        # the desktop tool send every error HERE so /debug can show why
+        # a job did not print - browser-side problems (JS exceptions,
+        # failed fetches, token errors) never reach hub.log otherwise.
+        if route == "/debug/report":
+            b = body or {}
+            entry = add_debug_report(
+                source=str(b.get("source") or "client"),
+                level=str(b.get("level") or "error"),
+                message=str(b.get("message") or ""),
+                context=b.get("context"),
+                job_id=b.get("job_id"), ip=ip, site=site)
+            db_audit("debug.report", job_id=entry["job_id"],
+                     actor=entry["source"], site=site, ip=ip,
+                     details="%s: %s" % (entry["level"],
+                                         entry["message"][:150]))
+            return self._send(200, {
+                "ok": True, "stored": len(_DBG_REPORTS),
+                "debug": bool(CFG.get("debug")),
+                "hint": "open /debug?token=... (or the extension Debug"
+                        " tab) to see hub problems + client reports"})
+
         # POST /print
         if route == "/print":
             def bget(key, default=None):
@@ -3210,7 +3353,15 @@ class Handler(BaseHTTPRequestHandler):
                         pass
             # Queue Mode: body/query "queue": false -> print immediately,
             # bypassing the FIFO (pause has no effect on direct jobs).
+            # v2.3: friendlier alias mode=instant|direct|now (and
+            # mode=queue); a given "queue" value always wins.
+            mode_req = str(bget("mode") or "").strip().lower()
             queue_mode = bget("queue")
+            if queue_mode is None:
+                if mode_req in ("instant", "direct", "now"):
+                    queue_mode = False
+                elif mode_req in ("queue", "queued", "fifo"):
+                    queue_mode = True
             if queue_mode is None:
                 queue_mode = True
             elif isinstance(queue_mode, str):
@@ -3386,18 +3537,29 @@ class Handler(BaseHTTPRequestHandler):
                 duplex=duplex, paper_size=paper_size, tray=tray,
                 per_sheet=per_sheet, quality=quality,
                 **({"watermarked": 1} if (wm_flag and kind != "raw") else {}))
+            # v2.3: read the REAL status back - the instant-print auto-queue
+            # fallback may have left the job queued instead of printing
+            real_status = (db_get(job) or {}).get("status")
+            auto_queued = (not queue_mode and not run_at and
+                           dup is None and real_status == "queued")
             resp = {
                 "ok": True, "job_id": job, "kind": kind, "copies": copies,
                 "destination": "printer",
                 "queue_mode": "on" if queue_mode else "off",
+                "instant": (not queue_mode),
+                "auto_queued": auto_queued,
                 "duplicate": dup is not None,
                 "priority": priority,
                 # v2.2.1: truthful initial status so clients (extension
                 # history) stop recording everything as "queued"
-                "status": ("scheduled" if run_at else
-                           "queued" if queue_mode else "printing"),
-                "message": ("queued to printer" if queue_mode
-                            else "printing immediately (queue mode off)"),
+                # v2.3: instant + no active printer -> the job was
+                # auto-queued, so the answer says queued, not printing
+                "status": ("scheduled" if run_at else real_status or
+                           ("queued" if queue_mode else "printing")),
+                "message": ("queued to printer" if queue_mode else
+                            "printer not active - job auto-queued (prints"
+                            " when it is ready)" if auto_queued else
+                            "printing immediately (queue mode off)"),
             }
             if dup is not None:
                 resp["message"] = ("duplicate blocked - identical job #%d"
@@ -3584,6 +3746,140 @@ def build_diagnostics():
     }
     return diag
 
+def _debug_problems():
+    """v2.3: the auto-verdict - every 'why is nothing printing' cause the
+    hub can see by itself, most severe first. This is what makes /debug
+    answer WHEN / WHY / WHERE instead of dumping raw data."""
+    probs = []
+    db_ok = os.path.isfile(db_path())
+    if not (_WORKER_THREAD[0] and _WORKER_THREAD[0].is_alive()):
+        probs.append({
+            "level": "error", "check": "worker",
+            "message": "the print worker thread is NOT running - every job"
+                       " stays queued forever while the hub keeps answering"
+                       " OK",
+            "fix": "restart the hub (tray icon Exit, start again) - the"
+                   " v2.2.1 watchdog normally revives it within 30 s"})
+    if not RESUME_EVENT.is_set():
+        probs.append({
+            "level": "warn", "check": "queue",
+            "message": "the queue is PAUSED - queued jobs wait and nothing"
+                       " prints",
+            "fix": "press Resume (popup / dashboard) or POST /queue/resume"})
+    st = printers_status()
+    if not st:
+        probs.append({
+            "level": "error", "check": "printers",
+            "message": "no printer states detected - the OS reports no"
+                       " printers to this hub",
+            "fix": "check the OS printer list (lpstat -p / Windows"
+                   " Settings > Printers) and the CUPS / spooler service"})
+    else:
+        ready = [n for n, s in st.items() if s == "ready"]
+        if not ready:
+            probs.append({
+                "level": "warn", "check": "printers",
+                "message": "no printer reports ready: " +
+                           ", ".join("%s=%s" % (n, s)
+                                     for n, s in sorted(st.items())),
+                "fix": "bring a printer online / clear its error"})
+    if IS_WIN and find_sumatra() is None:
+        probs.append({
+            "level": "error", "check": "sumatra",
+            "message": "SumatraPDF not found - on Windows every PDF print"
+                       " fails without it",
+            "fix": SUMATRA_HINT})
+    if find_browser() is None:
+        probs.append({
+            "level": "warn", "check": "browser",
+            "message": "no headless browser found - html / page_url /"
+                       " Bangla text renders will fail",
+            "fix": "install Chrome / Edge / Chromium, or print PDFs only"})
+    jobs = db_list(limit=60) if db_ok else []
+    held = [j for j in jobs if j.get("status") == "held"]
+    bad = [j for j in jobs if j.get("status") in ("failed", "dead")]
+    if held:
+        probs.append({
+            "level": "warn", "check": "held jobs",
+            "message": "%d job(s) HELD - %s" %
+                       (len(held), held[0].get("held_reason") or
+                        "printer not ready"),
+            "fix": "use Print now on the job, or switch off 'Printer"
+                   " status hold' in the dashboard"})
+    for j in bad[:3]:
+        probs.append({
+            "level": "error", "check": "job #%s" % j.get("id"),
+            "message": "job %s (%s): %s" %
+                       (j.get("status"), j.get("title") or "untitled",
+                        (j.get("error") or "unknown error")[:200]),
+            "fix": "fix the cause, then Retry the job from the history"})
+    if DEFAULT_TOKEN_WARNING:
+        probs.append({
+            "level": "warn", "check": "token",
+            "message": "the DEFAULT token is still in use - anyone who"
+                       " knows it can print on this PC",
+            "fix": "run: python printhub.py token-rotate"})
+    if not CFG.get("debug"):
+        probs.append({
+            "level": "info", "check": "debug off",
+            "message": "Debug mode is OFF - browser/extension (JS) errors"
+                       " are NOT being collected right now",
+            "fix": "turn Debug ON (dashboard Debug card, or extension"
+                   " Options > Settings > Debug mode) and try again -"
+                   " client reports then appear in /debug"})
+    if not probs:
+        probs.append({
+            "level": "info", "check": "all",
+            "message": "no hub-side problem found - if printing still"
+                       " fails, enable Debug mode and check"
+                       " client_reports for the browser-side error",
+            "fix": ""})
+    return probs
+
+def build_debug_report():
+    """v2.3: GET /debug - everything needed to answer 'when / why / where
+    is the problem': the hub verdict, queue + worker state, recent jobs,
+    and the error reports collected from the browser extension / desktop
+    tool. Deliberately fast (no peer network probes)."""
+    load_debug_reports()
+    db_ok = os.path.isfile(db_path())
+    st = db_stats() if db_ok else {}
+    cur = None
+    if db_ok:
+        with _CURRENT_LOCK:
+            if _CURRENT["id"]:
+                cur = db_get(_CURRENT["id"])
+    return {
+        "ok": True, "app": APP_NAME, "version": VERSION,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "uptime_s": int(time.time() - START_TS),
+        "debug": bool(CFG.get("debug")),
+        "listen": "%s:%d" % (CFG["host"], CFG["port"]),
+        "token": mask_token(CFG["token"]),
+        "token_header_only": bool(CFG.get("token_header_only")),
+        "worker_alive": bool(_WORKER_THREAD[0]
+                             and _WORKER_THREAD[0].is_alive()),
+        "paused": not RESUME_EVENT.is_set(),
+        "hold_offline": bool(CFG.get("hold_offline", True)),
+        "instant_auto_queue": bool(CFG.get("instant_auto_queue", True)),
+        "queue": {"paused": not RESUME_EVENT.is_set(),
+                  "pending": db_count_pending() if db_ok else 0,
+                  "held": db_count_held() if db_ok else 0,
+                  "current": cur},
+        "printers": [{"name": n, "status": s}
+                     for n, s in printers_status().items()],
+        "default_printer": default_printer(),
+        "sumatra_found": (find_sumatra() is not None) if IS_WIN else None,
+        "browser_found": find_browser() is not None,
+        "db": st,
+        "recent_jobs": [{k: j.get(k) for k in
+                         ("id", "created_at", "title", "printer", "status",
+                          "error", "held_reason", "kind")}
+                        for j in (db_list(limit=15) if db_ok else [])],
+        "problems": _debug_problems(),
+        "client_reports": list(_DBG_REPORTS[-50:]),
+    }
+
 def dashboard_html(query=""):
     """The built-in web dashboard (v2.0): success rate, queue size,
     printers, live queue, history, audit trail - one file, no assets."""
@@ -3663,6 +3959,7 @@ DOCS_HTML = r"""<!DOCTYPE html>
  <a href="#lan">LAN sharing (print from other PCs)</a>
  <a href="#queue">Queue on/off + shift to another PC</a>
  <a href="#stuck">Nothing prints? (stuck jobs)</a>
+ <a href="#debug">Debug mode (why is it not working?)</a>
  <a href="#laravel">Laravel / PHP auto print</a>
  <a href="#bangla">Bangla receipts</a>
  <a href="#files">Files &amp; endpoints</a>
@@ -3671,8 +3968,12 @@ DOCS_HTML = r"""<!DOCTYPE html>
 <h2 id="where">1. Where is every feature (click map)</h2>
 <div class="box">
  <ul>
-  <li><b>Toolbar popup</b> - queue on/off (Pause), last jobs, token banner.</li>
+  <li><b>Toolbar popup</b> - queue on/off (Pause), last jobs, token banner.
+      <b>Queue mode OFF = instant print</b>: every job goes straight to the
+      printer; if no printer is active the job is auto-queued (v2.3).</li>
   <li><b>Extension Options &rarr; Settings</b> - master switch, queue mode,
+      <b>Debug mode</b> (v2.3 - collect errors so problems can be seen,
+      not guessed),
       <b>Default print options</b> (copies, pages all/odd/even/custom,
       per-sheet n-up, <b>quality draft/normal/high AND DPI</b>, scale %,
       margins mm, duplex/two-sided, paper size, orientation) - these are
@@ -3776,13 +4077,20 @@ curl -X POST http://127.0.0.1:@@PORT@@/print \
     the same way when you do not need it.</p>
 </div>
 
-<h2 id="queue">5. Queue on/off + shift jobs to another PC</h2>
+<h2 id="queue">5. Queue on/off + instant print + shift to another PC</h2>
 <div class="box">
  <p><b>Queue on/off:</b> popup Pause button, Options &rarr; Queue &rarr;
     Pause/Resume, dashboard "Pause queue", or
-    <code>POST /queue/pause</code> / <code>POST /queue/resume</code>.
-    Settings &rarr; Queue mode OFF = every job prints immediately without
-    waiting in line.</p>
+    <code>POST /queue/pause</code> / <code>POST /queue/resume</code>.</p>
+ <p><b>Instant (direct) print mode - v2.3:</b> Settings &rarr; <b>Queue mode
+    OFF</b> (or <code>POST /print</code> with <code>"queue": false</code> /
+    <code>"mode": "instant"</code>) hands every job straight to the printer
+    the moment it arrives - nothing waits behind earlier jobs and Pause has
+    no effect. <b>If no printer is active</b> (offline / paper-out / error)
+    the job is <b>auto-queued</b> instead of failing: it waits in the queue
+    (with the usual printer-status hold) and prints automatically when the
+    printer is back. Turn the fallback off with
+    <code>POST /config {"instant_auto_queue": false}</code>.</p>
  <p><b>Shift to another PC</b> (uses the LAN URL of that PC):</p>
  <ul>
   <li>Extension Options &rarr; Queue tab: each row has a <b>Shift to PC</b>
@@ -3826,6 +4134,38 @@ curl -X POST http://127.0.0.1:@@PORT@@/print \
  </ol>
  <p>API for one job: <code>GET /jobs/{id}</code> &middot; force it out:
     <code>POST /jobs/{id}/print-now</code>.</p>
+</div>
+
+<h2 id="debug">5c. Debug mode - WHEN / WHY / WHERE is the problem? (v2.3)</h2>
+<div class="box">
+ <p>Instead of guessing, switch Debug ON and let the system tell you:</p>
+ <ol>
+  <li><b>Turn Debug ON</b> - pick ONE:<br>
+      &bull; Extension Options &rarr; Settings &rarr; <b>Debug mode</b><br>
+      &bull; Hub dashboard &rarr; <b>Debug</b> card &rarr; Enable<br>
+      &bull; API: <code>POST /config</code> with <code>{"debug": true}</code></li>
+  <li><b>Reproduce the print once</b> (print any page / test page).</li>
+  <li><b>Open the Debug tab</b> - Extension Options &rarr; <b>Debug</b>, or
+      <code>http://127.0.0.1:@@PORT@@/debug?token=YOUR-TOKEN</code>. You get:
+      <ul>
+       <li><b>problems</b> - the hub's own verdict list (worker dead, queue
+           paused, printer offline + held jobs, SumatraPDF/browser missing,
+           failed jobs with their real error) each with a FIX;</li>
+       <li><b>client_reports</b> - the errors the <b>browser extension (JS)</b>
+           and the desktop tool hit: network failures, rejected tokens,
+           parked jobs, print-call exceptions - with source, level, time
+           and context;</li>
+       <li><b>recent_jobs</b> - the last 15 jobs with status + error;</li>
+       <li>worker/queue/printer state, and the <b>Copy report</b> button
+           for a bug report you can paste anywhere.</li>
+      </ul></li>
+ </ol>
+ <p class="tip">API: <code>GET /debug</code> (token like every GET) &middot;
+    clients report errors with
+    <code>POST /debug/report {"source":"extension","level":"error","message":"...","job_id":12}</code>.
+    The hub keeps the last 100 reports (debug_reports.json). Debug OFF =
+    no client collection, verbose <span class="mono">[DEBUG]</span> log
+    lines off - normal quiet operation.</p>
 </div>
 
 <h2 id="laravel">6. Laravel / PHP - scheduled &amp; automatic printing</h2>
@@ -3895,11 +4235,14 @@ PrintHubService::printPdf($report-&gt;pdf_url,
       <code>/printers</code> &middot; <code>/printers/{name}/capabilities</code>
       &middot; <code>/jobs</code> &middot; <code>/queue</code> &middot;
       <code>/audit</code> &middot; <code>/peers</code> &middot;
-      <code>/config</code> &middot; <code>/docs</code> (this page) - all GET
+      <code>/config</code> &middot; <code>/docs</code> (this page) &middot;
+      <b><code>/debug</code></b> (v2.3 - why is nothing printing) - all GET
       with <code>?token=</code> or the header.</li>
   <li>POST: <code>/print</code> &middot; <code>/queue/pause|resume|clear|shift</code>
       &middot; <code>/jobs/{id}/cancel|retry|reprint</code> &middot;
-      <code>/token/rotate</code> &middot; <code>/config</code> - header only.</li>
+      <code>/token/rotate</code> &middot; <code>/config</code> &middot;
+      <b><code>/debug/report</code></b> (v2.3 - client error reports) -
+      header only.</li>
  </ul>
 </div>
 
@@ -4027,6 +4370,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <a href="/export/history.csv@@Q@@"><button>History CSV</button></a>
     <a href="/audit.csv@@Q@@"><button>Audit CSV</button></a>
     <a href="/diagnostics@@Q@@"><button>Diagnostics JSON</button></a>
+    <a href="/debug@@Q@@"><button><b>Debug</b></button></a>
     <button onclick="location='/health'">Health JSON</button>
   </div>
   <div class="cards">
@@ -4039,6 +4383,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   <h2>LAN sharing &amp; other PCs <small style="text-transform:none;letter-spacing:0">&nbsp;- v2.2: share this printer over the network, shift jobs to another PC</small></h2>
   <div class="panel" id="lanCard"><table><tbody id="lanBody">
     <tr><td>Loading LAN status...</td></tr></tbody></table></div>
+  <h2>Debug <small style="text-transform:none;letter-spacing:0">&nbsp;- v2.3: WHY is nothing printing? one card, one answer</small></h2>
+  <div class="panel" id="dbgCard"><table><tbody id="dbgBody">
+    <tr><td>Loading debug status...</td></tr></tbody></table></div>
   <h2>Printers</h2>
   <div class="panel" id="printers"><table><tbody>
     <tr><td>Loading printers...</td></tr></tbody></table></div>
@@ -4197,13 +4544,52 @@ async function shiftJob(id){
   else msg(r.error||"shift failed");
   refresh();
 }
+/* ---- v2.3: Debug card - when / why / where is the problem ---- */
+let DEBUG_ON=false;
+async function loadDebug(){
+  const el=document.getElementById("dbgBody");
+  try{
+    const d=await jget("/debug");
+    DEBUG_ON=!!d.debug;
+    const rows=[];
+    rows.push("<tr><td><b>Debug mode: </b>"+(DEBUG_ON?"<span class='st printed'>ON</span>":"<span class='st held'>OFF</span>")+"</td>"+
+      "<td class='mono'>verbose logs + collects browser (JS) error reports</td>"+
+      "<td><button onclick='toggleDebug("+(!DEBUG_ON)+")'>"+(DEBUG_ON?"Disable":"Enable")+"</button></td></tr>");
+    rows.push("<tr><td><b>Worker: </b>"+(d.worker_alive?"<span class='st printed'>running</span>":"<span class='st failed'>NOT RUNNING</span>")+"</td>"+
+      "<td class='mono'>queue "+(d.paused?"<span class='st failed'>PAUSED</span>":"running")+" &middot; instant auto-queue "+(d.instant_auto_queue?"on":"off")+" &middot; held "+((d.queue||{}).held||0)+"</td>"+
+      "<td><a href='/debug"+Q+"'><button>Open /debug</button></a></td></tr>");
+    for(const p of (d.problems||[]).slice(0,4)){
+      rows.push("<tr><td><span class='st "+(p.level==="error"?"failed":p.level==="warn"?"held":"queued")+"'>"+esc(p.level)+"</span> "+esc(p.check)+"</td>"+
+        "<td>"+esc(p.message)+(p.fix?" <small>Fix: "+esc(p.fix)+"</small>":"")+"</td><td></td></tr>");
+    }
+    const crs=d.client_reports||[];
+    const last=crs.length?crs[crs.length-1]:null;
+    rows.push("<tr><td><b>Client error reports: </b>"+crs.length+"</td>"+
+      "<td class='mono'>"+(last?esc((last.source||"?")+" / "+(last.level||"?")+": "+String(last.message||"").slice(0,90)):"none yet - also switch Debug ON in the extension (Options &gt; Settings)")+"</td>"+
+      "<td><button onclick='copyDebug()'>Copy report</button></td></tr>");
+    el.innerHTML=rows.join("");
+  }catch(e){
+    el.innerHTML="<tr><td>debug load failed: "+esc(e.message)+"</td></tr>";
+  }
+}
+async function toggleDebug(on){
+  const r=await act("/config",{debug:on});
+  if(r.ok)msg("Debug mode "+(on?"ON - extension errors will be collected and shown in /debug":"OFF"));
+  else msg(r.error||"failed to change debug mode");
+  loadDebug();
+}
+function copyDebug(){
+  jget("/debug").then(d=>navigator.clipboard.writeText(JSON.stringify(d,null,2)))
+    .then(()=>msg("debug report copied to clipboard - attach it to your bug report"))
+    .catch(()=>msg("copy failed - open /debug and copy manually"));
+}
 async function rotateToken(){
   if(!confirm("Generate a NEW token? The old one stops working immediately."))return;
   const r=await act("/token/rotate");
   if(r.ok){prompt("Your NEW token - copy it into the extension Options page:",r.token);}
   else msg(r.error||"failed");
 }
-refresh();loadLan();setInterval(refresh,5000);setInterval(loadLan,15000);
+refresh();loadLan();loadDebug();setInterval(refresh,5000);setInterval(loadLan,15000);setInterval(loadDebug,15000);
 </script></body></html>"""
 
 # ------------------------------------------------------------

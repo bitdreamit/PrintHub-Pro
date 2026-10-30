@@ -6,6 +6,7 @@ groups, raw ESC/POS+ZPL, profiles, page ranges), queue (retry, priority,
 dedupe, schedule, dead-letter, peers), audit (log, reason, watermark, CSV,
 diagnostics, dashboard) plus repo sanity (version anchors, migrations).
 """
+import base64
 import json
 import os
 import sqlite3
@@ -25,7 +26,7 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.2.1"
+    assert d["version"] == "2.3.0"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
@@ -494,11 +495,11 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert printhub.VERSION == "2.2.1"
+    assert printhub.VERSION == "2.3.0"
     ext = os.path.join(os.path.dirname(printhub.__file__), "..",
                        "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.2.1"
+        assert json.load(f)["version"] == "2.3.0"
 
 
 def test_log_rotation(tmp_path):
@@ -705,7 +706,7 @@ def test_v22_docs_page_served(hub):
     body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
             else d if isinstance(d, str) else json.dumps(d))
     assert "LAN sharing" in body and "POST /print" in body
-    assert "2.2.1" in body
+    assert "2.3.0" in body
 
 
 def test_v22_docs_wrong_token_json(hub):
@@ -717,7 +718,8 @@ def test_v22_dashboard_has_lan_card_and_docs(hub):
     html = printhub.dashboard_html("")
     assert 'id="lanBody"' in html and "LAN sharing" in html
     assert "/docs" in html and "shiftJob" in html
-    assert "2.2.1" in html
+    assert 'id="dbgBody"' in html and "toggleDebug" in html
+    assert "2.3.0" in html
 
 
 def test_v22_health_lan_active(hub):
@@ -842,3 +844,155 @@ def test_v221_health_reports_worker_and_hold(hub):
     assert code == 200
     assert d["worker_alive"] is True
     assert d["hold_offline"] is True
+
+
+# ============================================================
+# v2.3.0 - instant print + auto-queue fallback + /debug
+# ============================================================
+
+def test_v23_debug_endpoint(hub):
+    code, d = hub.get("/debug")
+    assert code == 200 and d["ok"] is True
+    for key in ("problems", "client_reports", "worker_alive", "paused",
+                "printers", "recent_jobs", "queue", "debug",
+                "instant_auto_queue", "version"):
+        assert key in d, key
+    assert isinstance(d["problems"], list) and d["problems"]
+    assert all("level" in p and "message" in p for p in d["problems"])
+
+
+def test_v23_debug_wrong_token(hub):
+    code, d = hub.get("/debug", token="nope-" + hub.token)
+    assert code == 401 and d.get("ok") is False
+
+
+def test_v23_debug_query_token_works(hub):
+    # v2.0.2 rule must hold for the new endpoint too: browsers open
+    # /debug?token=... with a plain link
+    code, d = hub.get("/debug?token=" + hub.token, token=None)
+    assert code == 200 and d["ok"] is True
+
+
+def test_v23_debug_report_roundtrip(hub):
+    code, d = hub.post("/debug/report", {
+        "source": "extension", "level": "error",
+        "message": "pytest test report - printer fetch failed",
+        "context": {"url": "http://x/y.pdf"}, "job_id": None})
+    assert code == 200 and d["ok"] is True and d["stored"] >= 1
+    code, d = hub.get("/debug")
+    reports = d["client_reports"]
+    assert any("pytest test report" in r.get("message", "")
+               for r in reports)
+    hit = [r for r in reports if "pytest test report" in r.get("message", "")][0]
+    assert hit["source"] == "extension"
+    assert hit["level"] == "error"
+    assert hit["ts"] and hit["ip"]
+
+
+def test_v23_debug_report_persists(hub):
+    # the ring buffer survives a restart via debug_reports.json
+    hub.post("/debug/report", {"source": "tool", "level": "warn",
+                               "message": "persistence check"})
+    path = os.path.join(printhub.CFG["data_dir"], "debug_reports.json")
+    assert os.path.isfile(path)
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert any(r.get("message") == "persistence check" for r in data)
+
+
+def test_v23_instant_auto_queue(hub, clean_queue, cfg_reset, monkeypatch):
+    # THE v2.3 feature: queue OFF (instant) + printer NOT active ->
+    # the job is auto-queued instead of being printed (and failing)
+    printhub.CFG["hold_offline"] = True
+    monkeypatch.setattr(printhub, "printers_status",
+                        lambda force=False: {"GhostOff": "offline"})
+    code, d = hub.post("/print", {"text": "instant fallback",
+                                  "title": "iaq", "printer": "GhostOff",
+                                  "queue": False})
+    assert code == 200 and d["ok"] is True
+    assert d["instant"] is True
+    assert d["auto_queued"] is True
+    assert d["status"] == "queued"
+    assert "auto-queued" in d["message"]
+    jid = d["job_id"]
+    row = printhub.db_get(jid)
+    assert row["status"] in ("queued", "held")     # never printing directly
+    audited = printhub.audit_list(50, "print.auto_queued")
+    assert any(a.get("job_id") == jid for a in audited)
+    assert not hub.printed                          # nothing hit the printer
+
+
+def test_v23_instant_prints_when_printer_ready(hub, clean_queue, cfg_reset,
+                                               monkeypatch):
+    # printer IS ready -> instant mode really prints immediately
+    monkeypatch.setattr(printhub, "printers_status",
+                        lambda force=False: {"StubPrinter": "ready"})
+    code, d = hub.post("/print", {"text": "instant now", "title": "iok",
+                                  "queue": False})
+    assert code == 200 and d["auto_queued"] is False
+    assert wait_until(lambda: (printhub.db_get(d["job_id"]) or {})
+                      .get("status") == "printed"), \
+        "instant print must go out immediately when the printer is ready"
+
+
+def test_v23_mode_instant_alias(hub, clean_queue, cfg_reset, monkeypatch):
+    # mode=instant is the friendlier alias of queue:false
+    monkeypatch.setattr(printhub, "printers_status",
+                        lambda force=False: {"StubPrinter": "ready"})
+    code, d = hub.post("/print", {"text": "alias", "title": "mai",
+                                  "mode": "instant"})
+    assert code == 200 and d["instant"] is True and d["queue_mode"] == "off"
+    assert wait_until(lambda: (printhub.db_get(d["job_id"]) or {})
+                      .get("status") == "printed")
+    code, d = hub.post("/print", {"text": "alias back", "title": "maq",
+                                  "mode": "queue"})
+    assert code == 200 and d["queue_mode"] == "on" and d["status"] == "queued"
+
+
+def test_v23_instant_raw_skips_status_check(hub, clean_queue):
+    # ESC/POS receipt printers rarely report a status - instant raw
+    # printing must never be blocked by the auto-queue fallback
+    code, d = hub.post("/print", {"raw_base64": base64.b64encode(
+                                      b"\x1b@receipt").decode(),
+                                  "lang": "escpos", "title": "raw-inst",
+                                  "queue": False})
+    assert code == 200 and d["ok"] is True
+    assert wait_until(lambda: (printhub.db_get(d["job_id"]) or {})
+                      .get("status") == "printed")
+
+
+def test_v23_debug_toggle_via_config(hub):
+    code, d = hub.post("/config", {"debug": True})
+    assert code == 200 and d["ok"] is True
+    code, d = hub.get("/health")
+    assert d["debug"] is True
+    code, d = hub.get("/debug")
+    assert d["debug"] is True
+    code, d = hub.post("/config", {"debug": False})
+    assert code == 200
+    code, d = hub.get("/health")
+    assert d["debug"] is False and d["instant_auto_queue"] is True
+
+
+def test_v23_debug_off_info_hint(hub):
+    # debug OFF -> the verdict still works and tells the user to switch on
+    code, d = hub.get("/debug")
+    assert code == 200
+    assert any(p["check"] == "debug off" for p in d["problems"]) or d["debug"]
+
+
+def test_v23_endpoints_list_includes_debug(hub):
+    code, d = hub.get("/")
+    assert code == 200
+    eps = " ".join(d["endpoints"])
+    assert "/debug" in eps and "/debug/report" in eps
+
+
+def test_v23_docs_has_debug_and_instant(hub):
+    code, d = hub.get("/docs")
+    assert code == 200
+    body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
+            else d if isinstance(d, str) else json.dumps(d))
+    assert "Debug mode" in body and "/debug" in body
+    assert "instant" in body and "auto-queued" in body
+    assert "/debug/report" in body

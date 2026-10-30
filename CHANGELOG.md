@@ -6,6 +6,68 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is
 
 ---
 
+## [2.3.0] — 2026-10-30 — "Instant print + /debug: see WHY nothing prints"
+
+Feature release for the request *"print direct instant print mode where . also
+instant print mode when queue off if no printer active it then auto queue.
+debug api url need like ip:port/debug it identify why not work js or desktop
+tool any error to show . so debug on/off button need in setting so early
+identify when why where is problem exist"*.
+
+### Added
+- **Instant print mode surfaced + hard answer to "where":** it is the
+  popup / Options → Settings **Queue mode OFF** switch. Documented in
+  README, /docs §5 and API.md. New `POST /print` parameter
+  `mode: "instant" | "direct" | "now"` (alias of `queue: false`;
+  `mode: "queue"` = FIFO; a given `queue` value always wins). The
+  response gains `instant` and `auto_queued` fields.
+- **Auto-queue fallback for instant jobs:** queue mode OFF + the target
+  printer is `offline` / `paper-out` / `error` → the job is auto-queued
+  instead of fired into a failing direct print (audit event
+  `print.auto_queued`); with the default `hold_offline` it even waits
+  for the printer to come back and prints then. Raw/ESC-POS jobs skip
+  the check (receipt printers rarely report a usable status). New
+  config `instant_auto_queue` (default `true`), runtime-tunable via
+  `POST /config`.
+- **`GET /debug`** — one endpoint answers *when / why / where*:
+  `problems` (auto-verdict list: worker dead, queue paused, no/none
+  ready printers, SumatraPDF missing, browser missing, held jobs with
+  reason, failed/dead jobs with their error, default-token warning,
+  debug-off hint — each with a `fix`), `recent_jobs` (last 15 with
+  error + held_reason), queue/worker/printer state, and
+  `client_reports`. Accepts `?token=` like every GET; wrong token →
+  401.
+- **`POST /debug/report`** — client error reporting for the extension
+  (JS) and any desktop tool: `{source, level, message, context,
+  job_id}`. The hub keeps the last 100 reports in memory AND in
+  `debug_reports.json` (survives restarts), audits `debug.report`,
+  and shows them in `/debug` under `client_reports`.
+- **Debug ON/OFF switch in the settings** (new config `debug`, default
+  `false`): extension Options → Settings → **Debug mode** toggle (one
+  switch drives the extension's error reporting AND the hub's config),
+  new dashboard **Debug card** (Enable/Disable, worker/queue state,
+  problem list, client-report count, **Copy report**, "Open /debug"),
+  and a new extension **Debug tab** (state line, problems table,
+  client error reports, error-count tab badge, **Send test report**,
+  **Copy report**, **Open /debug JSON**; popup footer gained a
+  **Debug** link).
+- Verbose `[DEBUG]` logging while debug is ON: exact printer command
+  lines (lp/SumatraPDF), worker picks, instant-print decisions,
+  incoming client reports.
+
+### Changed
+- `POST /print` answer is truthful in every instant case: with the
+  auto-queue fallback the response now says `status: "queued"` +
+  `auto_queued: true` + *"printer not active - job auto-queued"*
+  instead of claiming `printing`.
+- `/health` gains `debug` and `instant_auto_queue`; the root endpoint
+  list and `/docs` (new §5c + endpoint map) document `/debug`,
+  `/debug/report`, `mode` and `instant_auto_queue`.
+- Popup / Options copy for Queue mode OFF now says *"instant print -
+  auto-queues if no printer is active"* (English + Bangla).
+
+---
+
 ## [2.2.1] — 2026-10-30 — "OK means OK: nothing can silently stall the queue"
 
 Bug-fix release for the report *"Extension shows the OK icon but the

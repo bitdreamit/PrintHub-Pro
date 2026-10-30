@@ -80,9 +80,10 @@ $("swQueue").addEventListener("change", async () => {
   await send({ type: "saveCfg", patch: { queueMode: on } });
   $("swQueueSub").textContent = on
     ? "jobs wait in order + pause works"
-    : "every job prints immediately (skips the line)";
+    : "instant print - auto-queues if no printer is active";
   msg(on ? "Queue mode ON - jobs are printed in FIFO order"
-         : "Queue mode OFF - jobs print immediately", "info");
+         : "Instant print ON - jobs print immediately; if no printer is " +
+           "active they are auto-queued for later", "info");
 });
 
 async function refresh() {
@@ -256,6 +257,10 @@ $("bPrintHeld").addEventListener("click", async () => {
 });
 
 $("bOpts").addEventListener("click", () => chrome.runtime.openOptionsPage());
+$("lnkDebug").addEventListener("click", (e) => {
+  e.preventDefault();
+  chrome.tabs.create({ url: "options.html#debug" });
+});
 $("lnkApi").addEventListener("click", (e) => {
   e.preventDefault();
   chrome.tabs.create({ url: chrome.runtime.getURL("options.html#api") });

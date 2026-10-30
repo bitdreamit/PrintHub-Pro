@@ -24,6 +24,12 @@ const DEFAULTS = {
   closeAfterPrint: true,    // auto-printed URLs: close the tab after -> no browser view
   contextMenu: true,        // right-click "PrintHub Pro" menu
   badge: true,              // show ok/fail on the toolbar icon
+  debugMode: false,         // v2.3 DEBUG: collect this extension's errors
+                            // (JS, network, print calls) and POST them to
+                            // the hub (POST /debug/report) so /debug and
+                            // the Options > Debug tab can answer WHY a
+                            // job did not print. Also switches the hub's
+                            // verbose [DEBUG] logging on.
   printDefaults: {},        // v2.2: default print options from Options >
                             // "Default print options" (copies, pages mode,
                             // quality draft/normal/high/DPI, per_sheet,
@@ -206,17 +212,69 @@ async function hubFetch(path, opts = {}) {
     err.status = res.status;
     err.auth = res.status === 401;
     err.locked = res.status === 429;
+    // v2.3: report the failure to /debug while Debug mode is on (skip
+    // /debug/report itself so reporting can never recurse into itself)
+    if (!path.startsWith("/debug/report") && !DBG_SENDING) {
+      reportDebug(res.status === 401 || res.status === 429 ? "warn"
+                                                           : "error",
+                  "hub " + (opts.method || "GET") + " " + path +
+                  " -> HTTP " + res.status +
+                  (data.error ? ": " + data.error : ""),
+                  "extension " + chrome.runtime.getManifest().version,
+                  opts.body && opts.body.job_id);
+    }
     throw err;
   }
   return data;
 }
 
-/* ---------------- auth problem state (v2.2.0) ------------------- */
-/* When the hub answers 401 (token rejected) or 429 (IP temporarily
+/* ---------------- auth problem state (v2.2.0) -------------------
+ * When the hub answers 401 (token rejected) or 429 (IP temporarily
  * locked) the extension must NOT keep retrying - with several Chrome
  * windows sharing one IP that would lock the dashboard and the other
  * windows out too. State is stored so the popup can show a banner. */
 let FLUSH_BACKOFF_MIN = 1;      // alarm period: 1 -> 2 -> 4 -> 8 -> 15 min
+
+/* ---------------- v2.3 DEBUG: client error reporting ---------------- */
+/* Debug mode ON (extension Options > Settings, or the hub dashboard)
+ * makes the extension report EVERY problem it hits to the hub:
+ * POST /debug/report {source, level, message, context, job_id}.
+ * GET /debug (or Options > Debug tab, or the dashboard Debug card)
+ * then answers "when / why / where is the problem" with facts -
+ * including browser-side errors that never reach hub.log. */
+let DBG_SENDING = false;        // re-entry guard: reporting must never loop
+
+async function reportDebug(level, message, context, jobId) {
+  try {
+    const cfg = await loadCfg();
+    if (!cfg.debugMode || DBG_SENDING) return;
+    DBG_SENDING = true;
+    try {
+      await hubFetch("/debug/report", { method: "POST", body: {
+        source: "extension",
+        level: level || "error",
+        message: String(message || "").slice(0, 900),
+        context: context == null ? "" :
+                 (typeof context === "string"
+                   ? context.slice(0, 1500)
+                   : JSON.stringify(context).slice(0, 1500)),
+        job_id: jobId || null } });
+    } finally {
+      DBG_SENDING = false;
+    }
+  } catch (_) { /* debug reporting must NEVER break printing */ }
+}
+
+// service-worker-level JS errors also land in /debug while Debug is on
+self.addEventListener("error", (e) => {
+  reportDebug("error", "background JS error: " + (e.message || "unknown"),
+              (e.filename || "") + ":" + (e.lineno || ""));
+});
+self.addEventListener("unhandledrejection", (e) => {
+  const r = e && e.reason;
+  reportDebug("error", "background unhandled rejection: " +
+              String((r && r.message) || r || "unknown").slice(0, 300));
+});
 
 async function setAuthProblem(on, why) {
   const st = await chrome.storage.local.get({ authProblem: null });
@@ -362,6 +420,9 @@ async function verifyJobs() {
     }
     if (j.status === "failed" || j.status === "dead") {
       await flashBadge(false, "!");
+      reportDebug("error", "job #" + id + " NOT printed (" + j.status +
+                  "): " + (j.error || "printer error"),
+                  j.held_reason || "", id);
       try {
         chrome.notifications.create({
           type: "basic", iconUrl: "icons/icon128.png",
@@ -455,6 +516,8 @@ function hubPrint(payload) {
         // cannot succeed until the token is fixed.
         if (e && e.auth) {
           await setAuthProblem(true, "token");
+          reportDebug("warn", "hub rejected the token (401) - printing " +
+                      "cannot succeed until the token is fixed");
           throw new HubError("hub rejected the token - fix it in " +
                              "PrintHub Pro options (Hub token field)");
         }
@@ -464,6 +527,8 @@ function hubPrint(payload) {
           if (cfg.retryOffline !== false && payload.destination !== "file") {
             await queueForRetry(payload);
             await setAuthProblem(true, "locked");
+            reportDebug("warn", "hub is rate-limiting this IP (429) - job " +
+                        "parked and will retry automatically");
             throw new HubError("hub is rate-limiting this IP - job saved " +
                                "and will retry automatically");
           }
@@ -476,8 +541,12 @@ function hubPrint(payload) {
         if (cfg.retryOffline !== false && networkish &&
             payload.destination !== "file") {
           await queueForRetry(payload);
+          reportDebug("warn", "hub offline - job parked for retry (" +
+                      (payload.title || "untitled") + ")");
           throw new HubError("hub offline - job saved and will retry");
         }
+        reportDebug("error", "print failed: " + msg.slice(0, 300),
+                    payload.title || "");
         throw e;
       });
   });
@@ -707,6 +776,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
     await flashBadge(false, "!");
     await rememberJob({ title: "AUTO " + (tab.title || tab.url),
                         url: tab.url, status: "failed", error: String(e.message || e) });
+    reportDebug("error", "auto-print failed: " + String(e.message || e)
+                .slice(0, 300), tab.url || "");
     console.warn("[PrintHub] auto-print failed:", e);
   }
 });
@@ -947,6 +1018,19 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           reply(await hubFetch(`/jobs/${msg.id}/print-now`,
                                { method: "POST", body: {} }));
           break;
+        case "hubDebug":
+          // v2.3: full debug report (problems + client reports)
+          reply(await hubFetch("/debug"));
+          break;
+        case "debugTestReport":
+          // v2.3: prove the pipeline works - send one test report, then
+          // the Debug tab can show it immediately
+          await reportDebug("info",
+            "test report from the extension - if you can read this in " +
+            "the Debug tab, error reporting works end to end",
+            "sent from Options > Debug");
+          reply({ ok: true });
+          break;
         case "jobRetry":
           reply(await hubFetch(`/jobs/${msg.id}/retry`, {
             method: "POST",
@@ -962,6 +1046,15 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           await applyHook();
           await rebuildMenus();
           await applyEnabledBadge();
+          if (msg.patch && msg.patch.debugMode !== undefined) {
+            // v2.3: ONE Debug switch drives BOTH sides - the extension's
+            // error reporting AND the hub's verbose logging / client
+            // collection (GET /debug shows both). Best effort: the hub
+            // may be offline right now.
+            hubFetch("/config", { method: "POST",
+                                  body: { debug: !!msg.patch.debugMode } })
+              .catch(() => {});
+          }
           reply({ ok: true });
           break;
         case "getCfg":
@@ -1098,6 +1191,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     }
   } catch (e) {
     await flashBadge(false, "!");
+    reportDebug("error", "context menu print failed: " +
+                String(e.message || e).slice(0, 300),
+                info.menuItemId || "");
     chrome.notifications.create({
       type: "basic", iconUrl: "icons/icon128.png",
       title: "PrintHub Pro", message: String(e.message || e)
@@ -1115,6 +1211,8 @@ chrome.commands.onCommand.addListener(async (command) => {
     await printTab(tab);
   } catch (e) {
     await flashBadge(false, "!");
+    reportDebug("error", "Alt+P print failed: " +
+                String(e.message || e).slice(0, 300), tab.url || "");
     chrome.notifications.create({
       type: "basic", iconUrl: "icons/icon128.png",
       title: "PrintHub Pro", message: String(e.message || e)

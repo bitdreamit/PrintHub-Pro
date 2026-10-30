@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 let PRINTERS = [];
 let QUEUE_TIMER = null;
 let LAN_TIMER = null;
+let DEBUG_TIMER = null;   // v2.3: Debug tab auto-refresh
 let CAPS = null;
 
 function send(m) {
@@ -15,9 +16,9 @@ function saved(text) {
   setTimeout(() => { $("saveMsg").textContent = ""; }, 2500);
 }
 
-/* ---------- tabs (Queue | History | Settings | LAN | About) ---------- */
+/* ---------- tabs (Queue | History | Settings | Debug | LAN | About) ---------- */
 function showTab(name) {
-  const valid = ["queue", "history", "settings", "lan", "about"].includes(name)
+  const valid = ["queue", "history", "settings", "debug", "lan", "about"].includes(name)
     ? name : "settings";
   document.querySelectorAll("#tabs button").forEach((b) =>
     b.classList.toggle("active", b.dataset.tab === valid));
@@ -26,6 +27,7 @@ function showTab(name) {
   if (valid === "queue") startQueueLoop(); else stopQueueLoop();
   if (valid === "lan") startLanLoop(); else stopLanLoop();
   if (valid === "history") startJobsLoop(); else stopJobsLoop();
+  if (valid === "debug") startDebugLoop(); else stopDebugLoop();
 }
 
 /* v2.2.1: history auto-refreshes every 8 s while the tab is open, so a
@@ -53,7 +55,6 @@ function startLanLoop() {
 function stopQueueLoop() {
   if (QUEUE_TIMER) { clearInterval(QUEUE_TIMER); QUEUE_TIMER = null; }
 }
-
 function startQueueLoop() {
   stopQueueLoop();
   refreshQueue();
@@ -154,7 +155,7 @@ async function updateCheck() {
   const out = $("updState"), live = $("updLive");
   out.textContent = "checking...";
   live.innerHTML = "";
-  let manifestVer = "2.2.1";
+  let manifestVer = "2.3.0";
   try { manifestVer = chrome.runtime.getManifest().version; } catch (_) {}
   try {
     const r = await fetch("https://api.github.com/repos/bitdreamit/PrintHub-Pro/releases/latest",
@@ -428,6 +429,7 @@ async function loadAll() {
   $("queueMode").checked = c.queueMode !== false;
   $("retryOffline").checked = c.retryOffline !== false;
   $("langSelect").value = c.lang || "auto";
+  $("debugMode").checked = !!c.debugMode;   // v2.3 Debug switch
   $("autoPrintAllPdfs").checked = c.autoPrintAllPdfs !== false;
   $("hookPrint").checked = !!c.hookPrint;
   $("closeAfterPrint").checked = c.closeAfterPrint !== false;
@@ -449,6 +451,8 @@ async function saveAll() {
       token: $("token").value.trim() || "PrintHub-2024",
       enabled: $("enabled").checked,
       queueMode: $("queueMode").checked,
+      debugMode: $("debugMode").checked,   // v2.3: background also syncs
+                                           // the hub config (debug on/off)
       retryOffline: $("retryOffline").checked,
       lang: $("langSelect").value || "auto",
       defaultPrinter: $("defaultPrinter").value,
@@ -586,7 +590,7 @@ $("bClearHist").addEventListener("click", async () => {
   await chrome.storage.local.set({ history: [] });
   saved("Extension history copy cleared (hub history untouched)");
 });
-["enabled", "queueMode", "retryOffline", "autoPrintAllPdfs", "hookPrint",
+["enabled", "queueMode", "debugMode", "retryOffline", "autoPrintAllPdfs", "hookPrint",
  "closeAfterPrint", "failFallback", "contextMenu", "badge", "defaultPrinter"].forEach((id) =>
   $(id).addEventListener("change", saveAll));
 
@@ -639,6 +643,91 @@ $("bShiftAll").addEventListener("click", async () => {
   alert(r.ok ? r.message || "shifted" : "Shift failed: " + r.error);
   loadLan();
 });
+
+/* ---------- v2.3: Debug tab (WHEN / WHY / WHERE is the problem) ---------- */
+function dbgEsc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function stopDebugLoop() {
+  if (DEBUG_TIMER) { clearInterval(DEBUG_TIMER); DEBUG_TIMER = null; }
+}
+function startDebugLoop() {
+  stopDebugLoop();
+  loadDebug();
+  DEBUG_TIMER = setInterval(loadDebug, 6000);
+}
+
+async function loadDebug() {
+  const d = await send({ type: "hubDebug" });
+  const st = $("dbgState");
+  const note = $("dbgNote");
+  const problems = $("dbgProblems");
+  const reports = $("dbgReports");
+  const badge = $("tabDbgBadge");
+  if (!d.ok) {
+    $("dbgDot").className = "dot offline";
+    st.textContent = "Hub offline or /debug unavailable - start the hub, then the report appears here";
+    note.textContent = "";
+    problems.innerHTML = '<tr><td colspan="4">No hub connection.</td></tr>';
+    reports.innerHTML = '<tr><td colspan="4">No hub connection.</td></tr>';
+    badge.classList.remove("show");
+    return;
+  }
+  $("dbgDot").className = "dot" + (d.worker_alive && !d.paused ? "" : " paused");
+  st.textContent =
+    "hub v" + d.version + " - Debug mode " + (d.debug ? "ON" : "OFF") +
+    " - worker " + (d.worker_alive ? "running" : "NOT RUNNING") +
+    " - queue " + (d.paused ? "PAUSED" : "running") +
+    " - printers ready: " + (d.printers || [])
+      .filter((p) => p.status === "ready").length + "/" + (d.printers || []).length +
+    " - instant auto-queue " + (d.instant_auto_queue ? "on" : "off");
+  note.textContent = d.debug
+    ? "Debug mode is ON - print once more, then read the problems below. The Copy report button gives you everything for a bug report."
+    : "Debug mode is OFF - turn it ON in Settings > Debug mode (or the dashboard Debug card) so browser errors are collected too.";
+  let nerr = 0;
+  problems.innerHTML = (d.problems || []).map((p) => {
+    if (p.level === "error") nerr++;
+    const cls = p.level === "error" ? "st failed"
+              : p.level === "warn" ? "st held" : "st queued";
+    return "<tr><td><span class='" + cls + "'>" + dbgEsc(p.level) +
+           "</span></td><td>" + dbgEsc(p.check) + "</td><td>" +
+           dbgEsc(p.message) + "</td><td>" + dbgEsc(p.fix || "-") +
+           "</td></tr>";
+  }).join("") || '<tr><td colspan="4">No problems listed.</td></tr>';
+  reports.innerHTML = (d.client_reports || []).length
+    ? d.client_reports.slice().reverse().map((r) =>
+        "<tr><td>" + dbgEsc(String(r.ts || "").replace("T", " ")) +
+        "</td><td>" + dbgEsc(r.source || "?") +
+        "</td><td><span class='" +
+        (r.level === "error" ? "st failed" : r.level === "warn" ? "st held" : "st queued") +
+        "'>" + dbgEsc(r.level || "?") + "</span></td><td>" +
+        dbgEsc(r.message || "") +
+        (r.context ? " <small class='mono'>" + dbgEsc(r.context).slice(0, 160) +
+        "</small>" : "") + "</td></tr>").join("")
+    : '<tr><td colspan="4">No client error reports yet' +
+      (d.debug ? " - print once more with Debug mode ON." :
+                 " (Debug mode is OFF in Settings).") + "</td></tr>";
+  badge.textContent = String(nerr);
+  badge.classList.toggle("show", nerr > 0);
+}
+
+$("bDbgRefresh").addEventListener("click", loadDebug);
+$("bDbgTest").addEventListener("click", async () => {
+  await send({ type: "debugTestReport" });
+  setTimeout(loadDebug, 600);
+});
+$("bDbgCopy").addEventListener("click", async () => {
+  const d = await send({ type: "hubDebug" });
+  if (!d.ok) return saved("Nothing to copy - hub offline");
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(d, null, 2));
+    saved("Full /debug report copied - paste it into your bug report");
+  } catch (_) { saved("Copy blocked by the browser - use Open /debug JSON"); }
+});
+$("bDbgJson").addEventListener("click", () => openHubPath("/debug"));
+
 
 /* default print options: save on change + capability hints */
 ["dCopies", "dPagesMode", "dPagesCustom", "dQuality", "dQualityCustom",

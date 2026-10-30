@@ -1,4 +1,4 @@
-# PrintHub Pro — Hub HTTP API (v2.2.0)
+# PrintHub Pro — Hub HTTP API (v2.3.0)
 
 Base URL: `http://127.0.0.1:9235` (default)
 
@@ -82,7 +82,8 @@ One payload source is required. **Common fields:**
 | `copies` | `1` | 1–50 |
 | `source` | `"api"` | Free tag recorded in history + audit |
 | `destination` | `"printer"` | `"file"` = save as PDF, no paper |
-| `queue` | `true` | `false` = **Queue Mode OFF** for this job (prints immediately, bypasses FIFO) |
+| `queue` | `true` | `false` = **Queue Mode OFF / instant print** for this job (prints immediately, bypasses FIFO) |
+| `mode` | — | **v2.3:** friendlier alias — `"instant"` / `"direct"` / `"now"` = `queue:false`, `"queue"` = FIFO. A given `queue` value always wins |
 | `priority` | `5` | v2.0: `1` (urgent) … `9` (low); urgent jobs jump the FIFO |
 | `pages` | — | v2.0: page range `"1-3,5"`; **v2.1: also `"odd"` / `"even"`** (CUPS `page-set` / SumatraPDF) |
 | `duplex` | — | v2.0: `simplex` \| `duplex` \| `long` \| `short` |
@@ -130,14 +131,25 @@ curl -X POST "http://127.0.0.1:9235/print?title=Retail-42&printer=XP-58&token=$T
 
 ```json
 { "ok": true, "job_id": 17, "kind": "a4", "copies": 1,
-  "destination": "printer", "queue_mode": "on",
-  "duplicate": false, "priority": 1, "status": "queued" }
+  "destination": "printer", "queue_mode": "on", "instant": false,
+  "auto_queued": false, "duplicate": false, "priority": 1, "status": "queued" }
 ```
 
 `status` (v2.2.1) is the truthful initial state of the job:
 `queued` (FIFO), `printing` (queue mode OFF), `scheduled` (run_at set)
 or `saved` (destination file). Poll `GET /jobs/{id}` for the outcome —
 a 200 from `/print` means **accepted**, not paper in the tray.
+
+**v2.3 instant-print auto-queue fallback:** queue mode OFF + the target
+printer is `offline` / `paper-out` / `error` → the job is auto-queued
+instead of fired into a doomed direct print: the response says
+`"instant": true, "auto_queued": true, "status": "queued"` and the
+message *"printer not active - job auto-queued (prints when it is
+ready)"*. The job then follows the normal queue rules (with the default
+`hold_offline` it waits for the printer and prints automatically).
+Raw/ESC-POS jobs skip the check. Disable the fallback with
+`POST /config {"instant_auto_queue": false}` (default `true`, also in
+`/health`). Audit event: `print.auto_queued`.
 
 `duplicate: true` means an identical job was already accepted within
 `dedupe_minutes` — the response points at the original `job_id`.
@@ -224,6 +236,31 @@ The UI equivalents: extension Options → **LAN / PCs** tab (whole queue) and
 | `GET /dashboard?token=…` | Built-in web dashboard — success rate, queue size, live queue with cancel + **Shift**, **LAN sharing card**, printers, recent jobs with retry/reprint, audit trail, token rotation |
 | `GET /docs?token=…` | **v2.2: the built-in user guide** — every option, LAN sharing how-to, queue shift, Laravel recipes, Bangla receipts. Served by the hub so the docs can never go missing |
 | `GET /diagnostics` | Support bundle JSON: versions, config (token masked), DB stats, printers, peers, log tail |
+| `GET /debug` | **v2.3: WHY is nothing printing?** — `problems` (auto-verdict list, each entry `{level, check, message, fix}`), `queue` + `worker_alive` + `paused`, `printers`, `recent_jobs` (last 15 with error/held_reason), `client_reports` (browser/JS + desktop-tool error reports), `debug` flag. `?token=` works like every GET |
+| `POST /debug/report` | **v2.3:** clients report errors — body `{"source":"extension","level":"error","message":"…","context":{…},"job_id":12}` (context/job_id optional; level error\|warn\|info). Stored (last 100, persisted in `debug_reports.json`), audited `debug.report`, shown in `/debug`. The Chrome extension sends these automatically while **Debug mode** is ON (Options → Settings, or the dashboard Debug card) |
+
+```jsonc
+// GET /debug?token=… (trimmed)
+{
+  "ok": true, "version": "2.3.0", "debug": true,
+  "worker_alive": true, "paused": false, "instant_auto_queue": true,
+  "queue": { "pending": 2, "held": 1 },
+  "printers": [ { "name": "XP-80C", "status": "ready" } ],
+  "problems": [
+    { "level": "warn", "check": "held jobs",
+      "message": "1 job(s) HELD - printer 'XP-80C' is offline - …",
+      "fix": "use Print now on the job, or switch off 'Printer status hold'" },
+    { "level": "info", "check": "debug off",
+      "message": "Debug mode is OFF - browser/extension (JS) errors are NOT being collected",
+      "fix": "turn Debug ON (dashboard Debug card, or extension Options > Settings)" }
+  ],
+  "client_reports": [
+    { "ts": "2026-10-30T10:00:00", "source": "extension", "level": "error",
+      "message": "hub POST /print -> HTTP 500: lp failed",
+      "context": "report-a.pdf", "job_id": 41 }
+  ]
+}
+```
 
 ## Misc
 
@@ -237,6 +274,9 @@ Lives in the data dir (`~/.printhub/config.json`). See the README table for
 every key with defaults. **Defaults keep 1.x behaviour** except where the
 feature itself is the point (`max_retries: 2`, `dedupe_minutes: 5`,
 `hold_offline: true`). New installs additionally get `token_header_only: true`.
+v2.3 keys: `debug` (`false` — Debug mode: verbose `[DEBUG]` logs +
+client error collection for `GET /debug`) and `instant_auto_queue`
+(`true` — instant print + printer not active → job auto-queued).
 Auth-related keys: `max_auth_failures` (10), `lockout_minutes` (5) and
 `lockout_exempt_loopback` (`true` = never lock 127.0.0.1/::1 — set `false`
 to lock loopback too, the strict v2.0.0 behaviour).

@@ -1,6 +1,6 @@
 # PrintHub Pro — Print from Any Web Page to Any Printer
 
-**PrintHub Pro — Version 2.2.0 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.**
+**PrintHub Pro — Version 2.3.0 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.**
 
 PrintHub Pro prints from any web page to **any printer** — thermal, receipt, label, or standard — with **no print dialog and no confirmation**. It is a free, 100%-local, MIT-licensed alternative to paid products like Ultraprint Hub: a small **desktop hub** (single Python file, zero pip dependencies) plus a **Chrome extension** that talk to each other on `localhost` only.
 
@@ -16,6 +16,47 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) 
 Update anytime: run `PrintHub Tool` → **8: Check for updates**, or click
 **Check for update** in the extension Options → About tab. Installing a
 new Setup.exe over the old one keeps all settings and history.
+
+---
+
+## What's new in v2.3.0 — "Instant print + /debug: see WHY nothing prints"
+
+- **Instant (direct) print mode is now a first-class citizen.** It was
+  always there (popup / Settings → **Queue mode OFF**) — now it says so
+  and behaves exactly as expected: every job goes straight to the
+  printer the moment it arrives, nothing waits behind earlier jobs.
+  API-wise it is `POST /print` with `"queue": false` or the new
+  `"mode": "instant"` alias (also `direct`, `now` — `mode: "queue"`
+  goes back to FIFO).
+- **Instant + no active printer = auto-queue fallback.** When the
+  printer is offline / paper-out / in error, an instant job is NOT
+  fired into a doomed direct print — it is **auto-queued** (audit event
+  `print.auto_queued`), waits with the usual printer-status hold and
+  prints automatically when the printer is back. The `POST /print`
+  answer says the truth: `status: "queued"`, `auto_queued: true`, and
+  a message that says so. Turn the fallback off with
+  `POST /config {"instant_auto_queue": false}`.
+- **`GET /debug` — one URL answers WHEN / WHY / WHERE.** The hub's own
+  verdict (worker dead? queue paused? printer offline + held jobs?
+  SumatraPDF / browser missing? failed jobs with their real error) as a
+  `problems` list, each entry with a FIX, plus `recent_jobs`, queue and
+  printer state. Same `?token=` rule as every GET.
+- **`POST /debug/report` — the browser talks back.** With **Debug mode
+  ON** the extension reports every error it hits (network failures,
+  rejected token, parked jobs, JS exceptions, jobs that ended
+  failed/dead) to the hub; `/debug` shows them under `client_reports`
+  with source, level, time and context. The hub keeps the last 100
+  reports (`debug_reports.json`), so they survive restarts.
+- **Debug ON/OFF button in the settings** — one switch drives both
+  sides: extension Options → Settings → **Debug mode** (also syncs the
+  hub config) and a new **Debug card** on the dashboard with an
+  Enable/Disable button, the problem list and a **Copy report** button
+  for bug reports. New extension **Debug tab** (popup footer → Debug):
+  live state line, problems table, client error reports, "Send test
+  report" to prove the pipeline, "Open /debug JSON".
+- Verbose `[DEBUG]` log lines while Debug is ON (exact printer
+  command lines, worker picks, instant decisions); quiet operation
+  when OFF (the default — nothing changes until you ask).
 
 ---
 
