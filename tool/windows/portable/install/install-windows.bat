@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  PrintHub Pro - ONE-CLICK Windows setup  (v2.5.0)
+REM  AdvPrint Pro - ONE-CLICK Windows setup  (v2.5.0)
 REM  Just double-click this file. Zero questions:
 REM    1. removes Mark-of-the-Web from all files
 REM       (fixes "Access is denied" on downloaded zips)
@@ -9,19 +9,19 @@ REM    3. uses the BUNDLED Python runtime (installer\runtime) -
 REM       no system Python needed; system Python = fallback
 REM    4. checks SumatraPDF (auto-installs it via winget)
 REM    5. registers AUTO-RUN as a NORMAL STARTUP APP:
-REM       "PrintHub Pro" shows in Task Manager > Startup apps
+REM       "AdvPrint Pro" shows in Task Manager > Startup apps
 REM       (enable/disable there, or from the tray icon menu)
 REM    6. starts the hub now, hidden, and health-checks it
-REM    7. the hub shows a "PrintHub Pro" TRAY ICON with a menu
+REM    7. the hub shows a "AdvPrint Pro" TRAY ICON with a menu
 REM       (open status page, test page, pause, autostart, exit)
 REM  No admin rights needed.  Undo = UNINSTALL-WINDOWS.bat
-REM  by Bitdream IT - MIT licensed
+REM  by Bit Dream IT - MIT licensed
 REM ============================================================
-title PrintHub Pro Setup
+title AdvPrint Pro Setup
 setlocal EnableDelayedExpansion
 echo.
 echo   ==============================================
-echo    PrintHub Pro  -  one-click setup
+echo    AdvPrint Pro  -  one-click setup
 echo    installs + auto-run at logon, no questions
 echo   ==============================================
 echo.
@@ -45,12 +45,12 @@ if defined OLDKILL (
 )
 
 REM ---- 1) Python: BUNDLED runtime first, system Python = fallback ------
-REM  v2.4.0: PrintHubPro.exe = pythonw.exe renamed, so Task Manager
-REM  shows "PrintHubPro" instead of "python".
+REM  v2.4.0: AdvPrintPro.exe = pythonw.exe renamed, so Task Manager
+REM  shows "AdvPrintPro" instead of "python".
 set PYW=
-if exist "%~dp0..\runtime\PrintHubPro.exe" (
-  for %%I in ("%~dp0..\runtime\PrintHubPro.exe") do set "PYW=%%~fI"
-  echo [OK] Bundled runtime found - PrintHubPro.exe, no system Python needed
+if exist "%~dp0..\runtime\AdvPrintPro.exe" (
+  for %%I in ("%~dp0..\runtime\AdvPrintPro.exe") do set "PYW=%%~fI"
+  echo [OK] Bundled runtime found - AdvPrintPro.exe, no system Python needed
   goto pyw_ready
 )
 if exist "%~dp0..\runtime\pythonw.exe" (
@@ -58,9 +58,9 @@ if exist "%~dp0..\runtime\pythonw.exe" (
   echo [OK] Bundled Python 3.11 runtime found - no system Python needed
   goto pyw_ready
 )
-if exist "%~dp0..\installer\runtime\PrintHubPro.exe" (
-  for %%I in ("%~dp0..\installer\runtime\PrintHubPro.exe") do set "PYW=%%~fI"
-  echo [OK] Bundled runtime found - PrintHubPro.exe, no system Python needed
+if exist "%~dp0..\installer\runtime\AdvPrintPro.exe" (
+  for %%I in ("%~dp0..\installer\runtime\AdvPrintPro.exe") do set "PYW=%%~fI"
+  echo [OK] Bundled runtime found - AdvPrintPro.exe, no system Python needed
   goto pyw_ready
 )
 if exist "%~dp0..\installer\runtime\pythonw.exe" (
@@ -125,26 +125,26 @@ if defined SUMATRA (
 )
 
 REM ---- 4) AUTO-RUN as a normal STARTUP APP (visible + controllable) ----
-REM  v2.4.0: a shortcut named "PrintHub Pro" in the user's Startup
+REM  v2.4.0: a shortcut named "AdvPrint Pro" in the user's Startup
 REM  folder - Task Manager > Startup apps lists it with our icon, and
 REM  it can be enabled/disabled there (or in the tray icon menu).
 REM  The hidden SCHEDULED TASK from v1.2-v1.4 is removed so the hub
 REM  never starts twice.
-set LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\PrintHub Pro.lnk
-schtasks /Delete /TN "PrintHub Pro" /F >nul 2>&1
+set LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\AdvPrint Pro.lnk
+schtasks /Delete /TN "AdvPrint Pro" /F >nul 2>&1
 del "%LNK%" >nul 2>&1
 if defined PYW (
-  for %%I in ("%~dp0..\hub\printhub.py") do set "HUBPY=%%~fI"
-  for %%I in ("%~dp0..\hub\printhub.ico") do set "HUBICO=%%~fI"
+  for %%I in ("%~dp0..\hub\advprint.py") do set "HUBPY=%%~fI"
+  for %%I in ("%~dp0..\hub\advprint.ico") do set "HUBICO=%%~fI"
   for %%I in ("%~dp0..\hub") do set "HUBDIR=%%~fI"
   powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut('!LNK!'); $s.TargetPath='!PYW!'; $s.Arguments=[char]34+'!HUBPY!'+[char]34+' serve'; $s.IconLocation='!HUBICO!,0'; $s.WorkingDirectory='!HUBDIR!'; $s.Description='PrintHub Pro silent print hub'; $s.Save()" >nul 2>&1
+    "$w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut('!LNK!'); $s.TargetPath='!PYW!'; $s.Arguments=[char]34+'!HUBPY!'+[char]34+' serve'; $s.IconLocation='!HUBICO!,0'; $s.WorkingDirectory='!HUBDIR!'; $s.Description='AdvPrint Pro silent print hub'; $s.Save()" >nul 2>&1
 ) else (
   powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut('!LNK!'); $s.TargetPath='wscript.exe'; $s.Arguments=[char]34+'%~dp0START-PRINT-HUB.vbs'+[char]34; $s.IconLocation='%~dp0..\hub\printhub.ico,0'; $s.Description='PrintHub Pro silent print hub'; $s.Save()" >nul 2>&1
+    "$w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut('!LNK!'); $s.TargetPath='wscript.exe'; $s.Arguments=[char]34+'%~dp0START-PRINT-HUB.vbs'+[char]34; $s.IconLocation='%~dp0..\hub\advprint.ico,0'; $s.Description='AdvPrint Pro silent print hub'; $s.Save()" >nul 2>&1
 )
 if exist "%LNK%" (
-  echo [OK] Auto-run registered as a Startup app named "PrintHub Pro"
+  echo [OK] Auto-run registered as a Startup app named "AdvPrint Pro"
   echo      Control it: Task Manager ^> Startup apps  -or-  tray icon menu
 ) else (
   echo [!] Could not register auto-run - hub still runs now, but
@@ -152,9 +152,9 @@ if exist "%LNK%" (
 )
 
 REM ---- 5) start the hub right now, hidden ------------------------------
-echo [..] Starting PrintHub Pro on http://127.0.0.1:9235 ...
+echo [..] Starting AdvPrint Pro on http://127.0.0.1:9235 ...
 if defined PYW (
-  start "" "!PYW!" "%~dp0..\hub\printhub.py" serve
+  start "" "!PYW!" "%~dp0..\hub\advprint.py" serve
 ) else (
   wscript.exe "%~dp0START-PRINT-HUB.vbs"
 )
@@ -171,21 +171,21 @@ if defined UP (
   echo [OK] Hub is running - health check passed
 ) else (
   echo [!] Health check FAILED.
-  echo     Look at:  %USERPROFILE%\.printhub\hub.log
-  echo     Or run in a console:  hub\printhub.py serve  to see the error.
+  echo     Look at:  %USERPROFILE%\.advprint\hub.log
+  echo     Or run in a console:  hub\advprint.py serve  to see the error.
 )
 
 echo.
 echo   ====================================================
 echo    Setup finished - everything is automatic now:
 echo     - hub running hidden at http://127.0.0.1:9235
-echo     - "PrintHub Pro" TRAY ICON near the clock: right-click
+echo     - "AdvPrint Pro" TRAY ICON near the clock: right-click
 echo       it for status page / test page / pause / auto-run / exit
 echo     - starts again automatically at every logon as the
-echo       Startup app "PrintHub Pro" (Task Manager ^> Startup)
+echo       Startup app "AdvPrint Pro" (Task Manager ^> Startup)
 echo     - Chrome: chrome://extensions ^> Developer mode
 echo       ^> Load unpacked ^> select the extension folder
-echo     - click the PrintHub icon ^> Connect
+echo     - click the AdvPrint icon ^> Connect
 echo    Remove auto-run anytime:  install\UNINSTALL-WINDOWS.bat
 echo   ====================================================
 echo.

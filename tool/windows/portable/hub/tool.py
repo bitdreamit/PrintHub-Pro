@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  PrintHub Pro - Control Tool  (the friendly one-stop tool)
+#  AdvPrint Pro - Control Tool  (the friendly one-stop tool)
 # ------------------------------------------------------------
 #  One menu for everything a normal user needs:
 #    start / stop / status, auto-run on/off, Windows service
@@ -9,7 +9,7 @@
 #    uninstall. No command line knowledge needed - just pick
 #    a number. Also scriptable:  python tool.py <command>
 #
-#  Windows : "PrintHub Tool.lnk" (Start Menu) runs this menu with
+#  Windows : "AdvPrint Tool.lnk" (Start Menu) runs this menu with
 #            the bundled runtime python - no console skills needed.
 #  Unix    : python3 tool.py   (after install-unix.sh / .deb)
 # ============================================================
@@ -29,15 +29,15 @@ if HERE not in sys.path:
 IS_WIN = sys.platform == "win32"
 
 
-def _load_printhub():
-    """Import the hub module (this folder ships next to printhub.py)."""
-    import printhub
-    return printhub
+def _load_advprint():
+    """Import the hub module (this folder ships next to advprint.py)."""
+    import advprint
+    return advprint
 
 
 def _health():
     """(ok, info_dict) from the running hub, using the configured token."""
-    ph = _load_printhub()
+    ph = _load_advprint()
     url = "http://127.0.0.1:%d/health" % ph.CFG["port"]
     req = urllib.request.Request(url)
     try:
@@ -55,19 +55,19 @@ def hub_running():
 def start_hub():
     """Start the hub detached (returns True when the process spawned)."""
     if hub_running():
-        print("PrintHub Pro is ALREADY running (port in use).")
+        print("AdvPrint Pro is ALREADY running (port in use).")
         return True
-    ph = _load_printhub()
+    ph = _load_advprint()
     try:
         if IS_WIN:
-            exe = ph.launcher_exe()                    # PrintHubPro.exe / pythonw
-            script = os.path.join(HERE, "printhub.py")
+            exe = ph.launcher_exe()                    # AdvPrintPro.exe / pythonw
+            script = os.path.join(HERE, "advprint.py")
             det = 0x00000008 | 0x00000200              # DETACHED | NEW_PROCESS_GROUP
             subprocess.Popen([exe, script, "serve"], cwd=HERE,
                              close_fds=True, creationflags=det)
         else:
             subprocess.Popen(["nohup", sys.executable,
-                              os.path.join(HERE, "printhub.py"), "serve"],
+                              os.path.join(HERE, "advprint.py"), "serve"],
                              cwd=HERE,
                              stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
@@ -75,7 +75,7 @@ def start_hub():
     except Exception as e:
         print("Could not start the hub: %s" % e)
         return False
-    print("Starting PrintHub Pro ...")
+    print("Starting AdvPrint Pro ...")
     for _ in range(20):
         time.sleep(0.5)
         if hub_running():
@@ -89,13 +89,17 @@ def start_hub():
 
 
 def stop_hub():
-    ph = _load_printhub()
+    ph = _load_advprint()
     if not hub_running():
-        print("PrintHub Pro is not running.")
+        print("AdvPrint Pro is not running.")
         return True
     if IS_WIN:
-        # kill by image name (ours is renamed pythonw -> PrintHubPro.exe)
-        r = subprocess.run(["taskkill", "/F", "/IM", "PrintHubPro.exe"],
+        # kill by image name (ours is renamed pythonw -> AdvPrintPro.exe;
+        # pre-2.6 installs ran as PrintHubPro.exe - kill both)
+        r = subprocess.run(["taskkill", "/F", "/IM", "AdvPrintPro.exe"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            subprocess.run(["taskkill", "/F", "/IM", "PrintHubPro.exe"],
                            capture_output=True, text=True)
         if r.returncode != 0:
             # fall back: kill whoever listens on our port
@@ -107,7 +111,7 @@ def stop_hub():
                  "-ErrorAction SilentlyContinue }" % ph.CFG["port"]],
                 capture_output=True, text=True)
     else:
-        subprocess.run(["pkill", "-f", "printhub.py serve"],
+        subprocess.run(["pkill", "-f", "advprint.py serve"],
                        capture_output=True, text=True)
     time.sleep(1.0)
     print("Stopped." if not hub_running() else "Still running? Check the tray icon.")
@@ -115,10 +119,10 @@ def stop_hub():
 
 
 def show_status():
-    ph = _load_printhub()
+    ph = _load_advprint()
     ok, info = _health()
     print("-" * 62)
-    print(" PrintHub Pro v%s  (tool v%s)" % (ph.VERSION, ph.VERSION))
+    print(" AdvPrint Pro v%s  (tool v%s)" % (ph.VERSION, ph.VERSION))
     print("-" * 62)
     if ok:
         print("  Hub          : RUNNING on http://127.0.0.1:%d" % ph.CFG["port"])
@@ -144,18 +148,18 @@ def show_status():
 
 
 def set_autorun(enable):
-    ph = _load_printhub()
+    ph = _load_advprint()
     state = ph.autostart_set(bool(enable))
     print("Start at Windows logon: %s" % ("ON" if state else "OFF"))
     if IS_WIN:
-        print("  (Task Manager > Startup apps -> 'PrintHub Pro')")
+        print("  (Task Manager > Startup apps -> 'AdvPrint Pro')")
 
 
 def test_page():
     if not hub_running():
         print("Start the hub first.")
         return
-    ph = _load_printhub()
+    ph = _load_advprint()
     url = "http://127.0.0.1:%d/testprint?kind=a4" % ph.CFG["port"]
     try:
         with urllib.request.urlopen(url, timeout=10) as r:
@@ -166,7 +170,7 @@ def test_page():
 
 
 def show_history(limit=15):
-    ph = _load_printhub()
+    ph = _load_advprint()
     ph.db_init()
     rows = ph.db_list(limit)
     if not rows:
@@ -181,7 +185,7 @@ def show_history(limit=15):
 
 
 def service(action):
-    ph = _load_printhub()
+    ph = _load_advprint()
     if action == "status":
         ph.cmd_service("status")
         return
@@ -189,7 +193,7 @@ def service(action):
         print("Windows services are Windows-only. On Linux/macOS the .deb /"
               " install-unix.sh sets up systemd.")
         return
-    print("This will %s the 'PrintHub' Windows service." %
+    print("This will %s the 'AdvPrint' Windows service." %
           ("INSTALL" if action == "install" else "REMOVE"))
     print("A Windows UAC prompt will appear - click Yes to approve.")
     a = input("Continue? [y/N]: ").strip().lower()
@@ -200,14 +204,35 @@ def service(action):
 
 
 def update_check():
-    ph = _load_printhub()
+    ph = _load_advprint()
     ph.cmd_update_check()
+
+
+def livetest(do_print=False):
+    """v2.6 LIVE TEST: full A-to-Z self-check (menu [11] / CLI livetest)."""
+    ph = _load_advprint()
+    ph.db_init()
+    ph.init_config()
+    print("-" * 62)
+    print(" AdvPrint Pro LIVE TEST - full A-to-Z check")
+    print("-" * 62)
+    res = ph.run_livetest(do_print=do_print)
+    for st in res["steps"]:
+        print("  [%s] %-38s %s" % ("OK" if st["pass"] else "!!",
+                                   st["name"], st["info"]))
+    print("")
+    print("  %s" % ("ALL CHECKS PASSED - AdvPrint Pro is ready for production."
+                   if res["all_ok"] else
+                   "Fix the [!!] items above, then run the live test again."))
+    if do_print:
+        print("  (a REAL test page was queued - watch it on the dashboard)")
+    return 0 if res["all_ok"] else 1
 
 
 def uninstall():
     """Full removal: stop hub, remove autostart, offer service removal."""
-    ph = _load_printhub()
-    print("UNINSTALL PrintHub Pro")
+    ph = _load_advprint()
+    print("UNINSTALL AdvPrint Pro")
     print("  1) stop the hub now")
     print("  2) remove 'start at logon' auto-run")
     a = input("Continue? [y/N]: ").strip().lower()
@@ -229,8 +254,8 @@ def uninstall():
     print("The hub and its auto-run are removed.")
     if IS_WIN:
         print("To remove the program files completely, use:")
-        print("  Windows Settings > Apps > PrintHub Pro > Uninstall")
-        print("(or Start Menu > PrintHub Pro > Uninstall PrintHub Pro)")
+        print("  Windows Settings > Apps > AdvPrint Pro > Uninstall")
+        print("(or Start Menu > AdvPrint Pro > Uninstall AdvPrint Pro)")
     print("Your print history stays in: %s" % ph.CFG["data_dir"])
 
 
@@ -244,11 +269,12 @@ MENU = """
  |  __/| | (_| | | | |  __/  __/| |  | | (_| | | | | (_|  __/
  |_|   |_|\\__,_|_| |_|\\___|_|   |_|  |_|\\__,_|_| |_|\\___\\___|
 
-  [1] Start PrintHub            [5] Windows service - install
-  [2] Stop PrintHub             [6] Windows service - remove
+  [1] Start AdvPrint            [5] Windows service - install
+  [2] Stop AdvPrint             [6] Windows service - remove
   [3] Status                    [7] Start at logon: ON / OFF
   [4] Print test page           [8] Check for updates (GitHub)
   [9] Show recent jobs         [10] Uninstall / remove
+  [11] LIVE TEST (A-to-Z)      [12] Open dashboard
   [0] Exit
 """
 
@@ -257,7 +283,7 @@ def menu():
     while True:
         print(MENU)
         try:
-            c = input("  Choose [0-10]: ").strip()
+            c = input("  Choose [0-12]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("")
             return
@@ -275,7 +301,7 @@ def menu():
         elif c == "6":
             service("remove")
         elif c == "7":
-            ph = _load_printhub()
+            ph = _load_advprint()
             set_autorun(not ph.autostart_enabled())
         elif c == "8":
             update_check()
@@ -284,21 +310,30 @@ def menu():
         elif c == "10":
             uninstall()
             return
+        elif c == "11":
+            livetest()
+        elif c == "12":
+            ph = _load_advprint()
+            import urllib.parse
+            webbrowser.open("http://127.0.0.1:%d/dashboard?token=%s" % (
+                ph.CFG["port"], urllib.parse.quote(ph.CFG["token"])))
         elif c == "0":
             return
         else:
-            print("Pick 0-10.")
+            print("Pick 0-12.")
         print("")
 
 
 def usage():
-    print("""PrintHub Pro Tool - commands:
+    print("""AdvPrint Pro Tool - commands:
   (no command)  interactive menu
   status        show status
   start|stop    start / stop the hub
   testprint     print a test page
   history [n]   show recent jobs
   autorun on|off   start-at-logon on/off
+  livetest [print] full A-to-Z live self-test ("print" = real test page)
+  dashboard        open the dashboard with the current token
   service-install | service-remove | service-status
   update-check  check GitHub for updates
   uninstall     stop + de-register (program files via Apps settings)
@@ -336,6 +371,13 @@ def main():
         update_check()
     elif cmd == "uninstall":
         uninstall()
+    elif cmd == "livetest":
+        sys.exit(livetest(do_print=(len(args) > 1 and args[1] == "print")))
+    elif cmd == "dashboard":
+        ph = _load_advprint()
+        import urllib.parse
+        webbrowser.open("http://127.0.0.1:%d/dashboard?token=%s" % (
+            ph.CFG["port"], urllib.parse.quote(ph.CFG["token"])))
     elif cmd in ("help", "--help", "-h"):
         usage()
     else:

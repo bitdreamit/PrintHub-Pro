@@ -1,21 +1,21 @@
-/*! PrintHub Auto v1.6.0 - universal light auto-print for ANY website.
- * Part of the PrintHub Pro Page Kit - AdvMedi by Bit Dream IT
+/*! AdvPrint Auto v1.6.0 - universal light auto-print for ANY website.
+ * Part of the AdvPrint Pro Page Kit - AdvMedi by Bit Dream IT
  * https://www.bitdreamit.com  -  Innovative Healthcare Solutions
  * ------------------------------------------------------------------
  * ZERO CONFIG - add one line to any page:
- *     <script src="printhub-auto.js"></script>
+ *     <script src="advprint-auto.js"></script>
  * Every click on a link that points to a PDF is then printed silently
- * through the PrintHub Pro extension. No extension or hub? Nothing
+ * through the AdvPrint Pro extension. No extension or hub? Nothing
  * changes: the link opens in the browser exactly like before.
  *
  * Optional, no JS call needed:
  *   <a href="report.pdf" data-print-title="Lab report">Print</a>
- *   <button data-printhub="https://server/report.pdf">Print</button>
- *   <a href="report.pdf" data-printhub-ignore>never intercept me</a>
+ *   <button data-advprint="https://server/report.pdf">Print</button>
+ *   <a href="report.pdf" data-advprint-ignore>never intercept me</a>
  * One optional call for custom selectors / title / cooldown:
- *   PrinthubAuto.init({ selector: 'a.pdf-link', title: 'Report',
+ *   AdvprintAuto.init({ selector: 'a.pdf-link', title: 'Report',
  *                       cooldown: 1500 });
- *   PrinthubAuto.print(url, 'Title')   // manual, same guard + toast
+ *   AdvprintAuto.print(url, 'Title')   // manual, same guard + toast
  *
  * Behaviour guarantees:
  *   - intercepts ONLY when the extension helper (printPdfLink) exists;
@@ -28,7 +28,7 @@
  */
 (function () {
   "use strict";
-  if (window.PrinthubAuto) return;
+  if (window.AdvprintAuto) return;
 
   var PDF_RE = /\.pdf($|[?#])/i;
   var busy = false;          // one job at a time
@@ -49,8 +49,8 @@
       }
       toastEl.textContent = text;
       toastEl.style.display = "block";
-      clearTimeout(toastEl._printhubT);
-      toastEl._printhubT = setTimeout(function () {
+      clearTimeout(toastEl._advprintT);
+      toastEl._advprintT = setTimeout(function () {
         toastEl.style.display = "none";
       }, 2600);
     } catch (_) { /* toast is never critical */ }
@@ -58,8 +58,8 @@
 
   function pdfHref(el) {
     if (!el || !el.getAttribute) return null;
-    if (el.hasAttribute && el.hasAttribute("data-printhub-ignore")) return null;
-    var direct = el.getAttribute("data-printhub");
+    if (el.hasAttribute && el.hasAttribute("data-advprint-ignore")) return null;
+    var direct = el.getAttribute("data-advprint");
     if (direct) return direct;
     var href = el.getAttribute("href");
     if (href && href.charAt(0) !== "#" && PDF_RE.test(href)) return href;
@@ -119,7 +119,7 @@
          cfg.title || document.title || "PDF");
   }
 
-  window.PrinthubAuto = {
+  window.AdvprintAuto = {
     version: "1.6.0",
     init: function (opts) {
       for (var k in (opts || {})) {

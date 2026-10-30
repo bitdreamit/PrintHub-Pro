@@ -1,5 +1,5 @@
 /* ============================================================
- * PrintHub Pro - background service worker (MV3)
+ * AdvPrint Pro - background service worker (MV3)
  * Bridges web pages <-> local hub (http://127.0.0.1:9235).
  * All printing is silent: the hub prints via the OS, never a dialog.
  * ============================================================ */
@@ -8,7 +8,7 @@ const DEFAULTS = {
   hubUrl: "http://127.0.0.1:9235",
   token: "PrintHub-2024",
   defaultPrinter: "",
-  enabled: true,            // MASTER SWITCH: false = PrintHub fully off
+  enabled: true,            // MASTER SWITCH: false = AdvPrint fully off
                             // (no printing, no auto-print, no hook/API,
                             //  gray OFF badge on the toolbar icon)
   queueMode: true,          // ON  = jobs go through the hub FIFO queue
@@ -22,7 +22,7 @@ const DEFAULTS = {
   failFallback: "tab",      // page print call failed: "tab"=open URL in new tab, "none"=stay silent
   autoPrintAllPdfs: true,   // SIMPLE MODE: any PDF opened in the browser prints silently
   closeAfterPrint: true,    // auto-printed URLs: close the tab after -> no browser view
-  contextMenu: true,        // right-click "PrintHub Pro" menu
+  contextMenu: true,        // right-click "AdvPrint Pro" menu
   badge: true,              // show ok/fail on the toolbar icon
   debugMode: false,         // v2.3 DEBUG: collect this extension's errors
                             // (JS, network, print calls) and POST them to
@@ -73,7 +73,7 @@ async function saveCfg(patch) {
 /* When the hub cannot be reached, jobs are kept here and flushed by a
  * 1-minute alarm as soon as /health answers again. The popup shows an
  * offline banner with the waiting count + a Retry-now button. */
-const RETRY_ALARM = "printhub-retry";
+const RETRY_ALARM = "advprint-retry";
 
 async function retryQueueInfo() {
   const st = await chrome.storage.local.get({ retryQueue: [] });
@@ -88,7 +88,7 @@ async function queueForRetry(payload) {
   try {
     await chrome.alarms.create(RETRY_ALARM, { periodInMinutes: 1 });
   } catch (_) {}
-  console.warn("[PrintHub] hub offline - job parked for retry (" +
+  console.warn("[AdvPrint] hub offline - job parked for retry (" +
                q.length + " waiting)");
 }
 
@@ -133,14 +133,14 @@ async function flushRetries(reason) {
     await setAuthProblem(true, stopped);
     FLUSH_BACKOFF_MIN = Math.min(FLUSH_BACKOFF_MIN * 2 || 2, 15);
     await scheduleRetryAlarm();      // slow down: 1 -> 2 -> 4 -> 8 -> 15 min
-    console.warn("[PrintHub] retry paused for " + FLUSH_BACKOFF_MIN +
+    console.warn("[AdvPrint] retry paused for " + FLUSH_BACKOFF_MIN +
                  " min (" + remaining.length + " job(s) kept)");
     return sent;
   }
   if (sent) {
     FLUSH_BACKOFF_MIN = 1;
     await setAuthProblem(false);
-    console.log("[PrintHub] " + sent + " parked job(s) delivered" +
+    console.log("[AdvPrint] " + sent + " parked job(s) delivered" +
                 (reason ? " (" + reason + ")" : ""));
     await flashBadge(true, "OK");
   }
@@ -198,7 +198,7 @@ async function hubFetch(path, opts = {}) {
   const res = await fetch(base + path, {
     method: opts.method || "GET",
     headers: Object.assign(
-      { "X-PrintHub-Token": cfg.token },
+      { "X-AdvPrint-Token": cfg.token },
       opts.body ? { "Content-Type": "application/json" } : {}
     ),
     body: opts.body ? JSON.stringify(opts.body) : undefined
@@ -286,9 +286,9 @@ async function setAuthProblem(on, why) {
       await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
       await chrome.action.setBadgeText({ text: "KEY" });
     } catch (_) {}
-    console.warn("[PrintHub] " + (why === "locked"
+    console.warn("[AdvPrint] " + (why === "locked"
       ? "hub is rate-limiting this IP (429) - backing off"
-      : "hub rejected the token (401) - update it in PrintHub options"));
+      : "hub rejected the token (401) - update it in AdvPrint options"));
   } else if (st.authProblem) {
     await chrome.storage.local.remove("authProblem");
   }
@@ -375,7 +375,7 @@ async function rememberJob(record) {
  * it reaches a final state. failed/dead -> red "!" + a notification with
  * the actual error; held -> amber "WAIT"; printed -> record the truth in
  * the extension history. No more silent gaps. */
-const VERIFY_ALARM = "printhub-verify";
+const VERIFY_ALARM = "advprint-verify";
 
 async function trackJobOutcome(jobId) {
   const st = await chrome.storage.local.get({ verifyIds: {} });
@@ -426,7 +426,7 @@ async function verifyJobs() {
       try {
         chrome.notifications.create({
           type: "basic", iconUrl: "icons/icon128.png",
-          title: "PrintHub Pro - job NOT printed",
+          title: "AdvPrint Pro - job NOT printed",
           message: (j.title || ("Job #" + id)) + ": " +
                    (j.error || "printer error") });
       } catch (_) {}
@@ -519,7 +519,7 @@ function hubPrint(payload) {
           reportDebug("warn", "hub rejected the token (401) - printing " +
                       "cannot succeed until the token is fixed");
           throw new HubError("hub rejected the token - fix it in " +
-                             "PrintHub Pro options (Hub token field)");
+                             "AdvPrint Pro options (Hub token field)");
         }
         if (e && e.locked) {
           // v2.2.0: 429 = this IP is temporarily locked (too many bad
@@ -778,7 +778,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
                         url: tab.url, status: "failed", error: String(e.message || e) });
     reportDebug("error", "auto-print failed: " + String(e.message || e)
                 .slice(0, 300), tab.url || "");
-    console.warn("[PrintHub] auto-print failed:", e);
+    console.warn("[AdvPrint] auto-print failed:", e);
   }
 });
 
@@ -792,9 +792,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
   try {
     const cfg = await loadCfg();
     // Master switch OFF -> inject NOTHING: no window.print() hook, no
-    // window.printhub API, nothing. Pages keep their native behavior.
+    // window.advprint API, nothing. Pages keep their native behavior.
     if (cfg.enabled === false) return;
-    // v1.1.6: api.js (window.printhub + global printPdfLink) is injected
+    // v1.1.6: api.js (window.advprint + global printPdfLink) is injected
     // ALWAYS; hook.js (window.print interception) follows the toggle.
     const files = cfg.hookPrint
       ? ["content/hook.js", "content/api.js"]
@@ -811,7 +811,7 @@ async function injectIntoOpenTabs() {
   // Pages opened BEFORE registration have nothing yet - push the scripts
   // into every open http(s) tab now. All scripts are idempotent, so
   // re-running them is safe. api.js goes in regardless of the hook toggle
-  // so window.printhub / printPdfLink stay global (v1.1.6).
+  // so window.advprint / printPdfLink stay global (v1.1.6).
   const cfg = await loadCfg();
   if (cfg.enabled === false) return;         // master switch OFF
   let tabs = [];
@@ -847,7 +847,7 @@ async function applyHook() {
     try {
       const regs = await chrome.scripting.getRegisteredContentScripts();
       const ids = regs.map((r) => r.id)
-        .filter((id) => id === "printhub-api" || id === "printhub-hook");
+        .filter((id) => id === "advprint-api" || id === "advprint-hook");
       if (ids.length) {
         await chrome.scripting.unregisterContentScripts({ ids });
       }
@@ -856,17 +856,17 @@ async function applyHook() {
   }
   const wanted = !!cfg.hookPrint;
   const existing = await chrome.scripting.getRegisteredContentScripts();
-  const hasApi = existing.some((s) => s.id === "printhub-api");
-  const hookReg = existing.find((s) => s.id === "printhub-hook");
-  // legacy (<=1.1.5) registration bundles api.js into printhub-hook
+  const hasApi = existing.some((s) => s.id === "advprint-api");
+  const hookReg = existing.find((s) => s.id === "advprint-hook");
+  // legacy (<=1.1.5) registration bundles api.js into advprint-hook
   const legacy = !!hookReg && (hookReg.js || []).includes("content/api.js");
 
-  // v1.1.6: API registration must ALWAYS exist - window.printhub and the
+  // v1.1.6: API registration must ALWAYS exist - window.advprint and the
   // global printPdfLink() one-liner work even with interception disabled.
   if (!hasApi) {
     try {
       await chrome.scripting.registerContentScripts([{
-        id: "printhub-api",
+        id: "advprint-api",
         matches: ["<all_urls>"],
         js: ["content/api.js"],
         runAt: "document_start",
@@ -880,7 +880,7 @@ async function applyHook() {
   // migrate the legacy combined registration to hook-only
   if (legacy) {
     try {
-      await chrome.scripting.unregisterContentScripts({ ids: ["printhub-hook"] });
+      await chrome.scripting.unregisterContentScripts({ ids: ["advprint-hook"] });
     } catch (_) {}
   }
 
@@ -888,7 +888,7 @@ async function applyHook() {
   if (wanted && (legacy || !hookReg)) {
     try {
       await chrome.scripting.registerContentScripts([{
-        id: "printhub-hook",
+        id: "advprint-hook",
         matches: ["<all_urls>"],
         js: ["content/hook.js"],
         runAt: "document_start",
@@ -899,7 +899,7 @@ async function applyHook() {
     } catch (_) { /* older Chrome: the per-navigation fallback below takes over */ }
   } else if (!wanted && hookReg && !legacy) {
     try {
-      await chrome.scripting.unregisterContentScripts({ ids: ["printhub-hook"] });
+      await chrome.scripting.unregisterContentScripts({ ids: ["advprint-hook"] });
     } catch (_) {}
   }
   await injectIntoOpenTabs();
@@ -913,7 +913,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           // window.print() was called on a page -> print that page silently
           const hcfg = await loadCfg();
           if (hcfg.enabled === false) {
-            reply({ ok: false, error: "PrintHub is disabled - enable it from the toolbar popup" });
+            reply({ ok: false, error: "AdvPrint is disabled - enable it from the toolbar popup" });
             break;
           }
           if (!hcfg.hookPrint) {
@@ -927,13 +927,13 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           break;
         }
         case "api": {
-          // window.printhub developer API (see content/api.js)
+          // window.advprint developer API (see content/api.js)
           reply(await handleApi(msg));
           break;
         }
         case "printTab": {
           if ((await loadCfg()).enabled === false) {
-            reply({ ok: false, error: "PrintHub is disabled - enable it in the popup" });
+            reply({ ok: false, error: "AdvPrint is disabled - enable it in the popup" });
             break;
           }
           const tab = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
@@ -944,7 +944,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         }
         case "printPdfUrl": {
           if ((await loadCfg()).enabled === false) {
-            reply({ ok: false, error: "PrintHub is disabled - enable it in the popup" });
+            reply({ ok: false, error: "AdvPrint is disabled - enable it in the popup" });
             break;
           }
           const printer = await resolvePrinter(msg.url, msg.title);
@@ -954,14 +954,14 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         }
         case "printSelection":
           if ((await loadCfg()).enabled === false) {
-            reply({ ok: false, error: "PrintHub is disabled - enable it in the popup" });
+            reply({ ok: false, error: "AdvPrint is disabled - enable it in the popup" });
             break;
           }
           reply({ ok: true, ...(await printSelection(msg.text, msg.title)) });
           break;
         case "printScreenshot": {
           if ((await loadCfg()).enabled === false) {
-            reply({ ok: false, error: "PrintHub is disabled - enable it in the popup" });
+            reply({ ok: false, error: "AdvPrint is disabled - enable it in the popup" });
             break;
           }
           const win = await chrome.windows.getCurrent();
@@ -991,10 +991,42 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           reply(await hubFetch("/printers/" +
             encodeURIComponent(msg.name || "") + "/capabilities"));
           break;
+        case "hubConfigGet":
+          reply(await hubFetch("/config"));
+          break;
         case "hubConfigSet":
           reply(await hubFetch("/config", { method: "POST",
                                             body: msg.patch || {} }));
           break;
+        case "tokenDetect": {
+          /* v2.6 one-click token fix: ask the hub for its current token.
+           * The hub answers ONLY to loopback (the hub PC itself), so this
+           * works for a local hub and fails cleanly for a LAN hub. */
+          const base = (msg.hubUrl ||
+            (await loadCfg()).hubUrl || "http://127.0.0.1:9235").replace(/\/+$/, "");
+          try {
+            const r = await fetch(base + "/token/current", {
+              cache: "no-store" });
+            if (!r.ok) {
+              reply({ ok: false, error: r.status === 403
+                ? "The hub only gives the token to programs on the hub PC itself. Open it there, or paste the token manually."
+                : "HTTP " + r.status });
+              break;
+            }
+            const d = await r.json();
+            if (d && d.ok && d.token) {
+              await chrome.storage.local.set({ token: d.token });
+              CFG = null; // reload on next use
+              reply({ ok: true, token: d.token, version: d.version });
+            } else {
+              reply({ ok: false, error: "hub gave no token" });
+            }
+          } catch (e) {
+            reply({ ok: false,
+              error: "hub not reachable (" + e.message + ") - start the hub first" });
+          }
+          break;
+        }
         case "queueShift":
           reply(await hubFetch("/queue/shift", { method: "POST", body: {
             scope: msg.scope || "all",
@@ -1074,10 +1106,10 @@ async function handleApi(msg) {
   const cfg = await loadCfg();
   const req = msg.payload || {};
   // read-only calls stay available even while disabled; printing calls
-  // are refused so a disabled PrintHub never prints from a page
+  // are refused so a disabled AdvPrint never prints from a page
   const PRINT_FNS = ["printPage", "printPdf", "print"];
   if (PRINT_FNS.includes(req.fn) && cfg.enabled === false) {
-    throw new HubError("PrintHub is disabled - enable it in the toolbar popup");
+    throw new HubError("AdvPrint is disabled - enable it in the toolbar popup");
   }
   switch (req.fn) {
     case "status":
@@ -1135,7 +1167,7 @@ async function handleApi(msg) {
       if (o.watermark != null) body.watermark = o.watermark;
       if (!body.pdf_base64 && !body.pdf_url && body.text == null &&
           body.html == null && !body.page_url && !body.raw_base64) {
-        throw new HubError("printhub.print: provide pdfBase64, pdfUrl, text, html, pageUrl or rawBase64");
+        throw new HubError("advprint.print: provide pdfBase64, pdfUrl, text, html, pageUrl or rawBase64");
       }
       const out = await hubPrint(body);
       await rememberJob({ id: out.job_id, title: body.title,
@@ -1155,22 +1187,22 @@ async function rebuildMenus() {
   await chrome.contextMenus.removeAll();
   if (!cfg.contextMenu || cfg.enabled === false) return;   // no menu while disabled
   chrome.contextMenus.create({
-    id: "printhub-root", title: "PrintHub Pro", contexts: ["all"]
+    id: "advprint-root", title: "AdvPrint Pro", contexts: ["all"]
   });
   chrome.contextMenus.create({
-    id: "ph-print-page", parentId: "printhub-root",
+    id: "ph-print-page", parentId: "advprint-root",
     title: "Print this page", contexts: ["page"]
   });
   chrome.contextMenus.create({
-    id: "ph-print-sel", parentId: "printhub-root",
+    id: "ph-print-sel", parentId: "advprint-root",
     title: "Print selection", contexts: ["selection"]
   });
   chrome.contextMenus.create({
-    id: "ph-print-link", parentId: "printhub-root",
+    id: "ph-print-link", parentId: "advprint-root",
     title: "Print linked PDF", contexts: ["link"]
   });
   chrome.contextMenus.create({
-    id: "ph-shot", parentId: "printhub-root",
+    id: "ph-shot", parentId: "advprint-root",
     title: "Print screenshot", contexts: ["page"]
   });
 }
@@ -1196,7 +1228,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
                 info.menuItemId || "");
     chrome.notifications.create({
       type: "basic", iconUrl: "icons/icon128.png",
-      title: "PrintHub Pro", message: String(e.message || e)
+      title: "AdvPrint Pro", message: String(e.message || e)
     });
   }
 });
@@ -1215,7 +1247,7 @@ chrome.commands.onCommand.addListener(async (command) => {
                 String(e.message || e).slice(0, 300), tab.url || "");
     chrome.notifications.create({
       type: "basic", iconUrl: "icons/icon128.png",
-      title: "PrintHub Pro", message: String(e.message || e)
+      title: "AdvPrint Pro", message: String(e.message || e)
     });
   }
 });
@@ -1248,6 +1280,6 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 // MV3 service workers wake on events - make sure open tabs always have
-// the hook (idempotent; cheap because of the __printhub* guards).
+// the hook (idempotent; cheap because of the __advprint* guards).
 applyEnabledBadge();
 injectIntoOpenTabs();

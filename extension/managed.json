@@ -3,11 +3,11 @@
   "properties": {
     "hubUrl": {
       "type": "string",
-      "description": "PrintHub Pro hub base URL, e.g. http://127.0.0.1:9235"
+      "description": "AdvPrint Pro hub base URL, e.g. http://127.0.0.1:9235"
     },
     "token": {
       "type": "string",
-      "description": "Hub API token (must match PRINTHUB_TOKEN of the hub)"
+      "description": "Hub API token (must match ADVPRINT_TOKEN of the hub)"
     },
     "defaultPrinter": {
       "type": "string",
@@ -16,7 +16,7 @@
     "enabled": {
       "type": "boolean",
       "default": true,
-      "description": "MASTER SWITCH: false disables ALL PrintHub printing, auto-print, the window.print() hook and the page API (gray OFF badge)."
+      "description": "MASTER SWITCH: false disables ALL AdvPrint printing, auto-print, the window.print() hook and the page API (gray OFF badge)."
     },
     "queueMode": {
       "type": "boolean",

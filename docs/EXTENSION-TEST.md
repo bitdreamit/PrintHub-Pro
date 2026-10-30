@@ -1,4 +1,4 @@
-# PrintHub Pro — Extension Tool Test Guide (v2.4.1)
+# AdvPrint Pro — Extension Tool Test Guide (v2.4.1)
 
 How to test the whole chain end-to-end and **prove the real printer was hit** —
 not just "the extension shows OK". Total time: about 5 minutes.
@@ -9,9 +9,9 @@ not just "the extension shows OK". Total time: about 5 minutes.
 
 | Thing | Where |
 |---|---|
-| Hub running | Tray icon "PrintHub Pro", or `python printhub.py serve` |
-| Extension loaded | `chrome://extensions` → PrintHub Pro → enabled, version **2.4.1** |
-| Token | Default `PrintHub-2024` (or your own — must match hub `config.json`) |
+| Hub running | Tray icon "AdvPrint Pro", or `python advprint.py serve` |
+| Extension loaded | `chrome://extensions` → AdvPrint Pro → enabled, version **2.4.1** |
+| Token | A private random token on fresh installs (or your own — must match hub `config.json`) |
 | A printer | Physical printer, OR "Microsoft Print to PDF" if you have no printer today |
 
 ---
@@ -32,7 +32,7 @@ If this fails, the hub is not running — start it first. Nothing else matters u
 Open the extension **Options** (right-click the P icon → Options, or popup → Options):
 
 1. **Hub URL**: `http://127.0.0.1:9235`
-2. **Token**: your token (default `PrintHub-2024`)
+2. **Token**: your token (`advprint token` to read it)
 3. Click **Connect**.
 
 Expect: `CONNECTED - v2.4.1 - Windows` in green.
@@ -59,12 +59,12 @@ Expect:
 This is the step that answers *"did the real printer get hit or not"*:
 
 1. Options page → **Live debug & test tool** → **Open live debug dashboard**
-   (or open `http://127.0.0.1:9235/dashboard?token=PrintHub-2024`).
+   (or open `http://127.0.0.1:9235/dashboard?token=YOUR-TOKEN`).
 2. Click **Send test print & watch live**.
 3. The dashboard shows every step live — job queued → dispatching → printer
    command — and ends with a final verdict:
    - **REAL PRINTER HIT** — the OS accepted the job for that printer.
-   - **SAVED to Downloads\PrintHub** — virtual PDF printer (no paper needed).
+   - **SAVED to Downloads\AdvPrint** — virtual PDF printer (no paper needed).
    - **HELD** — target printer is offline; job waits and auto-prints when the
      printer is ready. Press **Print now** to force.
    - **FAILED + reason** — exact cause and the fix (e.g. "SumatraPDF not
@@ -74,14 +74,14 @@ This is the step that answers *"did the real printer get hit or not"*:
 | Setup | Proof the printer was really hit |
 |---|---|
 | Physical printer | Paper comes out. Also: Windows Settings → Bluetooth & devices → Printers & scanners → your printer → **Open print queue** — the job appears there during printing. |
-| Microsoft Print to PDF | A new PDF file appears in **Downloads\PrintHub** named like `2026-10-30_16-45_test-page.pdf`. |
+| Microsoft Print to PDF | A new PDF file appears in **Downloads\AdvPrint** named like `2026-10-30_16-45_test-page.pdf`. |
 | OneNote | OneNote opens / the page is inserted into your notebook. |
 
 ---
 
 ## 2. Test from YOUR site (Laravel / htncr.com)
 
-The page-side API `window.printhub.printPdfLink(url, title, opts)` is injected
+The page-side API `window.advprint.printPdfLink(url, title, opts)` is injected
 on every page. On your lab report page:
 
 ```js
@@ -111,7 +111,7 @@ returned HTML login page instead of a PDF).
 | `queued` | In the queue, waiting for the worker | none |
 | `printing` | Being sent to the printer right now | none |
 | `printed` | OS accepted the job — paper/output | done |
-| `saved` | Virtual PDF printer — file written to Downloads\PrintHub | done |
+| `saved` | Virtual PDF printer — file written to Downloads\AdvPrint | done |
 | `held` | Printer offline — job kept, auto-released when ready | wait, or **Print now** |
 | `failed` | Could not print — reason stored | read reason in dashboard |
 | `canceled` | You canceled it | reprint from history |
@@ -122,7 +122,7 @@ returned HTML login page instead of a PDF).
 
 | Symptom | Look at | Fix |
 |---|---|---|
-| Extension popup red "hub not running" | `/health` | Start hub (tray icon / `python printhub.py serve`) |
+| Extension popup red "hub not running" | `/health` | Start hub (tray icon / `python advprint.py serve`) |
 | Extension OK but nothing prints | `/audit` → `auth.failed` | Token mismatch — set the same token in Options and hub config |
 | `SumatraPDF not found` although installed | `/debug` → `sumatra_path`, `sumatra_searched` | v2.4.1 finds `C:\Users\<any-user>\AppData\Local\SumatraPDF` automatically. Still failing? Dashboard → Settings → paste full path to `SumatraPDF.exe` |
 | Jobs stuck as `held` | Dashboard held list | Printer offline — plug it / choose another printer / **Print now** / turn off "hold offline printer jobs" in Settings |
@@ -134,8 +134,8 @@ returned HTML login page instead of a PDF).
 **One command dump for a support ticket** — copy these three into a message:
 
 ```
-http://127.0.0.1:9235/debug?token=PrintHub-2024
-http://127.0.0.1:9235/audit?token=PrintHub-2024&limit=50
+http://127.0.0.1:9235/debug?token=YOUR-TOKEN
+http://127.0.0.1:9235/audit?token=YOUR-TOKEN&limit=50
 http://127.0.0.1:9235/health
 ```
 
@@ -146,7 +146,7 @@ http://127.0.0.1:9235/health
 - [ ] `/health` → `ok: true`, version 2.4.1
 - [ ] Options → Connect → `CONNECTED - v2.4.1`
 - [ ] Popup → **Test page** → job status `printed`
-- [ ] Dashboard → **Send test print & watch live** → verdict **REAL PRINTER HIT** (or **SAVED** with the file present in Downloads\PrintHub)
+- [ ] Dashboard → **Send test print & watch live** → verdict **REAL PRINTER HIT** (or **SAVED** with the file present in Downloads\AdvPrint)
 - [ ] Your Laravel page print → toast + job id + `printed` in dashboard
 - [ ] `/audit` shows `print.submitted` with your site origin
 

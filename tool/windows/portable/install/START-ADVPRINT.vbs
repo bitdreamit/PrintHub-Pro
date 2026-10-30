@@ -1,9 +1,9 @@
-' PrintHub Pro - hidden launcher, no console window  (v2.5.0)
+' AdvPrint Pro - hidden launcher, no console window  (v2.5.0)
 ' MANUAL / FALLBACK launcher only: normal installs start the hub
-' as the Startup app "PrintHub Pro" (Task Manager > Startup apps)
+' as the Startup app "AdvPrint Pro" (Task Manager > Startup apps)
 ' or from the tray icon. Double-click this file only when both
 ' are unavailable.
-' Hub log: %UserProfile%\.printhub\hub.log
+' Hub log: %UserProfile%\.advprint\hub.log
 
 Option Explicit
 Dim sh, fso, base, hub, logdir, ts
@@ -12,21 +12,21 @@ Dim py, candidates, v, wout, wline
 Set sh  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 base = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
-hub  = base & "\hub\printhub.py"
+hub  = base & "\hub\advprint.py"
 
 ' ---- 1) resolve the launcher -------------------------------------------
 py = ""
 
 ' 1pre) BUNDLED runtime (full package) - v2.4.0 prefers
-'       PrintHubPro.exe (= pythonw.exe renamed: Task Manager shows
-'       "PrintHubPro" instead of "python")
-If fso.FileExists(base & "\installer\runtime\PrintHubPro.exe") Then
-  py = base & "\installer\runtime\PrintHubPro.exe"
+'       AdvPrintPro.exe (= pythonw.exe renamed: Task Manager shows
+'       "AdvPrintPro" instead of "python")
+If fso.FileExists(base & "\installer\runtime\AdvPrintPro.exe") Then
+  py = base & "\installer\runtime\AdvPrintPro.exe"
 ElseIf fso.FileExists(base & "\installer\runtime\pythonw.exe") Then
   py = base & "\installer\runtime\pythonw.exe"
-ElseIf fso.FileExists(base & "\runtime\PrintHubPro.exe") Then
+ElseIf fso.FileExists(base & "\runtime\AdvPrintPro.exe") Then
   ' NSIS-installed layout: runtime\ sits directly under $INSTDIR
-  py = base & "\runtime\PrintHubPro.exe"
+  py = base & "\runtime\AdvPrintPro.exe"
 ElseIf fso.FileExists(base & "\runtime\pythonw.exe") Then
   py = base & "\runtime\pythonw.exe"
 End If
@@ -67,7 +67,7 @@ If py = "" And fso.FileExists("C:\Windows\pyw.exe") Then py = "C:\Windows\pyw.ex
 If py = "" Then py = "pythonw.exe"
 
 ' ---- 2) boot log - makes "why is nothing printing" answerable ---------
-logdir = sh.ExpandEnvironmentStrings("%LocalAppData%\PrintHubPro")
+logdir = sh.ExpandEnvironmentStrings("%LocalAppData%\AdvPrintPro")
 On Error Resume Next
 If Not fso.FolderExists(logdir) Then fso.CreateFolder(logdir)
 Set ts = fso.OpenTextFile(logdir & "\boot.log", 8, True)

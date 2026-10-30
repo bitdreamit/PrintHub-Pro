@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""PrintHub Pro - Windows system tray icon (pure stdlib, ctypes only).
+"""AdvPrint Pro - Windows system tray icon (pure stdlib, ctypes only).
 
 Gives the hub a REAL identity on Windows:
   * a printer-badge icon in the tray area (bottom-right corner)
-  * tooltip "PrintHub Pro vX.Y - running on http://127.0.0.1:PORT"
-  * right-click menu:  Open status page / Print test page /
+  * tooltip "AdvPrint Pro vX.Y - running on http://127.0.0.1:PORT"
+  * right-click menu:  Open dashboard / Print test page /
     Pause queue (check) / Start at Windows logon (check) / Exit
   * double-click opens the status (health) page
 
@@ -16,7 +16,7 @@ The hub calls:
     import tray_windows
     tray_windows.start(icon=..., tooltip=..., callbacks={...})
 Callbacks (all optional):
-    on_open()            -> double-click / "Open status page"
+    on_open()            -> double-click / "Open dashboard"
     on_test()            -> "Print test page"
     is_paused()->bool    -> checkmark when menu is built
     on_pause_toggle()    -> user clicked Pause/Resume; returns new paused state
@@ -29,7 +29,7 @@ import ctypes
 import os
 import threading
 
-APP = "PrintHub Pro"
+APP = "AdvPrint Pro"
 
 # ---- win32 constants -------------------------------------------------
 WM_NULL            = 0x0000
@@ -152,7 +152,7 @@ class Tray(object):
         self.wc.style = CS_VREDRAW | CS_HREDRAW
         self.wc.lpfnWndProc = _WNDPROC(self._wndproc)   # keep a reference!
         self.wc.hInstance = kernel32.GetModuleHandleW(None)
-        self.wc.lpszClassName = "PrintHubProTrayWnd"
+        self.wc.lpszClassName = "AdvPrintProTrayWnd"
         self.wc.hIcon = self._load_icon()
         if not user32.RegisterClassW(ctypes.byref(self.wc)) \
                 and kernel32.GetLastError() != 1410:     # already registered
@@ -223,7 +223,7 @@ class Tray(object):
         menu = user32.CreatePopupMenu()
         if not menu:
             return
-        user32.AppendMenuW(menu, MF_STRING, M_OPEN, "Open status page")
+        user32.AppendMenuW(menu, MF_STRING, M_OPEN, "Open dashboard")
         user32.AppendMenuW(menu, MF_STRING, M_TEST, "Print test page")
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
         user32.AppendMenuW(menu, MF_STRING | (MF_CHECKED if paused else 0),
@@ -275,7 +275,7 @@ class Tray(object):
         self._log("tray loop ended")
 
     def start_thread(self):
-        self._tid = threading.Thread(target=self.run, name="printhub-tray",
+        self._tid = threading.Thread(target=self.run, name="advprint-tray",
                                      daemon=True)
         self._tid.start()
 

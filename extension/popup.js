@@ -1,4 +1,4 @@
-/* PrintHub Pro - popup logic */
+/* AdvPrint Pro - popup logic */
 const $ = (id) => document.getElementById(id);
 let paused = false;
 
@@ -20,8 +20,8 @@ function showOffline(on, count) {
   b.classList.toggle("show", !!on);
   if (on) {
     const n = count || 0;
-    $("offlineText").textContent = PrintHubI18n.t("popOffline") +
-      (n ? " - " + n + " " + PrintHubI18n.t("popRetryCount") : "");
+    $("offlineText").textContent = AdvPrintI18n.t("popOffline") +
+      (n ? " - " + n + " " + AdvPrintI18n.t("popRetryCount") : "");
   }
 }
 
@@ -30,10 +30,10 @@ function showTokenWarning(on, mode) {
   if (on) {
     // v2.1.0: mode "token"=401, "locked"=429, "default"=legacy token
     $("tokenText").textContent = mode === "token"
-      ? PrintHubI18n.t("popTokenBad")
+      ? AdvPrintI18n.t("popTokenBad")
       : mode === "locked"
-        ? PrintHubI18n.t("popTokenLocked")
-        : PrintHubI18n.t("popTokenWarn");
+        ? AdvPrintI18n.t("popTokenLocked")
+        : AdvPrintI18n.t("popTokenWarn");
   }
 }
 
@@ -53,8 +53,8 @@ $("bTokenHelp").addEventListener("click", () => {
 function renderEnabledState(off) {
   document.body.classList.toggle("off", off);
   $("swEnabledRow").classList.toggle("off", off);
-  $("swEnabledSub").textContent = off ? PrintHubI18n.t("popEnabledOff")
-                                      : PrintHubI18n.t("popEnabledOn");
+  $("swEnabledSub").textContent = off ? AdvPrintI18n.t("popEnabledOff")
+                                      : AdvPrintI18n.t("popEnabledOn");
   ["bPage", "bFile", "bShot", "bTest"].forEach((id) => { $(id).disabled = off; });
   $("bPause").disabled = off;
 }
@@ -72,7 +72,7 @@ $("swEnabled").addEventListener("change", async () => {
   const on = $("swEnabled").checked;
   await send({ type: "saveCfg", patch: { enabled: on } });
   renderEnabledState(!on);
-  msg(on ? "PrintHub enabled" : "PrintHub disabled - nothing will print", "info");
+  msg(on ? "AdvPrint enabled" : "AdvPrint disabled - nothing will print", "info");
 });
 
 $("swQueue").addEventListener("change", async () => {
@@ -94,13 +94,13 @@ async function refresh() {
     $("connect").textContent = "";
     paused = !!st.paused;
     const qs = $("qstate");
-    qs.textContent = paused ? PrintHubI18n.t("popPaused")
-                            : PrintHubI18n.t("popRunning");
+    qs.textContent = paused ? AdvPrintI18n.t("popPaused")
+                            : AdvPrintI18n.t("popRunning");
     // v2.2.1: PAUSED must be unmissable - red text (a paused queue is
     // the #1 reason jobs "stay queued" and nothing prints)
     qs.classList.toggle("paused", paused);
-    $("bPause").textContent = paused ? PrintHubI18n.t("popResume")
-                                     : PrintHubI18n.t("popPause");
+    $("bPause").textContent = paused ? AdvPrintI18n.t("popResume")
+                                     : AdvPrintI18n.t("popPause");
     $("qpend").textContent = st.pending ? st.pending + " pending" : "";
     showOffline(false);
     // v2.1.0: token rejected earlier (KEY state) -> red banner; once an
@@ -125,7 +125,7 @@ async function refresh() {
     $("qpend").textContent = "";
     const ri = await send({ type: "retryInfo" });
     showOffline(true, ri.ok ? ri.count : 0);
-    msg(PrintHubI18n.t("popHubOfflineHint"), "err");
+    msg(AdvPrintI18n.t("popHubOfflineHint"), "err");
   }
 
   const jobs = await send({ type: "hubJobs", limit: 8 });
@@ -195,7 +195,7 @@ async function refresh() {
       $("heldBanner").classList.remove("show");
     }
   } else {
-    box.innerHTML = '<div class="empty">' + PrintHubI18n.t("popNoJobs") + '</div>';
+    box.innerHTML = '<div class="empty">' + AdvPrintI18n.t("popNoJobs") + '</div>';
     $("heldBanner").classList.remove("show");
   }
 }
@@ -229,7 +229,7 @@ $("bTest").addEventListener("click", async () => {
   if (!cfg.ok) return msg("Config error", "err");
   const base = cfg.cfg.hubUrl.replace(/\/+$/, "");
   const res = await fetch(base + "/testprint?kind=a4", {
-    headers: { "X-PrintHub-Token": cfg.cfg.token }
+    headers: { "X-AdvPrint-Token": cfg.cfg.token }
   }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
   if (res.ok) { msg("Test page queued as job #" + res.job_id, "info"); refresh(); }
   else msg("Failed: " + (res.error || "hub offline"), "err");
@@ -268,13 +268,13 @@ $("lnkApi").addEventListener("click", (e) => {
 $("connect").addEventListener("click", (e) => { e.preventDefault(); refresh(); });
 
 /* ---------- v2.0: apply UI language (en / bn / auto) ---------- */
-PrintHubI18n.currentLang().then((lang) => {
-  PrintHubI18n.apply(lang);
+AdvPrintI18n.currentLang().then((lang) => {
+  AdvPrintI18n.apply(lang);
   $("swQueueSub").textContent = $("swQueue").checked
-    ? PrintHubI18n.t("popQueueOn") : PrintHubI18n.t("popQueueOff");
+    ? AdvPrintI18n.t("popQueueOn") : AdvPrintI18n.t("popQueueOff");
   const off = document.body.classList.contains("off");
-  $("swEnabledSub").textContent = off ? PrintHubI18n.t("popEnabledOff")
-                                      : PrintHubI18n.t("popEnabledOn");
+  $("swEnabledSub").textContent = off ? AdvPrintI18n.t("popEnabledOff")
+                                      : AdvPrintI18n.t("popEnabledOn");
 });
 
 loadSwitches();

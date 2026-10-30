@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "PrintHub Pro — Print from Any Web Page",
-  "short_name": "PrintHub Pro",
-  "version": "2.5.3",
-  "description": "Print any web page, PDF, selection or screenshot to ANY printer via your local PrintHub Pro hub. Silent, no print dialog, 100% local.",
-  "author": "Bitdream IT",
+  "name": "AdvPrint Pro — Print from Any Web Page",
+  "short_name": "AdvPrint Pro",
+  "version": "2.6.0",
+  "description": "AdvPrint Pro (Advanced Printer): print any web page, PDF, selection or screenshot to ANY printer via your local hub. Silent, no print dialog, 100% local. By Bit Dream IT - Innovative Healthcare Solutions.",
+  "author": "Bit Dream IT - Innovative Healthcare Solutions",
   "homepage_url": "https://github.com/bitdreamit/PrintHub-Pro",
   "icons": {
     "16": "icons/icon16.png",
@@ -13,7 +13,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "PrintHub Pro",
+    "default_title": "AdvPrint Pro",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -63,7 +63,7 @@
       "suggested_key": {
         "default": "Alt+P"
       },
-      "description": "Print the current tab with PrintHub Pro"
+      "description": "Print the current tab with AdvPrint Pro"
     }
   }
 }

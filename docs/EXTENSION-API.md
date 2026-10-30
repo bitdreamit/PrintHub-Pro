@@ -1,4 +1,4 @@
-# PrintHub Pro — Browser / Extension API
+# AdvPrint Pro — Browser / Extension API
 
 ## 0. The global one-liner: `printPdfLink(url, title)`
 
@@ -30,7 +30,7 @@ Guarded variant (safe even on machines without the extension):
 
 ```js
 (window.printPdfLink || function (u, t) { window.open(u, '_blank'); })(url, 'Lab report');
-// namespaced twin: window.printhub.printPdfLink(url, title)
+// namespaced twin: window.advprint.printPdfLink(url, title)
 ```
 
 **Fallback default is an extension setting** — Options > Behavior > **"When a page print call fails"** (`failFallback`): `tab` = open the URL in a new tab (browser fallback, default), `none` = stay completely silent (nothing opens, failure only logged). Changes apply live, no reload.
@@ -52,31 +52,31 @@ print the same URL again. Keep auto rules pointed at **PDF endpoints only**
 makes every page open attempt a DOM render, which fails on login-protected
 sites ("html render failed ... login required").
 
-## 1. `window.printhub` (developer API, on every page)
+## 1. `window.advprint` (developer API, on every page)
 
 Available on every http(s) page once the extension is loaded (v1.1.6 no longer requires "Intercept window.print()" — the API and `printPdfLink` are always injected). Every method returns a **Promise** with the hub JSON:
 
 ```js
-await window.printhub.status();
-// {ok:true, app:"PrintHub Pro", version:"1.0.0", default_printer:"HP LaserJet Pro", ...}
+await window.advprint.status();
+// {ok:true, app:"AdvPrint Pro", version:"1.0.0", default_printer:"HP LaserJet Pro", ...}
 
-await window.printhub.printers();
+await window.advprint.printers();
 // {ok:true, printers:[{name:"XP-80C Thermal", is_default:false}, ...]}
 
-await window.printhub.history(20);
+await window.advprint.history(20);
 // {ok:true, jobs:[{id, created_at, title, printer, kind, status}, ...]}
 
-await window.printhub.printPage({ title: "Invoice 42", printer: "" });
+await window.advprint.printPage({ title: "Invoice 42", printer: "" });
 // prints the current page (rendered to PDF by the hub)
 
-await window.printhub.printPage({ title: "Archive copy", destination: "file" });
-// saves the current page as a PDF file (default ~/Downloads/PrintHub) - no paper
+await window.advprint.printPage({ title: "Archive copy", destination: "file" });
+// saves the current page as a PDF file (default ~/Downloads/AdvPrint) - no paper
 
-await window.printhub.printPdf("https://www.htncr.org/lab/medical_reports/pdf-test/…/605310",
+await window.advprint.printPdf("https://www.htncr.org/lab/medical_reports/pdf-test/…/605310",
                                { title: "Report 605310" });
 // downloads with login cookies, prints silently
 
-await window.printhub.print({
+await window.advprint.print({
   title: "Receipt 12",
   printer: "XP-80C Thermal",   // omit for default
   copies: 1,
@@ -92,7 +92,7 @@ await window.printhub.print({
 
 ```js
 document.querySelector("#checkout").addEventListener("click", async () => {
-  const r = await window.printhub.print({
+  const r = await window.advprint.print({
     title: "Order " + order.id,
     text: "|center|MY SHOP\n" + order.lines.join("\n") + "\nTOTAL " + order.total,
   });
@@ -106,12 +106,12 @@ document.querySelector("#checkout").addEventListener("click", async () => {
 |---|---|
 | **Any PDF opened in the browser** (simple mode, default ON) | Open any PDF - any site - and it prints silently, tab auto-closes. Toggle: Options > "Print every PDF opened in the browser". No rules needed. |
 | Auto-print on URL open | Routing rule with **Auto** checked (first match wins). The tab is closed right after the print unless "Close tab after auto-print" is turned off in Options. |
-| Print a PDF from page JS with no tab at all | `printPdfLink(url, 'Title')` — silent + automatic browser fallback; or `await window.printhub.printPdf(url)` — fetched with your login session, printed silently |
-| Right-click menu | PrintHub Pro → Print this page / selection / linked PDF / screenshot |
+| Print a PDF from page JS with no tab at all | `printPdfLink(url, 'Title')` — silent + automatic browser fallback; or `await window.advprint.printPdf(url)` — fetched with your login session, printed silently |
+| Right-click menu | AdvPrint Pro → Print this page / selection / linked PDF / screenshot |
 | Popup button | "Print this page", "Save as PDF", "Print screenshot", "Test page" |
 | Keyboard | **Alt+P** prints the current tab |
 | `window.print()` + Ctrl+P interception | Any web app calling `window.print()` — or the user pressing Ctrl+P / Cmd+P — is printed via the hub instead of the dialog. Browser-level injection, immune to page CSP. |
-| Developer API | `window.printhub.*` (above) or direct HTTP |
+| Developer API | `window.advprint.*` (above) or direct HTTP |
 
 ## 3. Routing rules
 
@@ -157,9 +157,9 @@ The hub API is CORS + Private-Network friendly, so page JS can call it directly 
 ```js
 await fetch("http://127.0.0.1:9235/print", {
   method: "POST",
-  headers: { "Content-Type": "application/json", "X-PrintHub-Token": "PrintHub-2024" },
+  headers: { "Content-Type": "application/json", "X-AdvPrint-Token": "YOUR-TOKEN" },
   body: JSON.stringify({ text: "|center|HELLO", paper: "thermal" })
 });
 ```
 
-Prefer `window.printhub` in normal pages — it never exposes the token in page code.
+Prefer `window.advprint` in normal pages — it never exposes the token in page code.

@@ -1,0 +1,23 @@
+# AdvPrint Pro - SYSTEM service unit template (Linux + systemd)
+# Installed by:  sudo bash install-unix.sh --service
+#            or:  the advprint-pro .deb -> /usr/lib/systemd/system/advprint.service
+# __PYTHON__ / __HUB__ are substituted by the installer at install time.
+# Runs as root with data in /var/lib/advprint so it works before any
+# login (a real "run as service" - survives reboot, no desktop needed).
+# Per-user alternative: systemctl --user enable --now advprint
+
+[Unit]
+Description=AdvPrint Pro - local print hub (system service)
+After=network-online.target cups.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=__PYTHON__ __HUB__ serve
+WorkingDirectory=/var/lib/advprint
+Environment=ADVPRINT_DATA=/var/lib/advprint
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

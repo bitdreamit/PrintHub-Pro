@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>How to Publish PrintHub Pro on the Chrome Web Store</title>
+<title>How to Publish AdvPrint Pro on the Chrome Web Store</title>
 <style>
   :root{--navy:#0b1220;--ink:#0f172a;--mut:#64748b;--blue:#1d4ed8;--blue2:#2563eb;
         --ok:#16a34a;--okbg:#dcfce7;--warn:#b45309;--warnbg:#fef3c7;--line:#e2e8f0;--bg:#f8fafc;}
@@ -49,7 +49,7 @@
 
 <div class="hero">
   <span class="pill">Chrome Web Store &middot; Publishing Kit</span>
-  <h1>How to publish PrintHub Pro on the Chrome Web Store</h1>
+  <h1>How to publish AdvPrint Pro on the Chrome Web Store</h1>
   <p>Follow the steps in order. Everything you need is in this folder — the upload zip, the
      screenshots, the privacy policy, and every text you have to paste. Time needed: about 45 minutes
      (review by Google takes 1–7 days after that).</p>
@@ -58,13 +58,13 @@
 <h2><span class="stepn">?</span>What is in this kit</h2>
 <table>
   <tr><th>File / folder</th><th>What it is for</th></tr>
-  <tr><td><b>PrintHub-Pro-ChromeWebStore-2.0.0.zip</b></td><td>The file you upload to the store. Contains ONLY the extension, with <code>manifest.json</code> at the zip root (store requirement).</td></tr>
+  <tr><td><b>AdvPrint-Pro-ChromeWebStore-2.0.0.zip</b></td><td>The file you upload to the store. Contains ONLY the extension, with <code>manifest.json</code> at the zip root (store requirement).</td></tr>
   <tr><td><b>screenshots/</b></td><td>3 store screenshots (1280×800) + 1 small promo tile (440×280).</td></tr>
   <tr><td><b>privacy-policy.html</b> + <b>PRIVACY-POLICY.md</b></td><td>Your privacy policy. You must put it online (Step 2) — the store asks for a public URL.</td></tr>
   <tr><td><b>STORE-LISTING-TEXTS.md</b></td><td>Every text to paste: name, descriptions, permission justifications, reviewer notes.</td></tr>
   <tr><td><b>HOW-TO-PUBLISH.html</b></td><td>This guide.</td></tr>
 </table>
-<div class="warn"><b>Why a new zip?</b> Your old <code>PrintHub-Pro-Extension-v2.0.0.zip</code> has the files
+<div class="warn"><b>Why a new zip?</b> Your old <code>AdvPrint-Pro-Extension-v2.0.0.zip</code> has the files
 inside an <code>extension/</code> folder. The store will refuse it with "manifest.json is missing or not at
 the root". Always upload the zip from this kit.</div>
 
@@ -75,28 +75,28 @@ the root". Always upload the zip from this kit.</div>
   <li>Go to the <b>Developer Dashboard</b>: <a href="https://chrome.google.com/webstore/devconsole">chrome.google.com/webstore/devconsole</a></li>
   <li>Sign in with your Google account (use the account you want shown as the publisher).</li>
   <li>Accept the agreement and pay the <b>one-time US$5 registration fee</b> (card).</li>
-  <li>Under <b>Account → Account details</b>, set your seller/publisher name (e.g. <i>Bitdream IT</i>) and a contact email users can see.</li>
+  <li>Under <b>Account → Account details</b>, set your seller/publisher name (e.g. <i>Bit Dream IT</i>) and a contact email users can see.</li>
 </ol>
 
 <h2><span class="stepn">2</span>Put the privacy policy online (10 minutes, free)</h2>
 <p>The store <b>requires a public privacy policy URL</b> for extensions that ask for broad site access —
 yours does (<code>&lt;all_urls&gt;</code>). The easiest free host is GitHub Pages on your existing repo:</p>
 <ol>
-  <li>Copy <code>privacy-policy.html</code> and <code>PRIVACY-POLICY.md</code> into the <b>root</b> of the <code>PrintHub-Pro</code> repo, then push:
+  <li>Copy <code>privacy-policy.html</code> and <code>PRIVACY-POLICY.md</code> into the <b>root</b> of the <code>AdvPrint-Pro</code> repo, then push:
 <pre>git add privacy-policy.html PRIVACY-POLICY.md
 git commit -m "Add privacy policy"
 git push origin main</pre></li>
   <li>On GitHub open the repo → <b>Settings → Pages</b>.</li>
   <li>Under "Build and deployment" set Source = <b>Deploy from a branch</b>, Branch = <b>main</b> / <b>/ (root)</b>, Save.</li>
   <li>Wait ~1–2 minutes. Your page is now live at:
-<pre>https://bitdreamit.github.io/PrintHub-Pro/privacy-policy.html</pre>
+<pre>https://bitdreamit.github.io/AdvPrint-Pro/privacy-policy.html</pre>
       Open it to confirm. This exact URL is what you paste in Step 5.</li>
 </ol>
 
 <h2><span class="stepn">3</span>Create the item and upload the zip</h2>
 <ol>
   <li>In the Developer Dashboard click <b>New item</b>.</li>
-  <li>Drag / choose <code>PrintHub-Pro-ChromeWebStore-2.0.0.zip</code> → upload.</li>
+  <li>Drag / choose <code>AdvPrint-Pro-ChromeWebStore-2.0.0.zip</code> → upload.</li>
   <li>When asked "Why are you requesting these permissions", tick that host permissions are needed —
       full justifications come in Step 5.</li>
 </ol>
@@ -104,7 +104,7 @@ git push origin main</pre></li>
 <h2><span class="stepn">4</span>Fill the "Store listing" tab</h2>
 <p>Copy-paste everything from <b>STORE-LISTING-TEXTS.md</b> (sections 1–4):</p>
 <ul>
-  <li><b>Name</b> → "PrintHub Pro — Print from Any Web Page"</li>
+  <li><b>Name</b> → "AdvPrint Pro — Print from Any Web Page"</li>
   <li><b>Short description</b> → the 123-character text</li>
   <li><b>Description</b> → the detailed text</li>
   <li><b>Category</b> = Productivity &nbsp;·&nbsp; <b>Language</b> = English (United States)</li>
@@ -115,7 +115,7 @@ git push origin main</pre></li>
 
 <h2><span class="stepn">5</span>Fill the "Privacy" tab (this decides approval)</h2>
 <ol>
-  <li><b>Privacy policy URL</b> → <code>https://bitdreamit.github.io/PrintHub-Pro/privacy-policy.html</code></li>
+  <li><b>Privacy policy URL</b> → <code>https://bitdreamit.github.io/AdvPrint-Pro/privacy-policy.html</code></li>
   <li><b>Single purpose</b> → paste section 5 of STORE-LISTING-TEXTS.md.</li>
   <li><b>Permission justifications</b> → paste each text from section 6 next to its permission
       (host permissions, tabs, activeTab/scripting, storage, notifications, contextMenus).</li>
@@ -142,7 +142,7 @@ git push origin main</pre></li>
 
 <h2><span class="stepn">8</span>After approval</h2>
 <ul>
-  <li>Your store link looks like: <code>https://chromewebstore.google.com/detail/printhub-pro/ITEM_ID</code></li>
+  <li>Your store link looks like: <code>https://chromewebstore.google.com/detail/advprint-pro/ITEM_ID</code></li>
   <li>Add the link to the GitHub README ("Install from Chrome Web Store" section) and to the hub app docs.</li>
   <li>Optional: add the official store badge image to the README.</li>
 </ul>
@@ -177,7 +177,7 @@ git push origin main</pre></li>
   <div class="mini"><b>Developer Dashboard</b><span>chrome.google.com/webstore/devconsole</span></div>
   <div class="mini"><b>Store item (after approval)</b><span>chromewebstore.google.com/detail/&lt;id&gt;</span></div>
   <div class="mini"><b>Hub releases for users</b><span>github.com/bitdreamit/PrintHub-Pro/releases</span></div>
-  <div class="mini"><b>Privacy policy URL</b><span>bitdreamit.github.io/PrintHub-Pro/privacy-policy.html</span></div>
+  <div class="mini"><b>Privacy policy URL</b><span>bitdreamit.github.io/AdvPrint-Pro/privacy-policy.html</span></div>
 </div>
 
 <div class="ok"><b>You are ready.</b> Kit contents verified: zip OK (manifest at root, MV3, 14 files) ·

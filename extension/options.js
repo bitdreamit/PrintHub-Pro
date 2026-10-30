@@ -1,4 +1,4 @@
-/* PrintHub Pro - options page logic (v2.2: print defaults + LAN/PCs) */
+/* AdvPrint Pro - options page logic (v2.6: print defaults + LAN/PCs + hub settings + token detect) */
 const $ = (id) => document.getElementById(id);
 let PRINTERS = [];
 let QUEUE_TIMER = null;
@@ -87,7 +87,7 @@ async function refreshQueue() {
   if (!st.ok) {
     $("qDot").className = "dot offline";
     $("qState").textContent = "Hub offline";
-    $("qInfo").textContent = "start it: python printhub.py serve (or PrintHub Tool > 1)";
+    $("qInfo").textContent = "start it: python advprint.py serve (or AdvPrint Tool > 1)";
     body.innerHTML = '<tr><td colspan="6">Hub offline - nothing to show.</td></tr>';
     $("bQPause").textContent = "Pause";
     return;
@@ -140,7 +140,7 @@ async function refreshQueue() {
 async function shiftJobPrompt(id) {
   const t = prompt(
     `Shift job #${id} to which PC?\n` +
-    "Enter the OTHER PrintHub's LAN URL, e.g. http://192.168.0.60:9235",
+    "Enter the OTHER AdvPrint's LAN URL, e.g. http://192.168.0.60:9235",
     $("shiftTarget").value.trim());
   if (!t) return;
   $("shiftTarget").value = t.trim();
@@ -155,7 +155,7 @@ async function updateCheck() {
   const out = $("updState"), live = $("updLive");
   out.textContent = "checking...";
   live.innerHTML = "";
-  let manifestVer = "2.3.0";
+  let manifestVer = "2.6.0";
   try { manifestVer = chrome.runtime.getManifest().version; } catch (_) {}
   try {
     const r = await fetch("https://api.github.com/repos/bitdreamit/PrintHub-Pro/releases/latest",
@@ -441,6 +441,7 @@ async function loadAll() {
   $("defaultPrinter").value = c.defaultPrinter || "";
   refreshCaps();
   testHub(false);
+  loadHubCfg();
 }
 
 async function saveAll() {
@@ -494,7 +495,7 @@ async function loadJobs() {
   const body = $("jobsBody");
   body.innerHTML = "";
   if (!r.ok) {
-    body.innerHTML = '<tr><td colspan="7">Hub offline - start it with: python printhub.py serve</td></tr>';
+    body.innerHTML = '<tr><td colspan="7">Hub offline - start it with: python advprint.py serve</td></tr>';
     return;
   }
   for (const j of r.jobs || []) {
@@ -561,6 +562,126 @@ async function loadJobs() {
   }
 }
 
+/* ---------- v2.6: one-click token detection (loopback fix) ---------- */
+$("bDetectToken").addEventListener("click", async () => {
+  const note = $("hubState");
+  note.style.color = "#64748b";
+  note.textContent = "detecting...";
+  const r = await send({ type: "tokenDetect",
+                         hubUrl: $("hubUrl").value.trim() });
+  if (r.ok) {
+    $("token").value = r.token;
+    note.style.color = "#16a34a";
+    note.textContent = "token detected (hub v" + (r.version || "?") + ")";
+    saved("Token detected and saved");
+    testHub(false);
+  } else {
+    note.style.color = "#dc2626";
+    note.textContent = r.error || "not detected";
+  }
+});
+
+/* ---------- v2.6: hub-side settings (GET/POST /config) ---------- */
+const HUB_FIELDS = [
+  ["hMaxRetries", "max_retries", "int"],
+  ["hRetryBase", "retry_base_seconds", "int"],
+  ["hDedupe", "dedupe_minutes", "int"],
+  ["hHoldOffline", "hold_offline", "bool"],
+  ["hInstantQueue", "instant_auto_queue", "bool"],
+  ["hAuthFails", "max_auth_failures", "int"],
+  ["hLockMin", "lockout_minutes", "int"],
+  ["hLoopbackExempt", "lockout_exempt_loopback", "bool"],
+  ["hHeaderOnly", "token_header_only", "bool"],
+  ["hWatermark", "reprint_watermark", "bool"],
+  ["hReasonRequired", "reprint_reason_required", "bool"],
+  ["hAudit", "audit_enabled", "bool"],
+  ["hSumatra", "sumatra_path", "str"],
+  ["hFileDir", "file_dir", "str"],
+];
+
+function hubCfgToUi(c) {
+  for (const [id, key] of HUB_FIELDS) {
+    const el = $(id);
+    if (!el) continue;
+    const v = c[key];
+    if (el.type === "checkbox") el.checked = !!v;
+    else el.value = (v == null ? "" : String(v));
+  }
+  $("hThermalEngine").value = c.thermal_text_engine || "auto";
+  $("hCodepage").value = c.escpos_codepage || "cp437";
+  const origins = Array.isArray(c.allowed_origins) ? c.allowed_origins : [];
+  $("hOrigins").value = origins.join(", ");
+}
+
+function uiToHubCfg() {
+  const patch = {};
+  for (const [id, key, kind] of HUB_FIELDS) {
+    const el = $(id);
+    if (!el) continue;
+    if (kind === "bool") patch[key] = el.checked;
+    else if (kind === "int") {
+      const v = parseInt(el.value, 10);
+      if (!isNaN(v)) patch[key] = v;
+    } else patch[key] = el.value.trim();
+  }
+  patch.thermal_text_engine = $("hThermalEngine").value;
+  patch.escpos_codepage = $("hCodepage").value;
+  patch.allowed_origins = $("hOrigins").value.split(",")
+    .map((x) => x.trim()).filter(Boolean);
+  return patch;
+}
+
+async function loadHubCfg() {
+  const r = await send({ type: "hubConfigGet" });
+  const msg = $("hubCfgMsg");
+  if (!r.ok) {
+    msg.textContent = "hub offline - start it, then Reload";
+    return;
+  }
+  hubCfgToUi(r.cfg || r.parsed || r);
+  msg.textContent = "";
+}
+
+$("bHubCfgReload").addEventListener("click", loadHubCfg);
+$("bHubCfgSave").addEventListener("click", async () => {
+  const r = await send({ type: "hubConfigSet", patch: uiToHubCfg() });
+  const msg = $("hubCfgMsg");
+  if (r.ok) {
+    const ch = (r.changed && r.changed.length) ? " (" + r.changed.join(", ") + ")" : "";
+    msg.textContent = "applied" + ch;
+    if ((r.changed || []).includes("share_lan")) saved("restart the hub to apply LAN change");
+  } else msg.textContent = "failed: " + (r.error || "no response");
+  setTimeout(() => { $("hubCfgMsg").textContent = ""; }, 6000);
+});
+
+/* ---------- v2.6: Debug tab full self-test ---------- */
+$("bDbgLivetest").addEventListener("click", async () => {
+  const box = $("dbgLivetest");
+  box.style.display = "block";
+  box.textContent = "running full self-test...";
+  const cfg = await send({ type: "getCfg" });
+  if (!cfg.ok) { box.textContent = "extension config error"; return; }
+  const base = (cfg.cfg.hubUrl || "http://127.0.0.1:9235").replace(/\/+$/, "");
+  try {
+    const res = await fetch(base + "/livetest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json",
+                 "X-AdvPrint-Token": cfg.cfg.token || "" },
+      body: "{}" });
+    const d = await res.json();
+    if (!d.ok) { box.textContent = "self-test failed: " + (d.error || res.status); return; }
+    const lines = (d.steps || []).map((st) =>
+      "[" + (st.pass ? "OK" : "!!") + "] " + st.name + (st.info ? "  - " + st.info : ""));
+    lines.push("");
+    lines.push(d.all_ok
+      ? "ALL CHECKS PASSED - AdvPrint Pro is production-ready on this PC."
+      : "FIX THE [!!] ITEMS ABOVE, then run the self-test again.");
+    box.textContent = lines.join("\n");
+  } catch (e) {
+    box.textContent = "self-test error: " + e.message + " (hub offline?)";
+  }
+});
+
 /* ---------- wire up ---------- */
 $("bTestHub").addEventListener("click", () => testHub(true));
 $("bReloadPrinters").addEventListener("click", loadPrinters);
@@ -573,7 +694,7 @@ $("bTestPage").addEventListener("click", async () => {
   if (!cfg.ok) return;
   const base = cfg.cfg.hubUrl.replace(/\/+$/, "");
   const res = await fetch(base + "/testprint?kind=a4", {
-    headers: { "X-PrintHub-Token": cfg.cfg.token }
+    headers: { "X-AdvPrint-Token": cfg.cfg.token }
   }).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }));
   saved(res.ok ? "Test page queued" : "Failed: " + (res.error || "offline"));
   loadJobs();
@@ -596,8 +717,8 @@ $("bClearHist").addEventListener("click", async () => {
 
 $("langSelect").addEventListener("change", async () => {
   await saveAll();
-  const lang = await PrintHubI18n.currentLang();
-  PrintHubI18n.apply(lang);
+  const lang = await AdvPrintI18n.currentLang();
+  AdvPrintI18n.apply(lang);
 });
 
 /* v2.0: hub dashboard + audit log (token comes from the saved config) */
@@ -622,7 +743,7 @@ $("bLanToggle").addEventListener("click", async () => {
       "Disable LAN sharing? Other PCs will no longer reach this printer.")) return;
   const r = await send({ type: "hubConfigSet", patch: { share_lan: on } });
   if (r.ok) alert(on ?
-      "Saved. NOW: 1) restart the hub (tray icon > Exit, start PrintHub Pro again)  2) allow TCP 9235 through the firewall.\nThis PC's LAN URL will be shown after the restart." :
+      "Saved. NOW: 1) restart the hub (tray icon > Exit, start AdvPrint Pro again)  2) allow TCP 9235 through the firewall.\nThis PC's LAN URL will be shown after the restart." :
       "Saved. Restart the hub to fully apply.");
   else alert("Failed: " + r.error);
   loadLan();
@@ -758,4 +879,4 @@ $("bUpdateCheck").addEventListener("click", updateCheck);
 
 loadAll();
 pickDefaultTab();
-PrintHubI18n.currentLang().then((lang) => PrintHubI18n.apply(lang));
+AdvPrintI18n.currentLang().then((lang) => AdvPrintI18n.apply(lang));

@@ -1,7 +1,7 @@
-# PrintHub Pro — Hub HTTP API
+# AdvPrint Pro — Hub HTTP API
 
 Base URL: `http://127.0.0.1:9235` (default)
-Auth: header `X-PrintHub-Token: <token>` (default `PrintHub-2024`), or `?token=` query, or `"token"` JSON field.
+Auth: header `X-AdvPrint-Token: <token>` (fresh installs: a private random token - read it with `python advprint.py token`; legacy `X-PrintHub-Token` header accepted), or `?token=` query on GET navigation, or `"token"` JSON field.
 All responses are JSON with an `"ok"` field. The API is CORS-open with `Access-Control-Allow-Private-Network: true`, so browser JS from any site can call it.
 
 ---
@@ -11,7 +11,7 @@ All responses are JSON with an `"ok"` field. The API is CORS-open with `Access-C
 ```json
 {
   "ok": true,
-  "app": "PrintHub Pro",
+  "app": "AdvPrint Pro",
   "version": "1.0.0",
   "os": "windows",
   "default_printer": "HP LaserJet Pro",
@@ -52,7 +52,7 @@ One of the payload sources is required. Common optional fields: `title`, `printe
 
 ```bash
 curl -X POST http://127.0.0.1:9235/print \
-  -H "X-PrintHub-Token: PrintHub-2024" -H "Content-Type: application/json" \
+  -H "X-AdvPrint-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"pdf_base64":"JVBERi0...","title":"Invoice 42","printer":"HP LaserJet Pro","copies":2}'
 ```
 
@@ -64,7 +64,7 @@ POST the PDF bytes **directly** with `Content-Type: application/pdf` — no base
 
 ```bash
 curl -X POST "http://127.0.0.1:9235/print?title=Lab%20report&copies=1" \
-  -H "X-PrintHub-Token: PrintHub-2024" \
+  -H "X-AdvPrint-Token: $TOKEN" \
   -H "Content-Type: application/pdf" \
   --data-binary @report.pdf
 ```
@@ -72,7 +72,7 @@ curl -X POST "http://127.0.0.1:9235/print?title=Lab%20report&copies=1" \
 **Laravel (mPDF, zero encoding):**
 
 ```php
-Http::withHeaders(['X-PrintHub-Token' => 'PrintHub-2024'])
+Http::withHeaders(['X-AdvPrint-Token' => '$TOKEN'])
     ->withBody($pdf->output(), 'application/pdf')
     ->post('http://127.0.0.1:9235/print?title=' . urlencode('Lab report 197253'));
 ```
@@ -80,7 +80,7 @@ Http::withHeaders(['X-PrintHub-Token' => 'PrintHub-2024'])
 **Laravel multipart (`Http::attach`)** — file field `pdf`/`file`, text fields become parameters:
 
 ```php
-Http::withHeaders(['X-PrintHub-Token' => 'PrintHub-2024'])
+Http::withHeaders(['X-AdvPrint-Token' => '$TOKEN'])
     ->attach('pdf', $pdf->output(), 'report.pdf')
     ->post('http://127.0.0.1:9235/print', ['title' => 'Lab report 197253']);
 ```
@@ -91,15 +91,15 @@ Raw limits: max 25 MB, body must start with `%PDF-`; anything else → `400`.
 
 ### Destination "file" — save as PDF, no paper
 
-Add `"destination": "file"` (or set `printer` to the extension alias `"__file__"`) and the hub **saves the rendered PDF into a folder instead of printing** — no dialog, no paper, no queue. Default folder: `~/Downloads/PrintHub` (override with `PRINTHUB_FILE_DIR`).
+Add `"destination": "file"` (or set `printer` to the extension alias `"__file__"`) and the hub **saves the rendered PDF into a folder instead of printing** — no dialog, no paper, no queue. Default folder: `~/Downloads/AdvPrint` (override with `ADVPRINT_FILE_DIR`).
 
 ```bash
 curl -X POST http://127.0.0.1:9235/print \
-  -H "X-PrintHub-Token: PrintHub-2024" -H "Content-Type: application/json" \
+  -H "X-AdvPrint-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"text":"Daily summary","paper":"a4","title":"summary","destination":"file"}'
 ```
 
-Response: `{"ok": true, "job_id": 18, "kind": "a4", "destination": "file", "status": "saved", "file": "/home/me/Downloads/PrintHub/summary-20240101-120000.pdf", "url_path": "/jobs/18/file", "message": "saved as PDF file - no paper used"}`
+Response: `{"ok": true, "job_id": 18, "kind": "a4", "destination": "file", "status": "saved", "file": "/home/me/Downloads/AdvPrint/summary-20240101-120000.pdf", "url_path": "/jobs/18/file", "message": "saved as PDF file - no paper used"}`
 
 The job appears in history with status `saved`; download it any time via `GET /jobs/18/file`, or print it later with `POST /jobs/18/reprint` (goes to the OS default printer).
 
@@ -140,13 +140,13 @@ Queue a built-in test page/receipt. No body needed.
 ## CLI equivalents
 
 ```
-python hub/printhub.py serve          # start (default command)
-python hub/printhub.py testprint a4   # test page
-python hub/printhub.py printers       # list printers
-python hub/printhub.py history 20     # last 20 jobs
-python hub/printhub.py reprint 17     # reprint job 17
-python hub/printhub.py queue          # paused? pending? current?
-python hub/printhub.py doctor         # environment self-check
+python hub/advprint.py serve          # start (default command)
+python hub/advprint.py testprint a4   # test page
+python hub/advprint.py printers       # list printers
+python hub/advprint.py history 20     # last 20 jobs
+python hub/advprint.py reprint 17     # reprint job 17
+python hub/advprint.py queue          # paused? pending? current?
+python hub/advprint.py doctor         # environment self-check
 ```
 
 ## Browser fallback form

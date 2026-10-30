@@ -1,4 +1,4 @@
-/* PrintHub Pro - ISOLATED world relay (static content script, v1.1.3).
+/* AdvPrint Pro - ISOLATED world relay (static content script, v1.1.3).
  * Bridges the MAIN world (hook.js / api.js) to the service worker:
  *   window.postMessage  ->  chrome.runtime.sendMessage  ->  hub
  * Responses travel back the same way. Nothing leaves the machine.
@@ -11,8 +11,8 @@
  * (chrome.scripting.registerContentScripts / executeScript), which page
  * CSP cannot block. */
 (function () {
-  if (window.__printhubRelay) return;
-  window.__printhubRelay = true;
+  if (window.__advprintRelay) return;
+  window.__advprintRelay = true;
 
   /* ---- honor the toggles (Options) ---- */
   var hookOn = true;
@@ -20,10 +20,10 @@
 
   function applyState() {
     // tell the MAIN-world hook + api what to do
-    window.postMessage({ __printhub: true, kind: "state", hookOn: hookOn,
+    window.postMessage({ __advprint: true, kind: "state", hookOn: hookOn,
                          failFallback: failFallback }, "*");
     if (!hookOn) {
-      window.postMessage({ __printhub: true, kind: "unhook" }, "*");
+      window.postMessage({ __advprint: true, kind: "unhook" }, "*");
     }
   }
 
@@ -48,7 +48,7 @@
   window.addEventListener("message", (ev) => {
     if (ev.source !== window) return;
     const d = ev.data;
-    if (!d || d.__printhub !== true) return;
+    if (!d || d.__advprint !== true) return;
 
     if (d.kind === "window.print") {
       if (!hookOn) return;
@@ -61,19 +61,19 @@
         p = chrome.runtime.sendMessage({ type: "api", payload: d.payload });
       } catch (e) {
         window.postMessage({
-          __printhub: true, kind: "api-resp", requestId: d.requestId,
+          __advprint: true, kind: "api-resp", requestId: d.requestId,
           response: { ok: false, error: "extension context lost - reload the page" }
         }, "*");
         return;
       }
       p.then((response) => {
         window.postMessage({
-          __printhub: true, kind: "api-resp",
+          __advprint: true, kind: "api-resp",
           requestId: d.requestId, response
         }, "*");
       }).catch((e) => {
         window.postMessage({
-          __printhub: true, kind: "api-resp",
+          __advprint: true, kind: "api-resp",
           requestId: d.requestId,
           response: { ok: false, error: String(e && e.message || e) }
         }, "*");

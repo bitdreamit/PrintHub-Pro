@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  PrintHub Pro - ONE-COMMAND Unix setup  (v1.2.0)
+#  AdvPrint Pro - ONE-COMMAND Unix setup  (v1.2.0)
 #  Linux + macOS. Zero questions, no sudo needed for the
 #  auto-run itself:
 #    1. stops any OLD hub still holding port 9235
@@ -16,19 +16,19 @@ set -u
 
 echo ""
 echo "  =============================================="
-echo "   PrintHub Pro  -  one-click setup + auto-run"
+echo "   AdvPrint Pro  -  one-click setup + auto-run"
 echo "  =============================================="
 echo ""
 
 BASE="$(cd "$(dirname "$0")/.." && pwd)"
-HUB="$BASE/hub/printhub.py"
+HUB="$BASE/hub/advprint.py"
 PORT=9235
 OS="$(uname -s)"
 
 # ---- 0) --service: install as a SYSTEM service (Linux + systemd) -------
 #   sudo bash install-unix.sh --service
 #   Real headless service: starts at boot, survives logout, no desktop.
-#   Data dir: /var/lib/printhub.  The normal (no-sudo) user auto-run
+#   Data dir: /var/lib/advprint.  The normal (no-sudo) user auto-run
 #   below stays the default when --service is not passed.
 if [ "${1:-}" = "--service" ]; then
     [ "$(id -u)" = "0" ] || { echo "[!] --service needs root:"; echo "    sudo bash install-unix.sh --service"; exit 1; }
@@ -36,26 +36,26 @@ if [ "${1:-}" = "--service" ]; then
     command -v systemctl >/dev/null 2>&1 || { echo "[!] systemctl not found"; exit 1; }
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
     UNIT_SRC=""
-    for cand in "$SCRIPT_DIR/printhub.service.system" \
-                "$SCRIPT_DIR/../unix/printhub.service.system"; do
+    for cand in "$SCRIPT_DIR/advprint.service.system" \
+                "$SCRIPT_DIR/../unix/advprint.service.system"; do
         [ -f "$cand" ] && UNIT_SRC="$cand" && break
     done
-    [ -n "$UNIT_SRC" ] || { echo "[!] printhub.service.system not found next to this script"; exit 1; }
+    [ -n "$UNIT_SRC" ] || { echo "[!] advprint.service.system not found next to this script"; exit 1; }
     PYBIN="$(command -v python3)"
-    mkdir -p /var/lib/printhub
+    mkdir -p /var/lib/advprint
     sed -e "s|__PYTHON__|$PYBIN|g" -e "s|__HUB__|$HUB|g" \
-        "$UNIT_SRC" > /etc/systemd/system/printhub.service
-    chmod 644 /etc/systemd/system/printhub.service
+        "$UNIT_SRC" > /etc/systemd/system/advprint.service
+    chmod 644 /etc/systemd/system/advprint.service
     systemctl daemon-reload
-    systemctl enable --now printhub
+    systemctl enable --now advprint
     sleep 1
     if curl -s "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -q version; then
-        echo "[OK] PrintHub Pro SYSTEM service is running (starts at boot, no login needed)"
-        echo "     control : systemctl status|stop|restart printhub"
-        echo "     data    : /var/lib/printhub   logs: journalctl -u printhub -e"
+        echo "[OK] AdvPrint Pro SYSTEM service is running (starts at boot, no login needed)"
+        echo "     control : systemctl status|stop|restart advprint"
+        echo "     data    : /var/lib/advprint   logs: journalctl -u advprint -e"
     else
         echo "[!] Unit installed but the hub did not answer yet - check:"
-        echo "     systemctl status printhub ; journalctl -u printhub -e"
+        echo "     systemctl status advprint ; journalctl -u advprint -e"
     fi
     exit 0
 fi
@@ -104,8 +104,8 @@ else
 fi
 
 # ---- 4) start the hub now ---------------------------------------------
-mkdir -p "$HOME/.printhub"
-( cd "$BASE/hub" && nohup python3 printhub.py serve >> "$HOME/.printhub/hub.out" 2>&1 & )
+mkdir -p "$HOME/.advprint"
+( cd "$BASE/hub" && nohup python3 advprint.py serve >> "$HOME/.advprint/hub.out" 2>&1 & )
 UP=0
 for _ in 1 2 3 4 5 6 7 8; do
     sleep 1
@@ -114,13 +114,13 @@ done
 if [ "$UP" = "1" ]; then
     echo "[OK] Hub is running:  http://127.0.0.1:$PORT"
 else
-    echo "[!] Health check failed - see ~/.printhub/hub.out"
+    echo "[!] Health check failed - see ~/.advprint/hub.out"
 fi
 
 # ---- 5) AUTO-RUN at every login (no questions asked) -------------------
-SYSTEMD_UNIT="$HOME/.config/systemd/user/printhub.service"
-PLIST="$HOME/Library/LaunchAgents/com.bitdream.it.printhub.plist"
-XDG_AUTOSTART="$HOME/.config/autostart/printhub.desktop"
+SYSTEMD_UNIT="$HOME/.config/systemd/user/advprint.service"
+PLIST="$HOME/Library/LaunchAgents/com.bitdream.it.advprint.plist"
+XDG_AUTOSTART="$HOME/.config/autostart/advprint.desktop"
 PYBIN="$(command -v python3)"
 
 if [ "$OS" = "Darwin" ]; then
@@ -131,7 +131,7 @@ if [ "$OS" = "Darwin" ]; then
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.bitdream.it.printhub</string>
+    <key>Label</key><string>com.bitdream.it.advprint</string>
     <key>ProgramArguments</key>
     <array>
         <string>$PYBIN</string>
@@ -141,15 +141,15 @@ if [ "$OS" = "Darwin" ]; then
     <key>WorkingDirectory</key><string>$BASE/hub</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
-    <key>StandardOutPath</key><string>$HOME/.printhub/hub.out</string>
-    <key>StandardErrorPath</key><string>$HOME/.printhub/hub.out</string>
+    <key>StandardOutPath</key><string>$HOME/.advprint/hub.out</string>
+    <key>StandardErrorPath</key><string>$HOME/.advprint/hub.out</string>
 </dict>
 </plist>
 XML
     launchctl unload "$PLIST" 2>/dev/null || true
     launchctl load "$PLIST"
-    echo "[OK] macOS auto-run installed (LaunchAgent com.bitdream.it.printhub)"
-    echo "     control:  launchctl list | grep printhub"
+    echo "[OK] macOS auto-run installed (LaunchAgent com.bitdream.it.advprint)"
+    echo "     control:  launchctl list | grep advprint"
 
 elif command -v systemctl >/dev/null 2>&1 && [ -n "${XDG_RUNTIME_DIR:-}" ] \
      && systemctl --user is-system-running >/dev/null 2>&1; then
@@ -157,7 +157,7 @@ elif command -v systemctl >/dev/null 2>&1 && [ -n "${XDG_RUNTIME_DIR:-}" ] \
     mkdir -p "$HOME/.config/systemd/user"
     cat > "$SYSTEMD_UNIT" <<UNIT
 [Unit]
-Description=PrintHub Pro - local print hub
+Description=AdvPrint Pro - local print hub
 
 [Service]
 ExecStart=$PYBIN $HUB serve
@@ -169,9 +169,9 @@ RestartSec=3
 WantedBy=default.target
 UNIT
     systemctl --user daemon-reload
-    systemctl --user enable --now printhub 2>/dev/null || systemctl --user restart printhub
+    systemctl --user enable --now advprint 2>/dev/null || systemctl --user restart advprint
     echo "[OK] Linux auto-run installed (systemd --user service)"
-    echo "     control:  systemctl --user status|stop|restart printhub"
+    echo "     control:  systemctl --user status|stop|restart advprint"
     # optional: run even before first login / after logout (one root command)
     if ! loginctl show-user "$USER" 2>/dev/null | grep -q "Linger=yes"; then
         if sudo -n loginctl enable-linger "$USER" 2>/dev/null; then
@@ -185,7 +185,7 @@ UNIT
 else
     # last resort: XDG autostart (any desktop Linux, no sudo)
     mkdir -p "$HOME/.config/autostart"
-    WRAPPER="$HOME/.printhub/start-hub.sh"
+    WRAPPER="$HOME/.advprint/start-hub.sh"
     cat > "$WRAPPER" <<SH
 #!/bin/sh
 exec "$PYBIN" "$HUB" serve
@@ -194,7 +194,7 @@ SH
     cat > "$XDG_AUTOSTART" <<DESK
 [Desktop Entry]
 Type=Application
-Name=PrintHub Pro
+Name=AdvPrint Pro
 Comment=Silent print bridge - http://127.0.0.1:9235
 Exec="$WRAPPER"
 Terminal=false
@@ -205,7 +205,7 @@ fi
 
 echo ""
 echo "  Setup finished - automatic from now on:"
-echo "    hub   : http://127.0.0.1:$PORT      logs: ~/.printhub/hub.out"
+echo "    hub   : http://127.0.0.1:$PORT      logs: ~/.advprint/hub.out"
 echo "    Chrome: chrome://extensions > Developer mode > Load unpacked"
 echo "            select the extension/ folder, then press Connect"
 echo "    uninstall:  bash uninstall-unix.sh (same folder)"

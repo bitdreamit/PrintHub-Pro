@@ -1,4 +1,4 @@
-"""Pytest fixtures: boot a real PrintHub Pro v2.0.1 hub (pure stdlib) on a
+"""Pytest fixtures: boot a real AdvPrint Pro v2.0.1 hub (pure stdlib) on a
 random port with an isolated data dir, then hand tests an HTTP client.
 
 The print backends are monkeypatched (no printer needed) - print_file /
@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tool", "windows", "portable", "hub"))
 
-import printhub  # noqa: E402  (path set above)
+import advprint  # noqa: E402  (path set above)
 
 
 def _free_port():
@@ -56,9 +56,9 @@ class Hub:
             raw=None, content_type="application/json"):
         h = dict(headers or {})
         if token == "use-default":
-            h["X-PrintHub-Token"] = self.token
+            h["X-AdvPrint-Token"] = self.token
         elif token is not None:
-            h["X-PrintHub-Token"] = token
+            h["X-AdvPrint-Token"] = token
         data = raw
         if body is not None:
             data = json.dumps(body).encode()
@@ -86,21 +86,21 @@ class Hub:
 
 @pytest.fixture(scope="session")
 def hub(tmp_path_factory):
-    data_dir = str(tmp_path_factory.mktemp("printhub-data"))
+    data_dir = str(tmp_path_factory.mktemp("advprint-data"))
     port = _free_port()
-    printhub.CFG["data_dir"] = data_dir
-    printhub.CFG["port"] = port
-    printhub.CFG["host"] = "127.0.0.1"
-    printhub.db_init()          # also bootstraps config.json + random token
-    printhub.RESUME_EVENT.set()
-    printhub.start_worker()
+    advprint.CFG["data_dir"] = data_dir
+    advprint.CFG["port"] = port
+    advprint.CFG["host"] = "127.0.0.1"
+    advprint.db_init()          # also bootstraps config.json + random token
+    advprint.RESUME_EVENT.set()
+    advprint.start_worker()
 
     from http.server import ThreadingHTTPServer
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), printhub.Handler)
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), advprint.Handler)
     httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
-    h = Hub("http://127.0.0.1:%d" % port, printhub.CFG["token"])
+    h = Hub("http://127.0.0.1:%d" % port, advprint.CFG["token"])
 
     # ---- stub the OS print backends (no real printer in CI) ----
     def fake_print_file(path, kind="a4", printer="", copies=1, job_id=None,
@@ -117,8 +117,8 @@ def hub(tmp_path_factory):
         h.raw_printed.append((bytes(data), printer))
         return printer or "StubPrinter"
 
-    printhub.print_file = fake_print_file
-    printhub.print_raw = fake_print_raw
+    advprint.print_file = fake_print_file
+    advprint.print_raw = fake_print_raw
 
     yield h
     httpd.shutdown()
@@ -127,24 +127,24 @@ def hub(tmp_path_factory):
 @pytest.fixture()
 def clean_queue(hub):
     """Fresh queue state + printed-log per test."""
-    printhub.RESUME_EVENT.set()
+    advprint.RESUME_EVENT.set()
     hub.printed.clear()
     hub.raw_printed.clear()
-    for j in printhub.db_list(limit=500):
+    for j in advprint.db_list(limit=500):
         if j["status"] in ("queued", "printing", "held", "scheduled"):
-            printhub.db_update(j["id"], status="canceled", error="test reset")
+            advprint.db_update(j["id"], status="canceled", error="test reset")
     yield hub
 
 
 @pytest.fixture()
 def cfg_reset(hub):
     """Snapshot config keys a test may mutate; restore afterwards."""
-    snap = {k: printhub.CFG[k] for k in
+    snap = {k: advprint.CFG[k] for k in
             ("allowed_origins", "max_retries", "dedupe_minutes",
              "hold_offline", "reprint_reason_required", "reprint_watermark",
              "printer_groups", "profiles", "peer_forwarding",
              "lockout_exempt_loopback", "max_auth_failures",
              "lockout_minutes")}
     yield hub
-    printhub.CFG.update(snap)
-    printhub._AUTH_FAILS.clear()
+    advprint.CFG.update(snap)
+    advprint._AUTH_FAILS.clear()

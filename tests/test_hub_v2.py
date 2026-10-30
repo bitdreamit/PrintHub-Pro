@@ -1,4 +1,4 @@
-"""PrintHub Pro v2.0.1 - pytest suite (pure stdlib hub, no real printer).
+"""AdvPrint Pro v2.0.1 - pytest suite (pure stdlib hub, no real printer).
 
 Covers the 22 feature areas: security (random token, header-only, origins,
 SSRF guard, lockout + v2.0.1 loopback exemption, rotate), printer (status,
@@ -15,7 +15,7 @@ import urllib.request
 
 import pytest
 
-import printhub
+import advprint
 from conftest import wait_until  # noqa: E402
 
 
@@ -26,14 +26,14 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.5.3"
+    assert d["version"] == "2.6.0"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
 
 def test_new_install_random_token(hub):
     assert hub.token and hub.token != "PrintHub-2024"
-    assert printhub.CFG["token_header_only"] is True     # fresh install = strict
+    assert advprint.CFG["token_header_only"] is True     # fresh install = strict
 
 
 def test_auth_required_without_token(hub):
@@ -72,25 +72,25 @@ def test_wrong_token_get_gives_json_for_api_clients(hub):
 def test_wrong_token_counts_and_lockout(hub, cfg_reset):
     # v2.0.1: loopback is exempt by default -> disable the exemption to
     # exercise the remote-IP lock path (tests always come from 127.0.0.1)
-    printhub.CFG["lockout_exempt_loopback"] = False
-    printhub._AUTH_FAILS.clear()
+    advprint.CFG["lockout_exempt_loopback"] = False
+    advprint._AUTH_FAILS.clear()
     codes = []
-    for i in range(printhub.CFG["max_auth_failures"]):
+    for i in range(advprint.CFG["max_auth_failures"]):
         code, _ = hub.get("/jobs", token="wrong-%d" % i)
         codes.append(code)
-    assert codes[: printhub.CFG["max_auth_failures"] - 1] == [401] * (
-        printhub.CFG["max_auth_failures"] - 1)
+    assert codes[: advprint.CFG["max_auth_failures"] - 1] == [401] * (
+        advprint.CFG["max_auth_failures"] - 1)
     code, d = hub.get("/jobs")          # even the CORRECT token is locked now
     assert code == 429
-    printhub._AUTH_FAILS.clear()
+    advprint._AUTH_FAILS.clear()
 
 
 def test_loopback_never_locked_by_default(hub):
     """v2.0.1 core fix: many Chrome windows share 127.0.0.1 - a stale
     token in one window must never lock the dashboard/tray/extension
     of every other window out."""
-    printhub._AUTH_FAILS.clear()
-    n = int(printhub.CFG["max_auth_failures"]) + 5
+    advprint._AUTH_FAILS.clear()
+    n = int(advprint.CFG["max_auth_failures"]) + 5
     codes = set()
     for i in range(n):
         code, _ = hub.get("/jobs", token="still-wrong-%d" % i)
@@ -98,39 +98,39 @@ def test_loopback_never_locked_by_default(hub):
     assert 429 not in codes             # no lock, no matter how many fails
     code, d = hub.get("/jobs")          # the correct token keeps working
     assert code == 200 and d["ok"] is True
-    assert not printhub._AUTH_FAILS.get("127.0.0.1", {}).get("until")
-    printhub._AUTH_FAILS.clear()
+    assert not advprint._AUTH_FAILS.get("127.0.0.1", {}).get("until")
+    advprint._AUTH_FAILS.clear()
 
 
 def test_success_clears_failure_counter(hub):
-    printhub._AUTH_FAILS.clear()
-    for i in range(int(printhub.CFG["max_auth_failures"]) - 1):
+    advprint._AUTH_FAILS.clear()
+    for i in range(int(advprint.CFG["max_auth_failures"]) - 1):
         hub.get("/jobs", token="bad-%d" % i)
     code, _ = hub.get("/jobs")          # one success -> counter reset
     assert code == 200
-    rec = printhub._AUTH_FAILS.get("127.0.0.1")
+    rec = advprint._AUTH_FAILS.get("127.0.0.1")
     assert rec is None                  # success clears the IP entirely
-    printhub._AUTH_FAILS.clear()
+    advprint._AUTH_FAILS.clear()
 
 
 def test_failures_expire_with_sliding_window(hub):
-    printhub._AUTH_FAILS.clear()
-    for i in range(int(printhub.CFG["max_auth_failures"]) - 1):
+    advprint._AUTH_FAILS.clear()
+    for i in range(int(advprint.CFG["max_auth_failures"]) - 1):
         hub.get("/jobs", token="old-%d" % i)
-    rec = printhub._AUTH_FAILS["127.0.0.1"]
-    rec["first"] -= int(printhub.CFG["lockout_minutes"]) * 60 + 1  # age out
+    rec = advprint._AUTH_FAILS["127.0.0.1"]
+    rec["first"] -= int(advprint.CFG["lockout_minutes"]) * 60 + 1  # age out
     code, _ = hub.get("/jobs", token="after-window")
     assert code == 401                  # still rejected, but...
-    fresh = printhub._AUTH_FAILS["127.0.0.1"]
+    fresh = advprint._AUTH_FAILS["127.0.0.1"]
     assert fresh["count"] == 1          # ...counted in a NEW window
-    printhub._AUTH_FAILS.clear()
+    advprint._AUTH_FAILS.clear()
 
 
 def test_old_default_token_gets_clear_hint(hub):
     code, d = hub.get("/jobs", token="PrintHub-2024")
     assert code == 401
     assert "OLD default token" in d["error"]
-    assert "printhub.py token" in d["error"]
+    assert "advprint.py token" in d["error"]
 
 
 def test_dashboard_wrong_token_html_error(hub):
@@ -151,12 +151,12 @@ def test_origin_allowlist(hub, cfg_reset):
     code, d = hub.post("/print", {"text": "origin test", "title": "o1",
                                   "kind": "thermal"},
                        headers={"Origin": "https://app.htncr.org",
-                                "X-PrintHub-Token": hub.token})
+                                "X-AdvPrint-Token": hub.token})
     assert code == 200
     code, _ = hub.post("/print", {"text": "evil", "title": "o2",
                                   "kind": "thermal"},
                        headers={"Origin": "https://evil.example",
-                                "X-PrintHub-Token": hub.token})
+                                "X-AdvPrint-Token": hub.token})
     assert code == 403
     hub.post("/config", {"allowed_origins": []})   # back to allow-all
 
@@ -193,13 +193,13 @@ def test_token_rotate_api(hub):
     code, _ = hub.get("/jobs", token=new)
     assert code == 200
     hub.token = new
-    assert printhub.CFG["token_header_only"] is True
+    assert advprint.CFG["token_header_only"] is True
 
 
 def test_config_post_persists(hub):
     code, d = hub.post("/config", {"max_retries": 3})
     assert code == 200 and "max_retries" in d["changed"]
-    disk = json.load(open(printhub.config_path()))
+    disk = json.load(open(advprint.config_path()))
     assert disk["max_retries"] == 3
     code, d = hub.post("/config", {"token": "hack"})
     assert code == 400                      # token only via /token/rotate
@@ -228,13 +228,13 @@ def test_duplicate_blocking(hub, clean_queue):
 
 
 def test_priority_urgent_first(hub, clean_queue):
-    printhub.RESUME_EVENT.clear()                       # hold the queue
+    advprint.RESUME_EVENT.clear()                       # hold the queue
     code, lo = hub.post("/print", {"text": "low prio", "title": "low",
                                    "priority": 9})
     code, hi = hub.post("/print", {"text": "urgent", "title": "urgent",
                                    "priority": 1})
     assert lo["priority"] == 9 and hi["priority"] == 1
-    printhub.RESUME_EVENT.set()
+    advprint.RESUME_EVENT.set()
     ok = wait_until(lambda: len(hub.printed) >= 2)
     assert ok
     assert hub.printed[0]["job_id"] == hi["job_id"]     # urgent jumped the line
@@ -245,32 +245,32 @@ def test_scheduled_print(hub, clean_queue):
     code, d = hub.post("/print", {"text": "later", "title": "sched",
                                   "run_at": "+1h", "kind": "thermal"})
     assert code == 200 and d["status"] == "scheduled" and d["scheduled_for"]
-    j = printhub.db_get(d["job_id"])
+    j = advprint.db_get(d["job_id"])
     assert j["status"] == "scheduled"
-    assert printhub.db_promote_scheduled() == 0         # 1h away: not yet
-    printhub.db_update(j["id"], run_at="2020-01-01T00:00:00")
-    assert printhub.db_promote_scheduled() == 1
-    ok = wait_until(lambda: (printhub.db_get(j["id"]) or {})
+    assert advprint.db_promote_scheduled() == 0         # 1h away: not yet
+    advprint.db_update(j["id"], run_at="2020-01-01T00:00:00")
+    assert advprint.db_promote_scheduled() == 1
+    ok = wait_until(lambda: (advprint.db_get(j["id"]) or {})
                     .get("status") in ("printed", "failed"))
     assert ok
 
 
 def test_retry_then_dead_letter(hub, clean_queue, cfg_reset):
-    printhub.CFG["max_retries"] = 1
-    printhub.CFG["retry_base_seconds"] = 0
+    advprint.CFG["max_retries"] = 1
+    advprint.CFG["retry_base_seconds"] = 0
     # make printing explode
-    orig = printhub.print_file
+    orig = advprint.print_file
     calls = {"n": 0}
     def boom(*a, **k):
         calls["n"] += 1
         raise RuntimeError("printer on fire")
-    printhub.print_file = boom
+    advprint.print_file = boom
     try:
-        printhub.RESUME_EVENT.clear()
+        advprint.RESUME_EVENT.clear()
         code, d = hub.post("/print", {"text": "will fail", "title": "boom",
                                       "kind": "thermal"})
-        printhub.RESUME_EVENT.set()
-        ok = wait_until(lambda: (printhub.db_get(d["job_id"]) or {})
+        advprint.RESUME_EVENT.set()
+        ok = wait_until(lambda: (advprint.db_get(d["job_id"]) or {})
                         .get("status") == "dead")
         assert ok, "job should reach dead-letter after retries"
         assert calls["n"] >= 2                          # 1st + 1 retry
@@ -278,28 +278,28 @@ def test_retry_then_dead_letter(hub, clean_queue, cfg_reset):
         code, d2 = hub.post("/jobs/%d/retry" % d["job_id"],
                             {"printer": "BackupLab"})
         assert code == 200
-        j = printhub.db_get(d["job_id"])
+        j = advprint.db_get(d["job_id"])
         assert j["status"] in ("queued", "printing", "printed")
         assert j["printer"] == "BackupLab"
     finally:
-        printhub.print_file = orig
+        advprint.print_file = orig
 
 
 def test_hold_when_printer_offline(hub, clean_queue, cfg_reset, monkeypatch):
-    printhub.CFG["hold_offline"] = True
-    monkeypatch.setattr(printhub, "printer_ready",
+    advprint.CFG["hold_offline"] = True
+    monkeypatch.setattr(advprint, "printer_ready",
                         lambda name="": "offline")
     code, d = hub.post("/print", {"text": "wait for paper", "title": "hold",
                                   "kind": "thermal", "printer": "FrontDesk"})
     jid = d["job_id"]
-    ok = wait_until(lambda: (printhub.db_get(jid) or {}).get("status") == "held")
+    ok = wait_until(lambda: (advprint.db_get(jid) or {}).get("status") == "held")
     assert ok
-    j = printhub.db_get(jid)
+    j = advprint.db_get(jid)
     assert "offline" in (j.get("held_reason") or "")
     # printer back online -> released
-    monkeypatch.setattr(printhub, "printer_ready", lambda name="": "ready")
-    printhub._UNHOLD_TS[0] = 0.0
-    ok = wait_until(lambda: (printhub.db_get(jid) or {}).get("status")
+    monkeypatch.setattr(advprint, "printer_ready", lambda name="": "ready")
+    advprint._UNHOLD_TS[0] = 0.0
+    ok = wait_until(lambda: (advprint.db_get(jid) or {}).get("status")
                     in ("printed", "printing"))
     assert ok
 
@@ -309,10 +309,10 @@ def test_hold_when_printer_offline(hub, clean_queue, cfg_reset, monkeypatch):
 # ============================================================
 
 def test_printer_group_fallback(hub, clean_queue, cfg_reset, monkeypatch):
-    printhub.CFG["printer_groups"] = {"Front": ["A", "B"]}
-    monkeypatch.setattr(printhub, "printers_status",
+    advprint.CFG["printer_groups"] = {"Front": ["A", "B"]}
+    monkeypatch.setattr(advprint, "printers_status",
                         lambda force=False: {"A": "offline", "B": "ready"})
-    assert printhub.pick_group_printer("Front") == "B"
+    assert advprint.pick_group_printer("Front") == "B"
     code, d = hub.post("/print", {"text": "to group", "title": "grp",
                                   "kind": "thermal", "printer": "Front"})
     ok = wait_until(lambda: len(hub.printed) >= 1)
@@ -327,7 +327,7 @@ def test_printers_endpoint_has_status(hub):
 
 
 def test_escpos_builder_markers():
-    b = printhub.escpos_bytes(
+    b = advprint.escpos_bytes(
         "HI\n#big HEAD\n|center|C\n|barcode:12345|\n|qr:tbl-9|\n|drawer|\n|cut|")
     assert b[:2] == b"\x1b@"                  # init
     assert b"\x1dV" in b                      # cut
@@ -381,7 +381,7 @@ def test_unknown_profile_rejected(hub):
 def test_audit_trail(hub, clean_queue):
     code, d = hub.post("/print", {"text": "audit me", "title": "aud",
                                   "kind": "thermal"})
-    wait_until(lambda: (printhub.db_get(d["job_id"]) or {}).get("status")
+    wait_until(lambda: (advprint.db_get(d["job_id"]) or {}).get("status")
                == "printed")
     code, d = hub.get("/audit?event=print.submitted")
     assert code == 200 and any(e["event"] == "print.submitted"
@@ -393,16 +393,16 @@ def test_audit_trail(hub, clean_queue):
 def test_job_records_site_and_hash(hub, clean_queue):
     code, d = hub.post("/print", {"text": "hash me", "title": "hash",
                                   "kind": "thermal"})
-    j = printhub.db_get(d["job_id"])
+    j = advprint.db_get(d["job_id"])
     assert j["content_hash"] and len(j["content_hash"]) == 64
 
 
 def test_reprint_reason_and_required(hub, clean_queue, cfg_reset):
     code, d = hub.post("/print", {"text": "orig", "title": "rep",
                                   "kind": "thermal"})
-    wait_until(lambda: (printhub.db_get(d["job_id"]) or {}).get("status")
+    wait_until(lambda: (advprint.db_get(d["job_id"]) or {}).get("status")
                == "printed")
-    printhub.CFG["reprint_reason_required"] = True
+    advprint.CFG["reprint_reason_required"] = True
     code, e = hub.post("/jobs/%d/reprint" % d["job_id"], {})
     assert code == 400 and "reason" in e["error"]
     code, e = hub.post("/jobs/%d/reprint" % d["job_id"],
@@ -411,13 +411,13 @@ def test_reprint_reason_and_required(hub, clean_queue, cfg_reset):
     code, d2 = hub.get("/audit?event=reprint")
     assert any("customer lost" in (x.get("reason") or "")
                for x in d2["entries"])
-    printhub.CFG["reprint_reason_required"] = False
+    advprint.CFG["reprint_reason_required"] = False
 
 
 def test_reprint_watermark(hub, clean_queue, cfg_reset):
     code, d = hub.post("/print", {"text": "wm source", "title": "wmsrc",
                                   "kind": "thermal"})
-    wait_until(lambda: (printhub.db_get(d["job_id"]) or {}).get("status")
+    wait_until(lambda: (advprint.db_get(d["job_id"]) or {}).get("status")
                == "printed")
     code, e = hub.post("/jobs/%d/reprint" % d["job_id"],
                        {"reason": "again", "watermark": True})
@@ -425,8 +425,8 @@ def test_reprint_watermark(hub, clean_queue, cfg_reset):
 
 
 def test_pdf_watermark_function():
-    data, _ = printhub.thermal_pdf_bytes("WATERMARK UNIT TEST", "wm")
-    out = printhub.pdf_watermark(data, "REPRINT")
+    data, _ = advprint.thermal_pdf_bytes("WATERMARK UNIT TEST", "wm")
+    out = advprint.pdf_watermark(data, "REPRINT")
     assert out[:5] == b"%PDF-" and len(out) > len(data)
     assert b"REPRINT" in out and b"PHwm" in out
 
@@ -457,11 +457,11 @@ def test_diagnostics_redacts_token(hub):
 
 
 def test_peers_endpoint(hub, cfg_reset):
-    printhub.CFG["peer_hubs"] = [{"url": "http://127.0.0.1:59999", "token": "x"}]
-    printhub._PEER_CACHE["t"] = 0.0
+    advprint.CFG["peer_hubs"] = [{"url": "http://127.0.0.1:59999", "token": "x"}]
+    advprint._PEER_CACHE["t"] = 0.0
     code, d = hub.get("/peers")
     assert code == 200 and d["peers"][0]["alive"] is False
-    printhub.CFG["peer_hubs"] = []
+    advprint.CFG["peer_hubs"] = []
 
 
 # ============================================================
@@ -482,39 +482,39 @@ def test_v1_database_migration(tmp_path):
                  "'/x.pdf','api','127',100)")
     conn.commit()
     conn.close()
-    old_dir = printhub.CFG["data_dir"]
-    printhub.CFG["data_dir"] = str(tmp_path)
+    old_dir = advprint.CFG["data_dir"]
+    advprint.CFG["data_dir"] = str(tmp_path)
     try:
-        printhub.db_init()
-        row = printhub.db_get(1)
+        advprint.db_init()
+        row = advprint.db_get(1)
         assert row["title"] == "old job"                 # data untouched
         assert all(k in row for k in ("priority", "attempts", "site",
                                       "content_hash", "held_reason"))
     finally:
-        printhub.CFG["data_dir"] = old_dir
+        advprint.CFG["data_dir"] = old_dir
 
 
 def test_version_anchors():
-    assert printhub.VERSION == "2.5.3"
+    assert advprint.VERSION == "2.6.0"
     # repo/package layout: tool/windows/portable/hub -> root/extension
     root = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.dirname(printhub.__file__)))))
+        os.path.dirname(os.path.dirname(advprint.__file__)))))
     ext = os.path.join(root, "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.5.3"
+        assert json.load(f)["version"] == "2.6.0"
 
 
 def test_log_rotation(tmp_path):
-    old = printhub.CFG["data_dir"]
-    printhub.CFG["data_dir"] = str(tmp_path)
-    old_max = printhub.CFG["log_max_mb"]
-    printhub.CFG["log_max_mb"] = 0        # rotate on every write
+    old = advprint.CFG["data_dir"]
+    advprint.CFG["data_dir"] = str(tmp_path)
+    old_max = advprint.CFG["log_max_mb"]
+    advprint.CFG["log_max_mb"] = 0        # rotate on every write
     try:
-        printhub.log("rotation test entry")
+        advprint.log("rotation test entry")
         assert os.path.isfile(os.path.join(str(tmp_path), "hub.log"))
     finally:
-        printhub.CFG["data_dir"] = old
-        printhub.CFG["log_max_mb"] = old_max
+        advprint.CFG["data_dir"] = old
+        advprint.CFG["log_max_mb"] = old_max
 
 
 # ============================================================
@@ -525,7 +525,7 @@ def test_log_rotation(tmp_path):
 def _v21_sync_token(hub):
     """Token rotation tests earlier in this module change CFG["token"] -
     keep the client's token in sync for every test."""
-    hub.token = printhub.CFG["token"]
+    hub.token = advprint.CFG["token"]
     yield
 
 
@@ -558,24 +558,24 @@ def test_v21_odd_even_reach_backend(hub, clean_queue):
 
 
 def test_v21_thermal_builder_overrides():
-    data, _ = printhub.thermal_pdf_bytes("A\nB", title="t",
+    data, _ = advprint.thermal_pdf_bytes("A\nB", title="t",
                                          margin_mm=10, scale_pct=200,
                                          landscape=True)
     assert data[:5] == b"%PDF-"
-    data2, _ = printhub.thermal_pdf_bytes("x")          # old signature works
+    data2, _ = advprint.thermal_pdf_bytes("x")          # old signature works
     assert data2[:5] == b"%PDF-"
 
 
 def test_v21_helpers():
-    assert printhub.text_needs_browser("বাংলা রসিদ") is True
-    assert printhub.text_needs_browser("COFFEE 35.50") is False
-    h = printhub.inject_page_css("<html><head></head><body>x</body></html>",
+    assert advprint.text_needs_browser("বাংলা রসিদ") is True
+    assert advprint.text_needs_browser("COFFEE 35.50") is False
+    h = advprint.inject_page_css("<html><head></head><body>x</body></html>",
                                  margin_mm=8, scale_pct=150, landscape=True)
     assert "margin:8mm" in h and "zoom:150%" in h and "landscape" in h
     assert h.index("<style") < h.index("<body")
-    assert printhub.pdf_page_count(b"%PDF-1.4 ... /Type /Page ... "
+    assert advprint.pdf_page_count(b"%PDF-1.4 ... /Type /Page ... "
                                    b"/Type /Page ...") == 2
-    assert printhub.pdf_page_count(b"not a pdf") is None
+    assert advprint.pdf_page_count(b"not a pdf") is None
 
 
 def test_v21_queue_shift_to_fake_peer(hub, clean_queue, cfg_reset):
@@ -587,7 +587,7 @@ def test_v21_queue_shift_to_fake_peer(hub, clean_queue, cfg_reset):
         def do_POST(self):
             ln = int(self.headers.get("Content-Length") or 0)
             got["body"] = json.loads(self.rfile.read(ln) or b"{}")
-            got["token"] = self.headers.get("X-PrintHub-Token")
+            got["token"] = self.headers.get("X-AdvPrint-Token")
             body = json.dumps({"ok": True, "job_id": 777}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -605,7 +605,7 @@ def test_v21_queue_shift_to_fake_peer(hub, clean_queue, cfg_reset):
         code, d = hub.post("/print", {"text": "shift me", "title": "sh",
                                       "kind": "thermal", "printer": "P1"})
         jid = d["job_id"]
-        printhub._PAUSED.clear() if hasattr(printhub, "_PAUSED") else None
+        advprint._PAUSED.clear() if hasattr(advprint, "_PAUSED") else None
         code, d = hub.post("/queue/shift", {
             "target": "http://127.0.0.1:%d" % pport,
             "target_token": "peersecret", "scope": "all"})
@@ -613,7 +613,7 @@ def test_v21_queue_shift_to_fake_peer(hub, clean_queue, cfg_reset):
         assert d["shifted_count"] == 1 and jid in d["shifted"]
         assert got["token"] == "peersecret"
         assert got["body"]["title"] == "sh"
-        assert (printhub.db_get(jid) or {}).get("status") == "forwarded"
+        assert (advprint.db_get(jid) or {}).get("status") == "forwarded"
         # individual shift: unknown id list shifts nothing
         code, d = hub.post("/queue/shift", {
             "target": "http://127.0.0.1:%d" % pport, "scope": "job",
@@ -634,11 +634,11 @@ def test_v21_share_lan_config_roundtrip(hub, cfg_reset):
 
 
 def test_v21_escpos_codepage_config(hub, cfg_reset, monkeypatch):
-    printhub.CFG["escpos_codepage"] = "cp850"
-    data = printhub.escpos_bytes("caf\xe9")       # \xe9 is 0x82 in cp850
+    advprint.CFG["escpos_codepage"] = "cp850"
+    data = advprint.escpos_bytes("caf\xe9")       # \xe9 is 0x82 in cp850
     assert b"caf\x82" in data
-    printhub.CFG["escpos_codepage"] = "cp437"
-    data = printhub.escpos_bytes("caf\xe9")
+    advprint.CFG["escpos_codepage"] = "cp437"
+    data = advprint.escpos_bytes("caf\xe9")
     assert b"caf" in data                          # replaced, no crash
 
 # ============================================================
@@ -708,7 +708,7 @@ def test_v22_docs_page_served(hub):
     body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
             else d if isinstance(d, str) else json.dumps(d))
     assert "LAN sharing" in body and "POST /print" in body
-    assert "2.5.3" in body
+    assert "2.6.0" in body
 
 
 def test_v22_docs_wrong_token_json(hub):
@@ -717,11 +717,11 @@ def test_v22_docs_wrong_token_json(hub):
 
 
 def test_v22_dashboard_has_lan_card_and_docs(hub):
-    html = printhub.dashboard_html("")
+    html = advprint.dashboard_html("")
     assert 'id="lanBody"' in html and "LAN sharing" in html
     assert "/docs" in html and "shiftJob" in html
     assert 'id="dbgBody"' in html and "toggleDebug" in html
-    assert "2.5.3" in html
+    assert "2.6.0" in html
 
 
 def test_v22_health_lan_active(hub):
@@ -759,17 +759,17 @@ def test_v221_print_now_bypasses_hold(hub, clean_queue, cfg_reset, monkeypatch):
     # printer reports offline -> job HELD (old behaviour: stuck forever,
     # the user sees "queued/held" and nothing prints). print-now must
     # push it out immediately.
-    printhub.CFG["hold_offline"] = True
-    monkeypatch.setattr(printhub, "printers_status",
+    advprint.CFG["hold_offline"] = True
+    monkeypatch.setattr(advprint, "printers_status",
                         lambda force=False: {"GhostOff": "offline"})
     code, d = hub.post("/print", {"text": "held job", "title": "h1",
                                   "printer": "GhostOff"})
     jid = d["job_id"]
-    assert wait_until(lambda: (printhub.db_get(jid) or {}).get("status")
+    assert wait_until(lambda: (advprint.db_get(jid) or {}).get("status")
                       == "held"), "job should be held"
     code, d = hub.post("/jobs/%d/print-now" % jid, {})
     assert code == 200 and d["ok"] is True and d["status"] == "printing"
-    assert wait_until(lambda: (printhub.db_get(jid) or {}).get("status")
+    assert wait_until(lambda: (advprint.db_get(jid) or {}).get("status")
                       == "printed"), "print-now must print despite hold"
 
 
@@ -778,11 +778,11 @@ def test_v221_print_now_bypasses_pause(hub, clean_queue):
     jid = d["job_id"]
     hub.post("/queue/pause", {})
     try:
-        assert wait_until(lambda: (printhub.db_get(jid) or {})
+        assert wait_until(lambda: (advprint.db_get(jid) or {})
                           .get("status") == "queued")
         code, d = hub.post("/jobs/%d/print-now" % jid, {})
         assert code == 200
-        assert wait_until(lambda: (printhub.db_get(jid) or {})
+        assert wait_until(lambda: (advprint.db_get(jid) or {})
                           .get("status") == "printed"), \
             "print-now must print even while the queue is paused"
     finally:
@@ -794,13 +794,13 @@ def test_v221_worker_survives_internal_error(hub, clean_queue, monkeypatch):
     # kill the thread - the hub kept answering OK while every later job
     # stayed "queued" forever. The exception-proof loop must keep going.
     calls = {"n": 0}
-    real_execute = printhub._execute_job
+    real_execute = advprint._execute_job
 
     def exploding(job, t0):
         calls["n"] += 1
         raise RuntimeError("simulated worker crash")
 
-    monkeypatch.setattr(printhub, "_execute_job", exploding)
+    monkeypatch.setattr(advprint, "_execute_job", exploding)
     code, d = hub.post("/print", {"text": "boom", "title": "crash1"})
     jid1 = d["job_id"]
     # the crash must be picked up by the worker...
@@ -809,16 +809,16 @@ def test_v221_worker_survives_internal_error(hub, clean_queue, monkeypatch):
     # ...and the job must NOT be stuck in 'printing' forever - it goes
     # to failed -> retry backoff (status queued again, attempts counted)
     def retried():
-        j = printhub.db_get(jid1) or {}
+        j = advprint.db_get(jid1) or {}
         return (j.get("status") == "queued" and j.get("attempts", 0) >= 1) \
             or j.get("status") == "failed"
     assert wait_until(retried), \
         "crashed job must not stay 'printing' forever"
     # the worker must STILL be alive for the next job
-    monkeypatch.setattr(printhub, "_execute_job", real_execute)
+    monkeypatch.setattr(advprint, "_execute_job", real_execute)
     code, d = hub.post("/print", {"text": "after crash", "title": "ok1"})
     jid2 = d["job_id"]
-    assert wait_until(lambda: (printhub.db_get(jid2) or {})
+    assert wait_until(lambda: (advprint.db_get(jid2) or {})
                       .get("status") == "printed", timeout=10), \
         "worker must survive an unexpected internal error"
     assert calls["n"] >= 1
@@ -830,15 +830,15 @@ def test_v221_watchdog_respawns_dead_worker(hub):
     dead = __import__("threading").Thread(target=lambda: None)
     dead.start()
     dead.join()
-    old = printhub._WORKER_THREAD[0]
+    old = advprint._WORKER_THREAD[0]
     try:
-        printhub._WORKER_THREAD[0] = dead
-        assert not printhub._WORKER_THREAD[0].is_alive()
-        printhub._spawn_worker()
-        assert printhub._WORKER_THREAD[0].is_alive()
-        assert printhub._WORKER_THREAD[0] is not dead
+        advprint._WORKER_THREAD[0] = dead
+        assert not advprint._WORKER_THREAD[0].is_alive()
+        advprint._spawn_worker()
+        assert advprint._WORKER_THREAD[0].is_alive()
+        assert advprint._WORKER_THREAD[0] is not dead
     finally:
-        printhub._WORKER_THREAD[0] = old
+        advprint._WORKER_THREAD[0] = old
 
 
 def test_v221_health_reports_worker_and_hold(hub):
@@ -895,7 +895,7 @@ def test_v23_debug_report_persists(hub):
     # the ring buffer survives a restart via debug_reports.json
     hub.post("/debug/report", {"source": "tool", "level": "warn",
                                "message": "persistence check"})
-    path = os.path.join(printhub.CFG["data_dir"], "debug_reports.json")
+    path = os.path.join(advprint.CFG["data_dir"], "debug_reports.json")
     assert os.path.isfile(path)
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -905,8 +905,8 @@ def test_v23_debug_report_persists(hub):
 def test_v23_instant_auto_queue(hub, clean_queue, cfg_reset, monkeypatch):
     # THE v2.3 feature: queue OFF (instant) + printer NOT active ->
     # the job is auto-queued instead of being printed (and failing)
-    printhub.CFG["hold_offline"] = True
-    monkeypatch.setattr(printhub, "printers_status",
+    advprint.CFG["hold_offline"] = True
+    monkeypatch.setattr(advprint, "printers_status",
                         lambda force=False: {"GhostOff": "offline"})
     code, d = hub.post("/print", {"text": "instant fallback",
                                   "title": "iaq", "printer": "GhostOff",
@@ -917,9 +917,9 @@ def test_v23_instant_auto_queue(hub, clean_queue, cfg_reset, monkeypatch):
     assert d["status"] == "queued"
     assert "auto-queued" in d["message"]
     jid = d["job_id"]
-    row = printhub.db_get(jid)
+    row = advprint.db_get(jid)
     assert row["status"] in ("queued", "held")     # never printing directly
-    audited = printhub.audit_list(50, "print.auto_queued")
+    audited = advprint.audit_list(50, "print.auto_queued")
     assert any(a.get("job_id") == jid for a in audited)
     assert not hub.printed                          # nothing hit the printer
 
@@ -927,24 +927,24 @@ def test_v23_instant_auto_queue(hub, clean_queue, cfg_reset, monkeypatch):
 def test_v23_instant_prints_when_printer_ready(hub, clean_queue, cfg_reset,
                                                monkeypatch):
     # printer IS ready -> instant mode really prints immediately
-    monkeypatch.setattr(printhub, "printers_status",
+    monkeypatch.setattr(advprint, "printers_status",
                         lambda force=False: {"StubPrinter": "ready"})
     code, d = hub.post("/print", {"text": "instant now", "title": "iok",
                                   "queue": False})
     assert code == 200 and d["auto_queued"] is False
-    assert wait_until(lambda: (printhub.db_get(d["job_id"]) or {})
+    assert wait_until(lambda: (advprint.db_get(d["job_id"]) or {})
                       .get("status") == "printed"), \
         "instant print must go out immediately when the printer is ready"
 
 
 def test_v23_mode_instant_alias(hub, clean_queue, cfg_reset, monkeypatch):
     # mode=instant is the friendlier alias of queue:false
-    monkeypatch.setattr(printhub, "printers_status",
+    monkeypatch.setattr(advprint, "printers_status",
                         lambda force=False: {"StubPrinter": "ready"})
     code, d = hub.post("/print", {"text": "alias", "title": "mai",
                                   "mode": "instant"})
     assert code == 200 and d["instant"] is True and d["queue_mode"] == "off"
-    assert wait_until(lambda: (printhub.db_get(d["job_id"]) or {})
+    assert wait_until(lambda: (advprint.db_get(d["job_id"]) or {})
                       .get("status") == "printed")
     code, d = hub.post("/print", {"text": "alias back", "title": "maq",
                                   "mode": "queue"})
@@ -959,7 +959,7 @@ def test_v23_instant_raw_skips_status_check(hub, clean_queue):
                                   "lang": "escpos", "title": "raw-inst",
                                   "queue": False})
     assert code == 200 and d["ok"] is True
-    assert wait_until(lambda: (printhub.db_get(d["job_id"]) or {})
+    assert wait_until(lambda: (advprint.db_get(d["job_id"]) or {})
                       .get("status") == "printed")
 
 
@@ -998,3 +998,57 @@ def test_v23_docs_has_debug_and_instant(hub):
     assert "Debug mode" in body and "/debug" in body
     assert "instant" in body and "auto-queued" in body
     assert "/debug/report" in body
+
+
+# ================= v2.6: one-click token fix + live test =================
+
+def test_v26_token_current_loopback_only(hub):
+    """GET /token/current answers on loopback WITHOUT a token (the
+    owner PC one-click fix) and returns the hub's current token."""
+    code, d = hub.get("/token/current")
+    assert code == 200 and d["ok"] is True
+    assert d["token"] == hub.token
+    assert d["app"] == "AdvPrint Pro" and d["version"] == "2.6.0"
+
+
+def test_v26_token_current_rejects_remote(hub):
+    """The /token/current gate is _is_loopback(): a LAN client
+    (192.168.x.x) is NOT loopback and therefore gets 403 - the token
+    never leaves the hub PC over this endpoint."""
+    f = advprint.Handler.__new__(advprint.Handler)
+    f.client_address = ("192.168.1.77", 5555)
+    assert f._is_loopback() is False
+    f.client_address = ("127.0.0.1", 4444)
+    assert f._is_loopback() is True
+    f.client_address = ("::1", 4444)
+    assert f._is_loopback() is True
+
+
+def test_v26_dashboard_error_page_has_one_click_fix(hub):
+    code, body = hub.get("/dashboard?token=WRONG-stale-token",
+                         token="WRONG-stale-token",
+                         headers={"Accept": "text/html"})
+    assert code == 401
+    assert b"Fix it now" in body and b"/token/current" in body
+
+
+def test_v26_livetest_endpoint(hub):
+    code, d = hub.post("/livetest", {})
+    assert code == 200 and d["ok"] is True
+    names = [s["name"] for s in d["steps"]]
+    assert any("Queue DB" in n for n in names)
+    assert isinstance(d["all_ok"], bool)
+
+
+def test_v26_health_reports_new_brand(hub):
+    code, d = hub.get("/health")
+    assert code == 200
+    assert d["app"] == "AdvPrint Pro"
+    assert "Bit Dream IT" in d["branding"]
+    assert "Innovative Healthcare Solutions" in d["branding"]
+
+
+def test_v26_legacy_header_accepted(hub):
+    """Old clients still send X-PrintHub-Token - accepted."""
+    code, d = hub.get("/jobs", headers={"X-PrintHub-Token": hub.token})
+    assert code == 200

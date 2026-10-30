@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  PrintHub Pro - Windows service wrapper (pure stdlib, ctypes)
+#  AdvPrint Pro - Windows service wrapper (pure stdlib, ctypes)
 # ------------------------------------------------------------
 #  Lets the hub run as a REAL Windows service, visible in
-#  services.msc as "PrintHub Pro Service" (short name: PrintHub).
+#  services.msc as "AdvPrint Pro Service" (short name: AdvPrint).
 #
-#  Install   : python printhub.py service-install   (UAC prompt)
-#  Remove    : python printhub.py service-remove    (UAC prompt)
-#  Status    : python printhub.py service-status
+#  Install   : python advprint.py service-install   (UAC prompt)
+#  Remove    : python advprint.py service-remove    (UAC prompt)
+#  Status    : python advprint.py service-status
 #  Debug run : python service_main.py --console     (foreground)
 #
 #  binPath registered by the installer:
@@ -26,7 +26,7 @@ import sys
 import time
 import threading
 
-SERVICE_NAME = "PrintHub"
+SERVICE_NAME = "AdvPrint"
 
 IS_WIN = sys.platform == "win32"
 
@@ -38,30 +38,30 @@ def _run_hub(stop_event):
     if base not in sys.path:
         sys.path.insert(0, base)
     os.chdir(base)
-    # A service runs as LocalSystem -> ~/.printhub would land in the
+    # A service runs as LocalSystem -> ~/.advprint would land in the
     # system profile. Use a machine-wide data dir unless configured.
     os.environ.setdefault(
-        "PRINTHUB_DATA",
+        "ADVPRINT_DATA",
         os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"),
-                     "PrintHubPro"))
-    import printhub
-    printhub.db_init()
-    printhub.start_worker()
+                     "AdvPrintPro"))
+    import advprint
+    advprint.db_init()
+    advprint.start_worker()
     try:
         from http.server import ThreadingHTTPServer
-        httpd = ThreadingHTTPServer((printhub.CFG["host"], printhub.CFG["port"]),
-                                    printhub.Handler)
+        httpd = ThreadingHTTPServer((advprint.CFG["host"], advprint.CFG["port"]),
+                                    advprint.Handler)
     except OSError as e:
-        printhub.log("SERVICE: port %d busy (%s) - is the Startup copy "
-                     "already running? Service stops." % (printhub.CFG["port"], e))
+        advprint.log("SERVICE: port %d busy (%s) - is the Startup copy "
+                     "already running? Service stops." % (advprint.CFG["port"], e))
         return
     httpd.daemon_threads = True
-    printhub.log("PrintHub Pro v%s RUNNING as Windows service '%s'"
-                 % (printhub.VERSION, SERVICE_NAME))
+    advprint.log("AdvPrint Pro v%s RUNNING as Windows service '%s'"
+                 % (advprint.VERSION, SERVICE_NAME))
 
     def _watch():
         stop_event.wait()
-        printhub.log("PrintHub Pro service stopping ...")
+        advprint.log("AdvPrint Pro service stopping ...")
         try:
             httpd.shutdown()
         except Exception:
@@ -72,7 +72,7 @@ def _run_hub(stop_event):
         httpd.serve_forever(poll_interval=1.0)
         httpd.server_close()
     except Exception as e:
-        printhub.log("SERVICE FATAL: %s" % e)
+        advprint.log("SERVICE FATAL: %s" % e)
         raise
 
 
@@ -182,12 +182,12 @@ if IS_WIN:
         if not _advapi32.StartServiceCtrlDispatcherW(table):
             err = ctypes.get_last_error()
             # 1063 = "not started as a service" (double clicked / console)
-            print("This program is the PrintHub Windows service wrapper.")
+            print("This program is the AdvPrint Windows service wrapper.")
             print("It was not started by the Windows service manager "
                   "(error %d)." % err)
             print("")
-            print("  Normal hub        : python printhub.py serve")
-            print("  Install service   : python printhub.py service-install")
+            print("  Normal hub        : python advprint.py serve")
+            print("  Install service   : python advprint.py service-install")
             print("  Debug (foreground): python service_main.py --console")
             sys.exit(1)
 
@@ -195,7 +195,7 @@ if IS_WIN:
 def main():
     if not IS_WIN:
         print("service_main.py is the Windows service wrapper.")
-        print("On this OS start the hub with:  python printhub.py serve")
+        print("On this OS start the hub with:  python advprint.py serve")
         return
     if "--console" in sys.argv or "debug" in sys.argv:
         # foreground debug run - Ctrl+C stops it

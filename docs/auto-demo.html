@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PrintHub Auto - universal light auto-print demo</title>
+<title>AdvPrint Auto - universal light auto-print demo</title>
 <style>
   :root { --blue:#1d4ed8; --ink:#0f172a; --mut:#64748b; --ok:#16a34a; --bad:#dc2626; }
   * { box-sizing:border-box; margin:0; padding:0; }
@@ -35,7 +35,7 @@
 </head>
 <body>
 <header>
-  <h1>PrintHub Auto &mdash; universal light auto-print <span class="badge" id="ver">v?</span></h1>
+  <h1>AdvPrint Auto &mdash; universal light auto-print <span class="badge" id="ver">v?</span></h1>
   <p>AdvMedi by Bit Dream IT &middot; Innovative Healthcare Solutions &middot; www.bitdreamit.com</p>
 </header>
 
@@ -49,10 +49,10 @@
   </section>
 
   <section>
-    <h2>2. Any element with <code>data-printhub</code></h2>
-    <p class="sub">Buttons, cards, rows &mdash; anything carrying a URL in <code>data-printhub</code> prints that URL.</p>
-    <button class="pdfbtn" data-printhub="https://example.com/reports/605310.pdf" data-print-title="Lab report 605310">Print lab report 605310</button>
-    <button class="pdfbtn" data-printhub-ignore>Not a print button (ignored)</button>
+    <h2>2. Any element with <code>data-advprint</code></h2>
+    <p class="sub">Buttons, cards, rows &mdash; anything carrying a URL in <code>data-advprint</code> prints that URL.</p>
+    <button class="pdfbtn" data-advprint="https://example.com/reports/605310.pdf" data-print-title="Lab report 605310">Print lab report 605310</button>
+    <button class="pdfbtn" data-advprint-ignore>Not a print button (ignored)</button>
   </section>
 
   <section>
@@ -63,12 +63,12 @@
       <tr><td>Extension missing / disabled</td><td>Click is <b>not</b> intercepted &mdash; the link opens the URL exactly like before.</td></tr>
       <tr><td>Print fails (hub off, printer error)</td><td>The URL opens in a new tab (browser fallback), toast explains it.</td></tr>
       <tr><td>Double click / fast re-click</td><td>Swallowed by a 1.5 s cooldown &mdash; <b>one click = one job</b>, never two copies.</td></tr>
-      <tr><td>Page's own script already handled the click</td><td>PrintHub Auto stands down (no double handling).</td></tr>
+      <tr><td>Page's own script already handled the click</td><td>AdvPrint Auto stands down (no double handling).</td></tr>
     </table>
     <div class="note">
-      Install on any page: <code>&lt;script src="printhub-auto.js"&gt;&lt;/script&gt;</code> &mdash; that's all.
-      Optional customisation: <code>PrinthubAuto.init({ selector:'.print-btn', title:'Report' })</code>,
-      manual API: <code>PrinthubAuto.print(url, 'Title')</code>.
+      Install on any page: <code>&lt;script src="advprint-auto.js"&gt;&lt;/script&gt;</code> &mdash; that's all.
+      Optional customisation: <code>AdvprintAuto.init({ selector:'.print-btn', title:'Report' })</code>,
+      manual API: <code>AdvprintAuto.print(url, 'Title')</code>.
       Sample links point to files that do not exist here &mdash; they only demonstrate the click behaviour.
     </div>
   </section>
@@ -76,19 +76,19 @@
 
 <footer>
   AdvMedi by <a href="https://www.bitdreamit.com" target="_blank" rel="noopener">Bit Dream IT</a>
-  &mdash; Innovative Healthcare Solutions &middot; PrintHub Pro is 100% local &amp; MIT open source
+  &mdash; Innovative Healthcare Solutions &middot; AdvPrint Pro is 100% local &amp; MIT open source
 </footer>
 
 <script>
   // live status badge (demo only)
   window.addEventListener("load", function () {
-    var v = (window.PrinthubAuto && window.PrinthubAuto.version) || "?";
+    var v = (window.AdvprintAuto && window.AdvprintAuto.version) || "?";
     var el = document.getElementById("ver");
     el.textContent = "v" + v + (typeof printPdfLink === "function"
       ? " - extension detected" : " - no extension (links open normally)");
     el.style.background = typeof printPdfLink === "function" ? "#16a34a" : "#64748b";
   });
 </script>
-<script src="printhub-auto.js"></script>
+<script src="advprint-auto.js"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
-# PrintHub Pro v2.3.0 — "Instant print + /debug: see WHY nothing prints"
+# AdvPrint Pro v2.3.0 — "Instant print + /debug: see WHY nothing prints"
 
-Release date: 2026-10-30 · by Bitdream IT · MIT license · 100% local
+Release date: 2026-10-30 · by Bit Dream IT · MIT license · 100% local
 
 ## Why this release
 
@@ -97,12 +97,12 @@ built-in /docs (now with the Debug chapter, §5c).
 
 | File | SHA-256 |
 |---|---|
-| PrintHub-Pro-Setup-2.3.0.exe | 88d5a390922a18b38b5cd97082a977c0062c3b362bd89d6ea4d83277588715c6 |
-| PrintHub-Pro-Setup-2.3.0-exe.zip | 99a3865faee14edc0f736ece6593bb37bc5b5eac0038ab099020bbcd26f75bc5 |
-| PrintHub-Pro-2.3.0.zip | 7816a325932241690c00b00887fad7d7bfba3920a55286679aebc76f0c923162 |
-| PrintHub-Pro-v2.3.0-FULL.zip | 122034bf1ea598f31661934126919d08857ae32c119f1a0473b1af52ba817ee3 |
-| PrintHub-Pro-Extension-v2.3.0.zip | df3ab0471a34b753e975ba2cd31989e6e800df47d81e7ae9bfd7bc23c00982cd |
-| printhub-pro_2.3.0_all.deb | b584a1b95c248955f647f198542246f3316e4083508fd655cdd9b1a4373a1212 |
+| AdvPrint-Pro-Setup-2.3.0.exe | 88d5a390922a18b38b5cd97082a977c0062c3b362bd89d6ea4d83277588715c6 |
+| AdvPrint-Pro-Setup-2.3.0-exe.zip | 99a3865faee14edc0f736ece6593bb37bc5b5eac0038ab099020bbcd26f75bc5 |
+| AdvPrint-Pro-2.3.0.zip | 7816a325932241690c00b00887fad7d7bfba3920a55286679aebc76f0c923162 |
+| AdvPrint-Pro-v2.3.0-FULL.zip | 122034bf1ea598f31661934126919d08857ae32c119f1a0473b1af52ba817ee3 |
+| AdvPrint-Pro-Extension-v2.3.0.zip | df3ab0471a34b753e975ba2cd31989e6e800df47d81e7ae9bfd7bc23c00982cd |
+| advprint-pro_2.3.0_all.deb | b584a1b95c248955f647f198542246f3316e4083508fd655cdd9b1a4373a1212 |
 | ChromeWebStore-2.3.0.zip | ebb022c41f5884a037bbfab07a94efe275350fc404326177de6d5ad5a49329b8 |
 
 ## Test matrix (all green)

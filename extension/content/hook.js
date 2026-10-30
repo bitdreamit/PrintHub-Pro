@@ -1,4 +1,4 @@
-/* PrintHub Pro - MAIN world hook (v1.1.3).
+/* AdvPrint Pro - MAIN world hook (v1.1.3).
  * Injected by the BROWSER itself (dynamic content-script registration on
  * Chrome 111+, or chrome.scripting.executeScript from the service worker).
  * Both routes are extension-initiated and therefore immune to the page's
@@ -12,8 +12,8 @@
  *                        must be caught with a capture-phase keydown.
  * Both are redirected to the hub: silent, no dialog, no preview. */
 (function () {
-  if (window.__printhubHooked) return;   // idempotent: never double-install
-  window.__printhubHooked = true;
+  if (window.__advprintHooked) return;   // idempotent: never double-install
+  window.__advprintHooked = true;
   try {
     var native = window.print;            // kept so we can restore behavior
     var last = 0;                         // 1.2 s throttle, shared by both paths
@@ -23,7 +23,7 @@
       var now = Date.now();
       if (now - last < 1200) return;      // swallow double triggers
       last = now;
-      window.postMessage({ __printhub: true, kind: "window.print" }, "*");
+      window.postMessage({ __advprint: true, kind: "window.print" }, "*");
     }
 
     var hookedFn = function () {
@@ -31,7 +31,7 @@
       else return native.apply(window, arguments);   // disabled: native behavior
     };
     window.print = hookedFn;
-    window.__printhubNativePrint = native;
+    window.__advprintNativePrint = native;
 
     /* Ctrl+P / Cmd+P (also Ctrl+Shift+P): capture phase on window, so we
      * run before the page's own handlers. preventDefault() here stops
@@ -48,7 +48,7 @@
 
     window.addEventListener("message", function (ev) {
       var d = ev.data;
-      if (!d || d.__printhub !== true) return;
+      if (!d || d.__advprint !== true) return;
       if (d.kind === "unhook" || (d.kind === "state" && d.hookOn === false)) {
         on = false;                        // restore native print + preview
       } else if (d.kind === "state" && d.hookOn !== false) {

@@ -1,100 +1,98 @@
-PrintHub Pro v2.5.3 - START HERE
-=================================
+AdvPrint Pro (Advanced Printer) v2.6.0 - START HERE
+====================================================
+by Bit Dream IT - Innovative Healthcare Solutions
 
-YOUR GIT REPO AND THIS PACKAGE ARE NOW THE SAME TREE
-  github.com/bitdreamit/PrintHub-Pro  =  this folder, 1:1:
-    tool/       windows (portable hub + install scripts + runtime) + unix
-    extension/  the Chrome extension (incl. i18n.js Bangla strings)
-    docs/       API, guides, release notes
-    tests/      pytest suite (pytest.ini at the root)
-  Extract full.zip over your repo working copy -> git status shows only
-  real changes, no renames. (One cleanup: your repo has BOTH doc/ and
-  docs/ - doc/ is an old duplicate, delete it:  git rm -r doc)
-  Every folder explained: docs/FOLDER-MAP.md
+WHAT'S NEW IN 2.6.0 (REBRAND + ONE-CLICK TOKEN FIX)
+  1. THE WHOLE PRODUCT IS AdvPrint Pro (Advanced Printer) BY
+     BIT DREAM IT - INNOVATIVE HEALTHCARE SOLUTIONS.
+     Hub, dashboard, extension, tray, tool, service, deb,
+     installers, docs, Bangla + English UI - one brand everywhere.
+     Data folder: %USERPROFILE%\.advprint (old .printhub is
+     migrated automatically on first start; old folder stays
+     as backup). Env vars ADVPRINT_* (old PRINTHUB_* still work).
+  2. ONE-CLICK TOKEN FIX - you can never get locked out of the
+     dashboard again:
+       - open a stale dashboard link -> the error page shows a
+         green "Fix it now - open the dashboard with the current
+         token" button (works on the hub PC; remote PCs get the
+         manual steps only - the token never leaves the machine).
+       - tray icon -> "Open dashboard" ALWAYS opens with the
+         right token.
+       - extension Options -> Settings -> "Detect token" asks the
+         local hub and fills the token automatically.
+  3. LIVE TEST TOOL (A-to-Z, everywhere):
+       - python advprint.py livetest [print]
+       - desktop tool (AdvPrint Tool) menu [11]
+       - dashboard "Full self-test (A-to-Z)" button
+       - extension Debug tab "Run full self-test"
+       Each check prints [OK]/[!!] with the exact fix.
+  4. EXTENSION OPTIONS - tab-wise (Queue / History / Settings /
+     Debug / LAN / PCs / About) + new "Hub settings (advanced)":
+     edit retries, dedupe, holds, security, allowed origins,
+     reprint policy, thermal engine, save-as-PDF folder and more
+     LIVE from the browser.
+  5. COMPLETE INSTALLERS:
+     - AdvPrint-Pro-Setup-2.6.0.exe (~9.6 MB): hub + tool + tray +
+       service files + FULL Python 3.11.9 runtime (34 files) +
+       extension + docs. Per-user, no UAC, auto-run as a VISIBLE
+       Startup app, silent install with /S, removes all old
+       PrintHub Pro leftovers automatically.
+     - advprint-pro_2.6.0_all.deb: hub + tool + extension +
+       systemd user service + XDG autostart + CLI commands.
 
-WHAT HAPPENED IN 2.4.0 / 2.4.1 (honest note)
-  Those two builds were rebuilt from an older 1.5.0 tree after the dev
-  machine was reset, so they LOST v2.0-v2.3 features (LAN sharing,
-  ESC/POS raw printing, scheduled prints, printer groups, /peers).
-  v2.5.0 merged the REAL 2.3.0 hub source; v2.5.1 also restores the FULL
-  v2.3.0 EXTENSION (background/popup/options were stripped in the 2.5.0
-  merge) - Bangla UI, master switch, queue mode, retry-offline, rules
-  with type/title/per-rule enabled, alarms. Nothing missing anymore.
-
-WHAT'S NEW IN 2.5.3 (the COMPLETE RUNTIME fix)
-  Setup 2.5.2 fixed the payload but the bundled Python runtime it
-  shipped was INCOMPLETE - DLLs and .pyd modules only, without
-  python.exe / pythonw.exe / PrintHubPro.exe / the python311.zip
-  standard library. On a PC without Python it failed with "Setup could
-  not prepare the bundled Python runtime". v2.5.3 ships the COMPLETE
-  Python 3.11.9 runtime (34 files, byte-identical to the proven 2.5.0
-  installer) - Setup needs NO system Python and NO internet.
-  Also: every launcher (install-windows.bat, START-PRINT-HUB.vbs,
-  service-install.ps1) now resolves the runtime in BOTH layouts
-  (installed: runtime\ - portable: installer\runtime\).
-
-WHAT 2.5.2 ALREADY FIXED (kept in 2.5.3)
-  The old Setup exe still carried a 1.5.0-era payload: it copied only
-  printhub.py + a VBS launcher - no extension, no tool menu, no tray,
-  no service files. PrintHub-Pro-Setup-2.5.3.exe is rebuilt from this
-  tree and installs EVERYTHING:
-    - hub + PrintHub Tool (menu) + tray icon
-    - the v2.5.3 extension (load it from
-      %LOCALAPPDATA%\PrintHubPro\extension - or keep using the zip)
-    - RUN AS A REAL WINDOWS SERVICE: Start Menu > PrintHub Pro >
-      "Install Windows Service" (or: python hub\printhub.py
-      service-install). Visible in services.msc as "PrintHub Pro
-      Service", starts at boot, auto-restarts on crash. Remove it via
-      "Remove Windows Service". Fixed: the old service-install.ps1
-      called the hub with the wrong CLI form and never worked.
-  The .deb ships a SYSTEM service (/usr/lib/systemd/system/
-  printhub.service, data in /var/lib/printhub) and enables + starts it
-  on install when systemd is running - the user unit + autostart stay
-  as the no-root fallback. Portable systems: sudo bash tool/unix/
-  install-unix.sh --service. The deb now ALSO carries the extension at
-  /opt/printhub/extension (chrome://extensions > Load unpacked).
-
-WHY DID MY OLD VERSION SAY "SumatraPDF not found"?
-  The hub finds SumatraPDF automatically for EVERY Windows user (your
-  user name is never hardcoded):
-    C:\Users\<your-name>\AppData\Local\SumatraPDF\SumatraPDF.exe
-    both Program Files, Windows registry (per-user + per-machine), PATH,
-    and - even when the hub runs as a Windows SERVICE under another
-    account - an all-users profile scan (C:\Users\*\...).
-  It re-checks on EVERY print job - no restart needed. Failed jobs
-  auto-retry. Still not found? Dashboard -> Settings -> paste the path.
+WHY DID MY OLD VERSION SAY "cannot access" ON THE SETUP EXE?
+  The 2.5.3 exe some users received was INCOMPLETE (missing
+  payload) - Windows refused to run a broken exe and users had to
+  fight the Security tab manually. The 2.6.0 setup is complete and
+  the portable install-windows.bat additionally UNBLOCKS every
+  file automatically (fixes "Access is denied" on downloaded
+  zips). No manual Security-tab work is needed anywhere.
 
 UPDATE IN 3 STEPS
-  1. Run PrintHub-Pro-Setup-2.5.3.exe (installs over the old version,
-     keeps your job history + settings in %USERPROFILE%\.printhub).
-  2. Chrome -> chrome://extensions -> PrintHub Pro -> click RELOAD.
-  3. TEST IT LIVE (proves the REAL printer was hit):
-        http://127.0.0.1:9235/dashboard?token=<your token>
-     The dashboard has a "Live debug & test tool" section - click
-     "Send test print & watch live" and read the verdict:
-     REAL PRINTER HIT / SAVED / HELD / FAILED+reason.
+  1. Run AdvPrint-Pro-Setup-2.6.0.exe (installs over the old
+     version; history + settings migrate to .advprint automatically).
+  2. Chrome -> chrome://extensions -> AdvPrint Pro -> RELOAD.
+  3. TEST IT LIVE:
+       - python advprint.py livetest   (A-to-Z self-test)
+       - or tray -> Open dashboard -> "Send test print & watch
+         live" -> verdict: REAL PRINTER HIT / SAVED / HELD / FAILED
      Full step-by-step test: docs/EXTENSION-TEST.md
 
-NO PRINTER RIGHT NOW?
-  - Print to "Microsoft Print to PDF": the hub saves the PDF directly
-    into Downloads\PrintHub (no dialog, no SumatraPDF needed).
-  - Or choose "File (PDF)" / "__file__" as the printer.
-  - Jobs for an offline printer wait as HELD and print automatically
-    when the printer is back ("Print now" / Release ALL forces them).
+THE TOKEN
+  Fresh installs: a PRIVATE RANDOM token (shown once in hub.log,
+  readable with "python advprint.py token" or the config file).
+  Upgraded pre-2.0 installs: old default PrintHub-2024 keeps
+  working until you rotate it (the dashboard warns you).
+  Lost it? Stale bookmark? -> the dashboard error page has the
+  one-click fix, or tray -> Open dashboard, or extension ->
+  Detect token. Rotate: dashboard "Rotate token" button or
+  python advprint.py token-rotate.
 
-DEFAULT TOKEN: PrintHub-2024   (change it in the extension options)
-PORT: 9235                     (data folder: %USERPROFILE%\.printhub)
+NO PRINTER RIGHT NOW?
+  - Print to "Microsoft Print to PDF": the hub saves the PDF
+    straight into Downloads\AdvPrint (no dialog).
+  - Or choose "File (PDF)" / "__file__" as the printer.
+  - Jobs for an offline printer wait as HELD and print
+    automatically when the printer is back.
 
 FILES IN THIS PACKAGE
-  tool\            the desktop hub + installers + service + bundled runtime
-  extension\       Chrome extension - load unpacked / reload after update
-  docs\            EXTENSION-TEST, FOLDER-MAP, API.md, Full Guide, release notes
-  tests\           pytest suite (78 tests) + pytest.ini
-  PrintHub-Pro-Setup-2.5.3.exe   Windows installer: COMPLETE Python 3.11.9
-                                 runtime + extension + tool + tray + SERVICE
-  printhub-pro_2.5.3_all.deb     Debian/Ubuntu/Mint package (system + user
-                                 service + extension at /opt/printhub/extension)
-  PrintHub-Pro-2.5.3.zip         portable zip (same tree, zipped)
-  PrintHub-Pro-Extension-v2.5.3.zip  extension only (CWS-ready)
+  tool\            desktop hub + install scripts + bundled runtime
+  extension\       the browser extension - load unpacked / reload
+  docs\            API, EXTENSION-TEST, FOLDER-MAP, ENTERPRISE,
+                   AdvPrint-Pro-Full-Guide.html + .pdf, release notes
+  tests\           pytest suite + pytest.ini
+  installer\       AdvPrint-Pro-Setup-2.6.0.exe + advprint-pro_2.6.0_all.deb
+  AdvPrint-Pro-v2.6.0-FULL.zip   everything in one zip
   README.md / CHANGELOG.md / LICENSE / pytest.ini / .gitignore
   SHA256SUMS.txt
+
+SUPPORT
+  docs/AdvPrint-Pro-Full-Guide.html - the complete A-to-Z guide
+  (setup, token, tabs, dashboard, LAN/IP, queue, settings, debug,
+  enterprise, API, troubleshooting).
+  Bug report? Debug tab -> Copy report - and attach hub.log from
+  the data folder.
+
+AdvPrint Pro (Advanced Printer) v2.6.0
+by Bit Dream IT - Innovative Healthcare Solutions
+100% local - no cloud - no tracking - MIT license

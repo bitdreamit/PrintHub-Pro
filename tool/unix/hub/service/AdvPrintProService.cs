@@ -1,22 +1,22 @@
-// PrintHub Pro v1.7.2 - Windows service wrapper
+// AdvPrint Pro v1.7.2 - Windows service wrapper
 // AdvMedi by Bit Dream IT - Innovative Healthcare Solutions (MIT)
 //
 // Compiled ON THE PC by Windows' own csc.exe (nothing downloaded):
-//   csc /nologo /target:exe /out:PrintHubProService.exe
-//       /r:System.ServiceProcess.dll PrintHubProService.cs
+//   csc /nologo /target:exe /out:AdvPrintProService.exe
+//       /r:System.ServiceProcess.dll AdvPrintProService.cs
 //
-// Registered as service "PrintHubPro" (display: "PrintHub Pro Service").
+// Registered as service "AdvPrintPro" (display: "AdvPrint Pro Service").
 // OnStart it launches the real hub as a child process:
 //   <python> <script> serve
-// with PRINTHUB_SERVICE=1 and PRINTHUB_DATA=<installing user's data dir>,
+// with ADVPRINT_SERVICE=1 and ADVPRINT_DATA=<installing user's data dir>,
 // read from service.json next to this exe (written by the hub before
 // elevation). OnStop it kills the child tree. If the child dies, the
 // service stops - sc failure recovery restarts it automatically.
 //
 // Modes:
-//   PrintHubProService.exe              -> run as the service (sc starts)
-//   PrintHubProService.exe install      -> sc create + description + recovery + start
-//   PrintHubProService.exe remove       -> sc stop + sc delete
+//   AdvPrintProService.exe              -> run as the service (sc starts)
+//   AdvPrintProService.exe install      -> sc create + description + recovery + start
+//   AdvPrintProService.exe remove       -> sc stop + sc delete
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -28,7 +28,7 @@ public class PHService : ServiceBase
 
     public PHService()
     {
-        ServiceName = "PrintHubPro";
+        ServiceName = "AdvPrintPro";
         CanPauseAndContinue = false;
         AutoLog = true;
     }
@@ -40,7 +40,7 @@ public class PHService : ServiceBase
             string a = args[0].ToLowerInvariant();
             if (a == "install") { Install(); return; }
             if (a == "remove") { Remove(); return; }
-            Console.WriteLine("usage: PrintHubProService.exe [install|remove]");
+            Console.WriteLine("usage: AdvPrintProService.exe [install|remove]");
             Environment.Exit(2);
         }
         ServiceBase.Run(new PHService());
@@ -67,8 +67,8 @@ public class PHService : ServiceBase
             si.Arguments = "\"" + script + "\" serve --service";
             si.UseShellExecute = false;
             si.CreateNoWindow = true;
-            si.EnvironmentVariables["PRINTHUB_SERVICE"] = "1";
-            if (data != "") si.EnvironmentVariables["PRINTHUB_DATA"] = data;
+            si.EnvironmentVariables["ADVPRINT_SERVICE"] = "1";
+            if (data != "") si.EnvironmentVariables["ADVPRINT_DATA"] = data;
             _child = Process.Start(si);
 
             // If the hub dies, stop the service so sc recovery restarts it.
@@ -81,7 +81,7 @@ public class PHService : ServiceBase
         }
         catch (Exception ex)
         {
-            try { EventLog.WriteEntry("PrintHubPro",
+            try { EventLog.WriteEntry("AdvPrintPro",
                   "OnStart failed: " + ex.Message, EventLogEntryType.Error); }
             catch (Exception) { }
             throw; // SCM marks the start FAILED - visible in services.msc
@@ -136,22 +136,22 @@ public class PHService : ServiceBase
         string exe = Process.GetCurrentProcess().MainModule.FileName;
         try
         {
-            Sc("stop " + Q("PrintHubPro"));               // clean slate
-            Sc("delete " + Q("PrintHubPro"));
+            Sc("stop " + Q("AdvPrintPro"));               // clean slate
+            Sc("delete " + Q("AdvPrintPro"));
             // ImagePath must keep the inner quotes (paths may contain
-            // spaces): binPath= "\"C:\...\PrintHubProService.exe\" run"
-            int rc = Sc("create " + Q("PrintHubPro") +
+            // spaces): binPath= "\"C:\...\AdvPrintProService.exe\" run"
+            int rc = Sc("create " + Q("AdvPrintPro") +
                         " binPath= \"\\\"" + exe + "\\\" run\"" +
                         " start= auto" +
                         " obj= LocalSystem" +
-                        " DisplayName= " + Q("PrintHub Pro Service"));
+                        " DisplayName= " + Q("AdvPrint Pro Service"));
             if (rc != 0) Environment.Exit(rc);
-            Sc("description " + Q("PrintHubPro") + " " +
+            Sc("description " + Q("AdvPrintPro") + " " +
                Q("Silent print hub (AdvMedi by Bit Dream IT) - prints from any PC in the office. http://127.0.0.1:9235"));
-            Sc("failure " + Q("PrintHubPro") +
+            Sc("failure " + Q("AdvPrintPro") +
                " reset= 86400 actions= restart/60000/restart/60000/restart/60000");
-            Sc("start " + Q("PrintHubPro"));
-            Console.WriteLine("PrintHub Pro Service installed and started.");
+            Sc("start " + Q("AdvPrintPro"));
+            Console.WriteLine("AdvPrint Pro Service installed and started.");
             Console.WriteLine("Manage it in services.msc (no tray icon in service mode).");
             Environment.Exit(0);
         }
@@ -166,9 +166,9 @@ public class PHService : ServiceBase
     {
         try
         {
-            Sc("stop " + Q("PrintHubPro"));
-            int rc = Sc("delete " + Q("PrintHubPro"));
-            Console.WriteLine(rc == 0 ? "PrintHub Pro Service removed."
+            Sc("stop " + Q("AdvPrintPro"));
+            int rc = Sc("delete " + Q("AdvPrintPro"));
+            Console.WriteLine(rc == 0 ? "AdvPrint Pro Service removed."
                                       : ("sc delete returned " + rc));
             Environment.Exit(rc == 0 || rc == 1060 ? 0 : rc); // 1060 = not installed
         }

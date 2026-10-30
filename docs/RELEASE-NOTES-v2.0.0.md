@@ -1,6 +1,6 @@
-# PrintHub Pro v2.0.0 — "Security, Audit & Production Control"
+# AdvPrint Pro v2.0.0 — "Security, Audit & Production Control"
 
-> PrintHub Pro — Version 2.0.0 · by Bitdream IT · MIT license · 100% local — no cloud, no tracking.
+> AdvPrint Pro — Version 2.0.0 · by Bit Dream IT · MIT license · 100% local — no cloud, no tracking.
 
 **22 new features across security, printers, queue, audit, extension and repo.**
 Old installs, old databases and old connect codes keep working. New settings
@@ -10,12 +10,12 @@ live in `config.json` and the Options page; defaults keep the 1.x behaviour.
 
 | File | What it is | For |
 |---|---|---|
-| `PrintHub-Pro-Setup-2.0.0.exe` | Windows installer (Python included) — install / uninstall / optional Windows service / silent `/S` | Windows users |
-| `PrintHub-Pro-Setup-2.0.0-exe.zip` | The same EXE wrapped in a ZIP (for hosts that refuse raw `.exe`) | Windows users |
-| `PrintHub-Pro-2.0.0.zip` | Main package: `doc/ + extension/ + tool/{windows,unix}` | Everyone |
-| `PrintHub-Pro-v2.0.0-FULL.zip` | Main package + portable hub (bundled runtime) + `tests/` + `.github/` + repo hygiene files | Portable / repo users |
-| `PrintHub-Pro-Extension-v2.0.0.zip` | Extension only | Manual loads |
-| `printhub-pro_2.0.0_all.deb` | Debian package (systemd user service) | Debian/Ubuntu/Mint |
+| `AdvPrint-Pro-Setup-2.0.0.exe` | Windows installer (Python included) — install / uninstall / optional Windows service / silent `/S` | Windows users |
+| `AdvPrint-Pro-Setup-2.0.0-exe.zip` | The same EXE wrapped in a ZIP (for hosts that refuse raw `.exe`) | Windows users |
+| `AdvPrint-Pro-2.0.0.zip` | Main package: `doc/ + extension/ + tool/{windows,unix}` | Everyone |
+| `AdvPrint-Pro-v2.0.0-FULL.zip` | Main package + portable hub (bundled runtime) + `tests/` + `.github/` + repo hygiene files | Portable / repo users |
+| `AdvPrint-Pro-Extension-v2.0.0.zip` | Extension only | Manual loads |
+| `advprint-pro_2.0.0_all.deb` | Debian package (systemd user service) | Debian/Ubuntu/Mint |
 | `SHA256SUMS-2.0.0.txt` | Checksums — verify before installing | Everyone |
 
 ## Highlights
@@ -26,7 +26,7 @@ live in `config.json` and the Options page; defaults keep the 1.x behaviour.
 - **Allowed origins** (`allowed_origins: ["*.htncr.org"]`) — empty list = allow all, as before.
 - **SSRF-guarded `pdf_url`** — `file://`, `ftp://`, private/local IPs blocked (exempt list available).
 - **IP lockout** — 10 wrong tokens ⇒ 5 minutes locked.
-- **Token rotation** — dashboard button, `POST /token/rotate`, `python printhub.py token-rotate`.
+- **Token rotation** — dashboard button, `POST /token/rotate`, `python advprint.py token-rotate`.
 
 **Printers**
 - Live **printer status** (ready / offline / paper-out / error); jobs **hold** while offline and print when it returns.
@@ -52,9 +52,9 @@ live in `config.json` and the Options page; defaults keep the 1.x behaviour.
 
 ## Upgrade
 
-1. Run `PrintHub-Pro-Setup-2.0.0.exe` over the old install — settings, history and autostart are kept.
-2. Old installs: the popup shows a yellow *default token* warning → click **Rotate token** (dashboard) or run `python printhub.py token-rotate`, then paste the new token into the extension Options.
-3. Reload the extension (`chrome://extensions` → PrintHub Pro → reload icon).
+1. Run `AdvPrint-Pro-Setup-2.0.0.exe` over the old install — settings, history and autostart are kept.
+2. Old installs: the popup shows a yellow *default token* warning → click **Rotate token** (dashboard) or run `python advprint.py token-rotate`, then paste the new token into the extension Options.
+3. Reload the extension (`chrome://extensions` → AdvPrint Pro → reload icon).
 4. New hub toys: open `http://127.0.0.1:9235/dashboard?token=YOURTOKEN`.
 
 Full changelog: [CHANGELOG.md](https://github.com/bitdreamit/PrintHub-Pro/blob/main/CHANGELOG.md)

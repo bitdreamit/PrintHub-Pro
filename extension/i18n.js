@@ -1,4 +1,4 @@
-/* PrintHub Pro v2.2.1 - UI language: English + Bangla (বাংলা).
+/* AdvPrint Pro v2.6.0 - UI language: English + Bangla (বাংলা).
  * Shared by popup + options. The language comes from:
  *   1. chrome.storage.local.lang ("en" | "bn"), set in Options
  *   2. fallback: the browser UI language (auto-detect)
@@ -9,7 +9,7 @@
   "use strict";
   const STRINGS = {
     en: {
-      appName: "PrintHub Pro",
+      appName: "AdvPrint Pro",
       // popup
       popOffline: "Hub offline - jobs are saved and will retry",
       popRetryNow: "Retry now",
@@ -17,7 +17,7 @@
       popTokenWarn: "You are using the DEFAULT token - change it in Options",
       popTokenBad: "The hub REJECTED your token - open Options and paste the current hub token",
       popTokenLocked: "Hub is rate-limiting this IP - retries paused, will resume automatically",
-      popSwitchEnabled: "PrintHub enabled",
+      popSwitchEnabled: "AdvPrint enabled",
       popEnabledOn: "printing is on",
       popEnabledOff: "printing is OFF - nothing prints",
       popSwitchQueue: "Queue mode",
@@ -28,15 +28,15 @@
       popSaved: "Saved as PDF",
       popCheckPrinter: " - check the printer",
       popFailed: "Failed: ",
-      popHubOfflineHint: "Hub not reachable. Start it:  python printhub.py serve",
+      popHubOfflineHint: "Hub not reachable. Start it:  python advprint.py serve",
       popPaused: "PAUSED",
       popRunning: "running",
       popResume: "Resume",
       popPause: "Pause",
       popRecentJobs: "Recent jobs",
       popNoJobs: "No jobs yet - print something!",
-      popEnabledMsg: "PrintHub enabled",
-      popDisabledMsg: "PrintHub disabled - nothing will print",
+      popEnabledMsg: "AdvPrint enabled",
+      popDisabledMsg: "AdvPrint disabled - nothing will print",
       popQueueOnMsg: "Queue mode ON - jobs are printed in FIFO order",
       popQueueOffMsg: "Instant print ON - jobs print immediately; if no printer is active they are auto-queued for later",
       popTestQueued: "Test page queued as job #",
@@ -58,17 +58,17 @@
       optTypeGlob: "Glob (* wildcard)",
       optTypeRegex: "Regex",
       // about / branding
-      brandLine: "Version 2.0.0 - by Bitdream IT - MIT license - 100% local - no cloud, no tracking."
+      brandLine: "Version 2.6.0 - AdvPrint Pro (Advanced Printer) by Bit Dream IT - Innovative Healthcare Solutions - MIT license - 100% local - no cloud, no tracking."
     },
     bn: {
-      appName: "প্রিন্টহাব প্রো",
+      appName: "AdvPrint Pro",
       popOffline: "হাব অফলাইন - কাজ সংরক্ষিত আছে, পরে আবার চেষ্টা হবে",
       popRetryNow: "এখন পুনরায় চেষ্টা করুন",
       popRetryCount: "টি কাজ পুনরায় পাঠানোর অপেক্ষায়",
       popTokenWarn: "আপনি ডিফল্ট টোকেন ব্যবহার করছেন - Options থেকে বদলান",
       popTokenBad: "হাব আপনার টোকেন প্রত্যাখ্যান করেছে - Options থেকে সঠিক হাব টোকেন দিন",
       popTokenLocked: "হাব এই IP সাময়িকভাবে সীমিত করেছে - রিট্রি বিরতিতে আছে, স্বয়ংক্রিয়ভাবে পুনরায় শুরু হবে",
-      popSwitchEnabled: "প্রিন্টহাব চালু",
+      popSwitchEnabled: "অ্যাডভান্সড প্রিন্টার চালু",
       popEnabledOn: "প্রিন্টিং চালু আছে",
       popEnabledOff: "প্রিন্টিং বন্ধ - কিছুই প্রিন্ট হবে না",
       popSwitchQueue: "কিউ মোড",
@@ -79,15 +79,15 @@
       popSaved: "PDF হিসেবে সংরক্ষিত",
       popCheckPrinter: " - প্রিন্টার দেখুন",
       popFailed: "ব্যর্থ: ",
-      popHubOfflineHint: "হাব পাওয়া যাচ্ছে না। চালু করুন:  python printhub.py serve",
+      popHubOfflineHint: "হাব পাওয়া যাচ্ছে না। চালু করুন:  python advprint.py serve",
       popPaused: "বিরত",
       popRunning: "চলছে",
       popResume: "চালু করুন",
       popPause: "বিরত করুন",
       popRecentJobs: "সাম্প্রতিক কাজ",
       popNoJobs: "এখনও কোনো কাজ নেই - কিছু প্রিন্ট করুন!",
-      popEnabledMsg: "প্রিন্টহাব চালু হয়েছে",
-      popDisabledMsg: "প্রিন্টহাব বন্ধ - কিছুই প্রিন্ট হবে না",
+      popEnabledMsg: "অ্যাডভান্সড প্রিন্টার চালু হয়েছে",
+      popDisabledMsg: "অ্যাডভান্সড প্রিন্টার বন্ধ - কিছুই প্রিন্ট হবে না",
       popQueueOnMsg: "কিউ মোড চালু - কাজ ক্রমানুসারে প্রিন্ট হবে",
       popQueueOffMsg: "কিউ মোড বন্ধ - কাজ সাথে সাথে প্রিন্ট হবে",
       popTestQueued: "টেস্ট পেজ কিউ হয়েছে, জব #",
@@ -107,7 +107,7 @@
       optRulesType: "ধরন",
       optTypeGlob: "Glob (* ওয়াইল্ডকার্ড)",
       optTypeRegex: "Regex",
-      brandLine: "সংস্করণ 2.0.0 - by Bitdream IT - MIT লাইসেন্স - ১০০% লোকাল - কোনো ক্লাউড নেই, কোনো ট্র্যাকিং নেই।"
+      brandLine: "সংস্করণ 2.6.0 - AdvPrint Pro (Advanced Printer) by Bit Dream IT - Innovative Healthcare Solutions - MIT লাইসেন্স - ১০০% লোকাল - কোনো ক্লাউড নেই, কোনো ট্র্যাকিং নেই।"
     }
   };
 
@@ -151,5 +151,5 @@
     } catch (_) { return detect(); }
   }
 
-  global.PrintHubI18n = { t, apply, detect, currentLang, languages: Object.keys(STRINGS) };
+  global.AdvPrintI18n = { t, apply, detect, currentLang, languages: Object.keys(STRINGS) };
 })(typeof window !== "undefined" ? window : this);

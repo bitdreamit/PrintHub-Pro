@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>PrintHub Pro - Options</title>
+<title>AdvPrint Pro - Options</title>
 <style>
   :root { --blue:#1d4ed8; --ink:#0f172a; --mut:#64748b; --line:#e2e8f0;
           --bg:#f5f8fc; --ok:#16a34a; --bad:#dc2626; }
@@ -102,12 +102,12 @@
 </head>
 <body>
 <header>
-  <div class="logo">P</div>
+  <div class="logo">A</div>
   <div>
-    <h1>PrintHub Pro</h1>
+    <h1>AdvPrint Pro</h1>
     <p>Print from any web page to any printer &middot; silent &middot; 100% local &middot; MIT open source</p>
   </div>
-  <span class="verchip" id="verChip">v2.2.1</span>
+  <span class="verchip" id="verChip">v2.6.0</span>
 </header>
 
 <nav id="tabs">
@@ -165,8 +165,8 @@
       <h2>Power switches</h2>
       <div class="toggle">
         <input type="checkbox" id="enabled">
-        <div><b>PrintHub enabled (master switch)</b>
-          <p>OFF = the extension stops completely: no printing, no auto-print, no window.print() hook, no page API, no context menu. A gray OFF badge shows on the toolbar icon. Use it when you want the browser to behave 100% natively without uninstalling PrintHub.</p></div>
+        <div><b>AdvPrint enabled (master switch)</b>
+          <p>OFF = the extension stops completely: no printing, no auto-print, no window.print() hook, no page API, no context menu. A gray OFF badge shows on the toolbar icon. Use it when you want the browser to behave 100% natively without uninstalling AdvPrint.</p></div>
       </div>
       <div class="toggle">
         <input type="checkbox" id="queueMode">
@@ -196,7 +196,7 @@
 
     <section style="border:none;padding:0;margin:0">
       <h2>Connection</h2>
-      <p class="sub">Link the extension to the PrintHub Pro hub running on this computer.</p>
+      <p class="sub">Link the extension to the AdvPrint Pro hub running on this computer.</p>
       <div class="row">
         <label>Hub URL</label>
         <input type="text" id="hubUrl" placeholder="http://127.0.0.1:9235">
@@ -205,14 +205,16 @@
         <label>Token</label>
         <input type="password" id="token" placeholder="token from the hub">
         <button class="primary" id="bTestHub">Connect</button>
+        <button id="bDetectToken" title="Ask the running hub for its current token (works on the hub PC - one-click fix for a stale token)">Detect token</button>
         <span id="hubState" class="mono"></span>
       </div>
-      <div class="note">Start the hub with <b>python printhub.py serve</b>, or use the
-        installed "PrintHub Pro" shortcut / "PrintHub Tool" menu.
+      <div class="note">Start the hub with <b>python advprint.py serve</b>, or use the
+        installed "AdvPrint Pro" shortcut / "AdvPrint Tool" menu.
         v2.0: new installs get a <b>private random token</b> - read it with
-        <span class="mono">python printhub.py token</span> or in the hub
+        <span class="mono">python advprint.py token</span> or in the hub
         dashboard. Old installs keep <span class="mono">PrintHub-2024</span>
-        until changed (the hub will warn you).</div>
+        until changed (the hub will warn you).
+        <b>Detect token</b> fills the current token automatically from the running hub (v2.6 one-click fix - also offered on the dashboard error page itself).</div>
       <div class="row" style="margin-top:8px">
         <button id="bDashboard" data-i18n="optDashboard">Open hub dashboard</button>
         <button id="bAudit" data-i18n="optAudit">Open audit log</button>
@@ -354,7 +356,7 @@
       <div class="toggle">
         <input type="checkbox" id="contextMenu">
         <div><b>Right-click menu</b>
-          <p>Add "PrintHub Pro" to the context menu (print page / selection / linked PDF / screenshot).</p></div>
+          <p>Add "AdvPrint Pro" to the context menu (print page / selection / linked PDF / screenshot).</p></div>
       </div>
       <div class="toggle">
         <input type="checkbox" id="badge">
@@ -364,6 +366,115 @@
       <div class="row" style="margin-top:8px">
         <button class="primary" id="bSave">Save settings</button>
         <button id="bTestPage">Send test page</button>
+      </div>
+    </section>
+
+    <!-- v2.6: hub-side settings, edited live over GET/POST /config -->
+    <section style="border:none;padding:0;margin-top:18px">
+      <h2>Hub settings (advanced) <span class="sub" style="display:inline">- live in config.json, saved over POST /config</span></h2>
+      <p class="sub">These are the hub's own settings - the same ones the
+        dashboard Settings card and <span class="mono">~/.advprint/config.json</span> hold.
+        Changes apply immediately; some (LAN binding) need a hub restart.</p>
+
+      <h3 style="margin:14px 0 6px;font-size:13.5px">Queue &amp; retries</h3>
+      <div class="row">
+        <label style="min-width:190px">Retry attempts (0 = off)</label>
+        <input type="text" id="hMaxRetries" placeholder="2" style="max-width:70px;min-width:70px">
+        <label style="min-width:auto">First retry after (seconds)</label>
+        <input type="text" id="hRetryBase" placeholder="30" style="max-width:70px;min-width:70px">
+      </div>
+      <div class="row">
+        <label style="min-width:190px">Duplicate block window (minutes)</label>
+        <input type="text" id="hDedupe" placeholder="5" style="max-width:70px;min-width:70px">
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="hHoldOffline">
+        <div><b>Hold jobs while the printer reports offline</b>
+          <p>Jobs wait (status "held") until the printer is ready again - nothing is lost. Turn off if your printer always reports offline but still prints (misreported status).</p></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="hInstantQueue">
+        <div><b>Instant print fallback to queue</b>
+          <p>Queue mode OFF + printer not active: the job is auto-queued instead of failing, and prints when the printer is back (v2.3).</p></div>
+      </div>
+
+      <h3 style="margin:14px 0 6px;font-size:13.5px">Security</h3>
+      <div class="row">
+        <label style="min-width:190px">Failed tokens before lockout</label>
+        <input type="text" id="hAuthFails" placeholder="10" style="max-width:70px;min-width:70px">
+        <label style="min-width:auto">Lockout minutes</label>
+        <input type="text" id="hLockMin" placeholder="5" style="max-width:70px;min-width:70px">
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="hHeaderOnly">
+        <div><b>Strict token mode (header only)</b>
+          <p>ON = mutating calls (POST) must send the token in the X-AdvPrint-Token header (the extension does this anyway). OFF = token in the URL/body is also accepted (1.x compatibility).</p></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="hLoopbackExempt">
+        <div><b>Never lock out this PC (127.0.0.1)</b>
+          <p>Recommended ON: a stale token in one Chrome window can never lock out your own dashboard, tray and extension (v2.0.1 rule).</p></div>
+      </div>
+      <div class="row">
+        <label>Allowed origins</label>
+        <input type="text" id="hOrigins" placeholder="(empty = all websites may print) e.g. https://www.htncr.org, http://intranet.local">
+      </div>
+
+      <h3 style="margin:14px 0 6px;font-size:13.5px">Reprint &amp; audit</h3>
+      <div class="toggle">
+        <input type="checkbox" id="hWatermark">
+        <div><b>Stamp REPRINT on reprinted pages</b></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="hReasonRequired">
+        <div><b>Require a reason for reprints</b>
+          <p>Every reprint asks for a reason that is written to the audit log (compliance).</p></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="hAudit">
+        <div><b>Audit trail</b>
+          <p>Log every print/who/what to the audit log (view: About tab &rarr; Open audit log).</p></div>
+      </div>
+
+      <h3 style="margin:14px 0 6px;font-size:13.5px">Thermal / raw text printing</h3>
+      <div class="row">
+        <label style="min-width:190px">Non-Latin text engine</label>
+        <select id="hThermalEngine" style="flex:none">
+          <option value="auto">Auto (recommended)</option>
+          <option value="builtin">Built-in only (fast, Latin scripts)</option>
+          <option value="browser">Browser render (Bangla &amp; complex scripts)</option>
+        </select>
+        <label style="min-width:auto">ESC/POS codepage</label>
+        <select id="hCodepage" style="flex:none">
+          <option value="cp437">cp437 (default)</option>
+          <option value="cp850">cp850</option>
+          <option value="cp866">cp866</option>
+          <option value="cp1251">cp1251</option>
+          <option value="cp1252">cp1252</option>
+        </select>
+      </div>
+
+      <h3 style="margin:14px 0 6px;font-size:13.5px">Save-as-PDF destination</h3>
+      <div class="row">
+        <label style="min-width:190px">Folder (empty = Downloads/AdvPrint)</label>
+        <input type="text" id="hFileDir" placeholder="C:\Users\you\Documents\Reports">
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="hKeepFiles">
+        <div><b>Keep printed files (needed for Reprint)</b>
+          <p>Every job's file stays on disk so it can be re-printed from the History tab. Turn off to save disk space (reprint stops working).</p></div>
+      </div>
+
+      <h3 style="margin:14px 0 6px;font-size:13.5px">Windows print engine</h3>
+      <div class="row">
+        <label style="min-width:190px">SumatraPDF.exe path</label>
+        <input type="text" id="hSumatra" placeholder="(empty = auto-find)">
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="bHubCfgSave">Apply hub settings</button>
+        <button id="bHubCfgReload">Reload from hub</button>
+        <span id="hubCfgMsg" class="mono"></span>
       </div>
     </section>
   </section>
@@ -379,7 +490,9 @@
       <button id="bDbgTest">Send test report</button>
       <button id="bDbgCopy">Copy report</button>
       <button id="bDbgJson">Open /debug JSON</button>
+      <button id="bDbgLivetest">Run full self-test (A-to-Z)</button>
     </div>
+    <pre id="dbgLivetest" class="mono" style="display:none;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:12px 14px;font-size:12px;line-height:1.5;white-space:pre-wrap;margin-top:10px"></pre>
     <div class="qstate" style="margin-top:10px">
       <span class="dot" id="dbgDot"></span>
       <b id="dbgState">Loading debug report...</b>
@@ -416,9 +529,9 @@
       <button class="mini" id="bLanRefresh">Refresh</button>
     </div>
     <div class="note" id="lanHint">After enabling: <b>restart the hub</b>
-      (tray icon &rarr; Exit, start PrintHub Pro again) and allow the port
+      (tray icon &rarr; Exit, start AdvPrint Pro again) and allow the port
       through the firewall once:<br>
-      <span class="mono">netsh advfirewall firewall add rule name="PrintHub Pro"
+      <span class="mono">netsh advfirewall firewall add rule name="AdvPrint Pro"
       dir=in action=allow protocol=TCP localport=9235</span></div>
 
     <h2 style="margin-top:16px">Other PCs (peers)</h2>
@@ -446,8 +559,8 @@
   <!-- ================= ABOUT ================= -->
   <section class="panel" id="panel-about">
     <div id="api" style="margin-top:-70px;padding-top:70px"></div>
-    <h2>About PrintHub Pro</h2>
-    <p class="sub">Version <b id="aboutVer">2.3.0</b> &middot; by Bitdream IT &middot; MIT license &middot; 100% local - no cloud, no tracking.</p>
+    <h2>About AdvPrint Pro</h2>
+    <p class="sub">Version <b id="aboutVer">2.6.0</b> &middot; AdvPrint (Advanced Printer) by Bit Dream IT - Innovative Healthcare Solutions &middot; MIT license &middot; 100% local - no cloud, no tracking.</p>
     <p class="sub">v2.3 highlights: <b>Debug tab</b> - see WHEN / WHY / WHERE printing fails (hub problems + browser error reports, one Copy button) &middot; <b>instant print</b> (Queue mode OFF) with auto-queue fallback when no printer is active &middot; v2.2: <b>Default print options</b> (copies, odd/even/custom pages, per-sheet n-up, <b>quality draft/normal/high AND DPI</b>, scale, margins, duplex, paper, layout) &middot; <b>LAN / PCs tab</b>: LAN sharing, peers, shift single jobs or the whole queue to another PC &middot; the hub serves the full user guide at <b>/docs</b>.</p>
     <div class="gh">
       <button class="primary" id="bOpenDocs">Open user guide (built-in docs)</button>
@@ -462,15 +575,15 @@
     </div>
     <div class="updlive" id="updLive"></div>
 
-    <h2 style="margin-top:18px">Developer API - <span class="mono">window.printhub</span></h2>
+    <h2 style="margin-top:18px">Developer API - <span class="mono">window.advprint</span></h2>
     <p class="sub">Available on every page (when the hook is enabled). All methods return Promises.</p>
 <pre>
 &lt;script&gt;
-  <b>await</b> window.printhub.status();            <i>// hub health</i>
-  <b>await</b> window.printhub.printers();          <i>// [{name, is_default, status}]</i>
-  <b>await</b> window.printhub.printPage({title});  <i>// print current page</i>
-  <b>await</b> window.printhub.printPdf(url, {title, printer});
-  <b>await</b> window.printhub.print({
+  <b>await</b> window.advprint.status();            <i>// hub health</i>
+  <b>await</b> window.advprint.printers();          <i>// [{name, is_default, status}]</i>
+  <b>await</b> window.advprint.printPage({title});  <i>// print current page</i>
+  <b>await</b> window.advprint.printPdf(url, {title, printer});
+  <b>await</b> window.advprint.print({
     title: 'Receipt 12', printer: '', copies: 1,
     priority: 1,                    <i>// v2.0: urgent first</i>
     pages: '1-3,5',                 <i>// v2.0: range - v2.2: odd/even too</i>
@@ -491,7 +604,7 @@
 </pre>
     <div class="note">Direct HTTP also works from any language:
       <span class="mono">POST http://127.0.0.1:9235/print</span> with header
-      <span class="mono">X-PrintHub-Token</span> - add <span class="mono">"queue": false</span>
+      <span class="mono">X-AdvPrint-Token</span> - add <span class="mono">"queue": false</span>
       for immediate printing. New in v2.0: <span class="mono">priority, pages,
       profile, run_at, lang, reason, watermark</span> - see docs/API.md.
       Dashboard: <span class="mono">/dashboard?token=...</span></div>

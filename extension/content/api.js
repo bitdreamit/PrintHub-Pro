@@ -1,12 +1,12 @@
-/* PrintHub Pro - MAIN world developer API (v2.0).
+/* AdvPrint Pro - MAIN world developer API (v2.0).
  * Injected into every http(s) page by the browser itself (CSP-immune).
  *
- *   window.printhub.status()                 -> hub health
- *   window.printhub.printers()               -> [{name, is_default, status}]
- *   window.printhub.history(20)              -> last jobs
- *   window.printhub.printPage({title})       -> print current page
- *   window.printhub.printPdf(url, {title})   -> print a PDF URL (pure)
- *   window.printhub.print({                  -> generic hub print
+ *   window.advprint.status()                 -> hub health
+ *   window.advprint.printers()               -> [{name, is_default, status}]
+ *   window.advprint.history(20)              -> last jobs
+ *   window.advprint.printPage({title})       -> print current page
+ *   window.advprint.printPdf(url, {title})   -> print a PDF URL (pure)
+ *   window.advprint.print({                  -> generic hub print
  *     title, printer, copies, priority, pages, profile, reason,
  *     watermark, lang, rawBase64,
  *     pdfBase64 | pdfUrl | text | html | pageUrl
@@ -24,13 +24,13 @@
  *     1. silent: hub prints the PDF (session cookies, no tab, no dialog)
  *     2. hub/extension/hub-down failure -> window.open(url) so the browser
  *        default path still delivers the printout
- *   Also available as window.printhub.printPdfLink. Resolves with the hub
+ *   Also available as window.advprint.printPdfLink. Resolves with the hub
  *   job JSON on success, rejects after opening the fallback tab.
  *
  * Every method returns a Promise with the hub JSON response.
  * See docs/EXTENSION-API.md for full examples. */
 (function () {
-  if (window.printhub) return;
+  if (window.advprint) return;
   let seq = 0;
   const pending = new Map();
   let failDefault = "tab";   // live from Options: "tab" | "none"
@@ -38,7 +38,7 @@
   window.addEventListener("message", (ev) => {
     if (ev.source !== window) return;
     const d = ev.data;
-    if (!d || d.__printhub !== true) return;
+    if (!d || d.__advprint !== true) return;
     if (d.kind === "state") {
       // relay broadcasts the Options state (also on live change)
       failDefault = d.failFallback === "none" ? "none" : "tab";
@@ -56,13 +56,13 @@
     return new Promise((resolve) => {
       const requestId = ++seq + "-" + Date.now();
       pending.set(requestId, resolve);
-      window.postMessage({ __printhub: true, kind: "api", requestId, payload }, "*");
+      window.postMessage({ __advprint: true, kind: "api", requestId, payload }, "*");
       setTimeout(() => {
         if (pending.has(requestId)) {
           pending.delete(requestId);
           resolve({
             ok: false,
-            error: "PrintHub timeout - is the extension connected and the hub running?"
+            error: "AdvPrint timeout - is the extension connected and the hub running?"
           });
         }
       }, timeoutMs || 30000);
@@ -83,15 +83,15 @@
         try { window.open(url, "_blank"); } catch (_) {}
       }
     };
-    if (!window.printhub || !window.printhub.printPdf) {
+    if (!window.advprint || !window.advprint.printPdf) {
       openTab();
-      return Promise.reject(new Error("PrintHub Pro extension not loaded"));
+      return Promise.reject(new Error("AdvPrint Pro extension not loaded"));
     }
     return call({ fn: "printPdf", url: url, title: title || "PDF" }, opts.timeout).then(
       (r) => {
         if (r && r.ok !== false) return r;
         openTab();
-        throw new Error((r && r.error) || "PrintHub print failed");
+        throw new Error((r && r.error) || "AdvPrint print failed");
       },
       (e) => {
         openTab();
@@ -100,8 +100,8 @@
     );
   }
 
-  window.printhub = {
-    version: "2.5.3",
+  window.advprint = {
+    version: "2.6.0",
     status: () => call({ fn: "status" }),
     printers: () => call({ fn: "printers" }),
     history: (limit) => call({ fn: "history", limit: limit || 20 }),

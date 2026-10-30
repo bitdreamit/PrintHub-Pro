@@ -1,11 +1,11 @@
-# PrintHub Pro — Print from Any Web Page to Any Printer
+# AdvPrint Pro — Print from Any Web Page to Any Printer
 
 **Silent. Local. Open source. No subscription.**
 
-PrintHub Pro prints from any web page to **any printer** — thermal, receipt, label, or standard — with **no print dialog and no confirmation**. It is a free, 100%-local, MIT-licensed alternative to paid products like Ultraprint Hub: a small **desktop hub** (single Python file, zero pip dependencies) plus a **Chrome extension** that talk to each other on `localhost` only.
+AdvPrint Pro prints from any web page to **any printer** — thermal, receipt, label, or standard — with **no print dialog and no confirmation**. It is a free, 100%-local, MIT-licensed alternative to paid products like Ultraprint Hub: a small **desktop hub** (single Python file, zero pip dependencies) plus a **Chrome extension** that talk to each other on `localhost` only.
 
 ```
-Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) ──► ANY printer
+Web page ──► Chrome extension ──► AdvPrint Pro hub (localhost:9235) ──► ANY printer
              (right-click /       • queue: pause · resume · cancel      thermal · receipt
               popup / API /       • history: last 100 jobs (SQLite)     label · A4 · POS
               auto rules)         • screenshot & HTML → PDF              80mm roll
@@ -18,15 +18,15 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) 
 - **Package = your git repo, 1:1.** The zip now unpacks to the exact tree of `github.com/bitdreamit/PrintHub-Pro`: `tool/` (windows portable hub + service + runtime, unix hub), `extension/` (incl. `i18n.js` Bangla strings restored), `docs/`, `tests/` + `pytest.ini` + `.gitignore` at the root. Extract `full.zip` over your repo working copy and `git status` shows only real changes — no renames, no deletions. (`doc/` in the repo is an old duplicate of `docs/` — `git rm -r doc` once.)
 - **Honest fix: v2.4.0/2.4.1 were rebuilt from an older 1.5.0 tree after a dev-machine reset and accidentally dropped v2.0–v2.3 features.** v2.5.0 merges the REAL 2.3.0 source (recovered from this git repo) with the 2.4.x fixes, so **everything is back**: LAN sharing (`share_lan`, `/peers`, peer forwarding), the full **ESC/POS + ZPL raw printing** suite with Bangla auto-routing via headless Chrome, **scheduled prints** (`run_at`), printer groups + profiles, priority queue, dedupe, exponential retry.
 - **SumatraPDF detection made service-proof** — per-user `%LOCALAPPDATA%\SumatraPDF` (dynamic user name), both Program Files, **registry (HKCU+HKLM, 32/64 views)**, `PATH`, portable folder scan, and a new **all-users profile scan** (`C:\Users\*`) so it is found even when the hub runs as a Windows **service** under a different account. Fresh re-scan on every job + `sumatra_path` manual override (dashboard Settings → Save).
-- **Virtual PDF printers save directly** to `Downloads\PrintHub` (status `saved`, no Save-As dialog) — printing to *Microsoft Print to PDF* works with **no physical printer** and no SumatraPDF.
+- **Virtual PDF printers save directly** to `Downloads\AdvPrint` (status `saved`, no Save-As dialog) — printing to *Microsoft Print to PDF* works with **no physical printer** and no SumatraPDF.
 - **Dashboard live test tool** (kept from 2.4.x, now inside the 2.3.0 dashboard): *"Send test print & watch live"* with the verdict **REAL PRINTER HIT / SAVED / HELD / FAILED+reason**, *Release ALL held jobs*, and a Settings box for `sumatra_path`.
 - `/client/report` alias for `POST /debug/report` (extension browser-error reporting), `POST /jobs/{id}/release` + `POST /jobs/release_all` (dashboard/extension friendly names for print-now).
 - **Tests**: 78 pytest (your repo suite, layout-fixed) + 64-check smoke — all green on the merged hub.
 
 ## What's new in v2.4.1 (packaging & docs release)
 
-- **Frozen folder format** — the folder layout changed too often between releases (v1.x zips were loose, v2.0–v2.4.0 put the version in the root folder name, so every update "moved everything"). From v2.4.1 every zip unpacks to **`PrintHubPro/`** — no version in the name. Extract over the old folder, reload the extension, done — **the layout never changes again**. Full explanation + per-folder reference: `docs/FOLDER-MAP.md`.
-- **`docs/EXTENSION-TEST.md`** — the missing test guide: a 5-minute, step-by-step extension tool test that ends with the proof the **real printer was hit** (live dashboard verdict + where the physical proof shows up: paper, Windows print queue, or the PDF in `Downloads\PrintHub`), plus a symptom → where-to-look → fix table.
+- **Frozen folder format** — the folder layout changed too often between releases (v1.x zips were loose, v2.0–v2.4.0 put the version in the root folder name, so every update "moved everything"). From v2.4.1 every zip unpacks to **`AdvPrintPro/`** — no version in the name. Extract over the old folder, reload the extension, done — **the layout never changes again**. Full explanation + per-folder reference: `docs/FOLDER-MAP.md`.
+- **`docs/EXTENSION-TEST.md`** — the missing test guide: a 5-minute, step-by-step extension tool test that ends with the proof the **real printer was hit** (live dashboard verdict + where the physical proof shows up: paper, Windows print queue, or the PDF in `Downloads\AdvPrint`), plus a symptom → where-to-look → fix table.
 - Version strings synced everywhere (hub, extension, installers, installers' metadata) — `popup` and `options` all report **2.4.1**.
 
 ## What's new in v2.4.0 (debug & reliability release)
@@ -37,7 +37,7 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) 
 - **SumatraPDF detection rebuilt** — the user name is **never hardcoded**: per-user install (`%LOCALAPPDATA%\SumatraPDF\SumatraPDF.exe` — resolves to the CURRENT user, e.g. `C:\Users\<name>\...`), both Program Files, Windows **registry** (App Paths + Uninstall, per-user and per-machine), `PATH`, folder scan, plus a manual **`sumatra_path` override** in Settings. Detection re-runs **fresh on every job** — installing SumatraPDF takes effect on the next print, **no hub restart needed**. Failed jobs auto-retry 2× (60 s apart).
 - **Instant / direct print mode** — `POST /print` with `"instant": true` (or extension toggle / `mode:"instant"`) jumps the queue and prints immediately. If no printer is ready, the job **auto-falls back to the normal queue** (`instant_auto_queue`) — nothing is ever lost.
 - **Hold-while-offline done right** — jobs for an offline printer are parked as `held` (with reason), auto-released by a watcher every 5 s when the printer comes back, and can be force-printed any time ("Print now" / `POST /jobs/{id}/release` / `POST /jobs/release_all`).
-- **Virtual PDF printers solved** — printing to *Microsoft Print to PDF* would pop a Save-As dialog; the hub now **saves the PDF directly** to your Downloads/PrintHub folder (status `saved`, path shown in dashboard & `/debug`). Works even with **no physical printer installed**.
+- **Virtual PDF printers solved** — printing to *Microsoft Print to PDF* would pop a Save-As dialog; the hub now **saves the PDF directly** to your Downloads/AdvPrint folder (status `saved`, path shown in dashboard & `/debug`). Works even with **no physical printer installed**.
 - **Debug on/off switch** — in the dashboard Settings AND extension options. When on, the **extension reports browser-side JS errors** to the hub (`POST /client/report`) and `/debug` shows them next to the desktop-side errors — you can see whether the problem is in the web side or the desktop side. Every toggle is audit-logged (`config.changed: debug`).
 - **`POST /config` / `GET /config`** — live-editable settings persisted to `<data>/config.json`: `debug`, `hold_offline`, `instant_auto_queue`, `sumatra_path`, `file_dir`, `printer`, `token_header_only`.
 
@@ -45,16 +45,16 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) 
 
 ## Feature highlights
 
-| | PrintHub Pro |
+| | AdvPrint Pro |
 |---|---|
 | **Any printer** | Thermal, receipt, label, or standard. If the OS sees it, the hub can print to it. |
-| **Save as PDF (File)** | Any job can go to a **File** destination instead of paper — the hub writes the PDF into `~/Downloads/PrintHub` (configurable). No dialog, no paper. |
+| **Save as PDF (File)** | Any job can go to a **File** destination instead of paper — the hub writes the PDF into `~/Downloads/AdvPrint` (configurable). No dialog, no paper. |
 | **No print dialog** | Jobs are sent straight to the OS print system (SumatraPDF on Windows, CUPS `lp` on Linux/macOS). |
 | **Auto-routing rules** | Match URLs to printers automatically — orders page → receipt printer, shipping page → label printer. |
 | **Auto-print on open** | Open a report URL (e.g. your Laravel `/medical_reports/pdf-test/...` route) and it prints instantly — the tab closes right after, so there is **zero browser view**. |
 | **Print interception** | `window.print()` calls **and Ctrl+P / Cmd+P** from any web app (Odoo, SAP, POS) are rerouted silently. Injection is CSP-safe: it works even on strict-CSP sites with no console errors. |
 | **Works everywhere** | Any web application: ERP, POS, e-commerce, logistics, healthcare. |
-| **Developer API** | Global one-liner `printPdfLink(url, title)` on every page (silent + automatic browser fallback) + `window.printhub` API + plain HTTP `POST /print` (raw binary PDF = no base64) for any language. |
+| **Developer API** | Global one-liner `printPdfLink(url, title)` on every page (silent + automatic browser fallback) + `window.advprint` API + plain HTTP `POST /print` (raw binary PDF = no base64) for any language. |
 | **Screenshot printing** | Capture and print the visible page with one click. |
 | **Print queue** | Pause, resume, cancel — live, and the queue survives hub restarts. |
 | **Job history** | Last 100 jobs with status, printer, timing — reprint any job in one click. |
@@ -73,8 +73,8 @@ Web page ──► Chrome extension ──► PrintHub Pro hub (localhost:9235) 
 
 | | file | what it does |
 |---|---|---|
-| **Windows** | `PrintHub-Pro-Setup-2.4.1.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `PrintHubPro.exe`): copies everything to `%LOCALAPPDATA%\PrintHubPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "PrintHub Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"PrintHub Pro" tray icon** (right-click = status page, test page, pause, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
-| **Linux (Debian/Ubuntu/Mint)** | `printhub-pro_2.4.1_all.deb` | `sudo apt install ./printhub-pro_2.4.1_all.deb` — installs to `/opt/printhub`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `printhub doctor`. |
+| **Windows** | `AdvPrint-Pro-Setup-2.4.1.exe` | **STANDALONE installer — Python is included inside** (bundled 3.11 runtime + `AdvPrintPro.exe`): copies everything to `%LOCALAPPDATA%\AdvPrintPro`, registers **auto-run as a visible Startup app** (Task Manager → Startup apps → "AdvPrint Pro"), starts the hub, adds Start Menu shortcuts + a real **Add/Remove Programs uninstaller**. The hub shows a **"AdvPrint Pro" tray icon** (right-click = status page, test page, pause, auto-run on/off, exit). No admin, no Python install, no dialogs, never shows as "python". Note: unsigned EXE → SmartScreen may ask once: *More info → Run anyway*. |
+| **Linux (Debian/Ubuntu/Mint)** | `advprint-pro_2.4.1_all.deb` | `sudo apt install ./advprint-pro_2.4.1_all.deb` — installs to `/opt/advprint`, ships a **systemd user service** (auto-run at login, restarts on crash) + XDG autostart fallback. CLI: `advprint doctor`. |
 | **macOS / other Linux** | `tool/unix/install-unix.sh` | same auto-run via LaunchAgent / systemd --user / XDG, no sudo needed. |
 
 **Or the portable way (both platforms):**
@@ -97,22 +97,25 @@ always there, no shortcut needed. To undo it:
 
 | | stop auto-run + hub | keep / remove print data |
 |---|---|---|
-| **Windows** | `tool\windows\portable\install\UNINSTALL-WINDOWS.bat` | data in `%USERPROFILE%\.printhub` |
-| **Linux / macOS** | `bash tool/unix/uninstall-unix.sh` | data in `~/.printhub` |
+| **Windows** | `tool\windows\portable\install\UNINSTALL-WINDOWS.bat` | data in `%USERPROFILE%\.advprint` |
+| **Linux / macOS** | `bash tool/unix/uninstall-unix.sh` | data in `~/.advprint` |
 
-Windows notes (v2.4.1): the hub runs as `PrintHubPro.exe` (a renamed
-`pythonw.exe`), so Task Manager shows **"PrintHubPro"** — not "python".
+Windows notes (v2.4.1): the hub runs as `AdvPrintPro.exe` (a renamed
+`pythonw.exe`), so Task Manager shows **"AdvPrintPro"** — not "python".
 Auto-run is a normal **Startup app** shortcut: open **Task Manager →
-Startup apps** and you will find "PrintHub Pro" there with its icon —
+Startup apps** and you will find "AdvPrint Pro" there with its icon —
 right-click → Enable/Disable any time (same switch as the tray icon
 menu, or `UNINSTALL-WINDOWS.bat`). The installer also removes
 Mark-of-the-Web from the downloaded files automatically, and the
 installer/upgrader deletes the invisible scheduled task that v1.2–v1.4
 used to create. If the hub ever fails to start after a reboot, open
-`%USERPROFILE%\.printhub\hub.log` — the hub logs every
+`%USERPROFILE%\.advprint\hub.log` — the hub logs every
 startup and print there.
 
-The hub starts on `http://127.0.0.1:9235` with default token `PrintHub-2024`.
+The hub starts on `http://127.0.0.1:9235`. Fresh installs generate a private
+random token (read it with `python advprint.py token`); upgrades of pre-2.0
+installs keep working with the old default `PrintHub-2024` until you rotate it.
+Wrong-token bookmarks are fixed in one click on the dashboard error page itself.
 
 ### 2. Load the extension
 
@@ -122,8 +125,8 @@ The hub starts on `http://127.0.0.1:9235` with default token `PrintHub-2024`.
 
 ### 3. Connect & print
 
-1. Click the PrintHub icon → the popup shows **Connected**
-2. Right-click any page → **PrintHub Pro → Print this page**
+1. Click the AdvPrint icon → the popup shows **Connected**
+2. Right-click any page → **AdvPrint Pro → Print this page**
 3. Or open a URL matching a routing rule (the default rule auto-prints `*://www.htncr.org/lab/medical_reports/*`) — it prints with no dialog
 
 ---
@@ -132,20 +135,20 @@ The hub starts on `http://127.0.0.1:9235` with default token `PrintHub-2024`.
 
 ```bash
 # list printers
-curl -H "X-PrintHub-Token: PrintHub-2024" http://127.0.0.1:9235/printers
+curl -H "X-AdvPrint-Token: $TOKEN" http://127.0.0.1:9235/printers
 
 # print a PDF from a URL (silent)
 curl -X POST http://127.0.0.1:9235/print \
-  -H "X-PrintHub-Token: PrintHub-2024" -H "Content-Type: application/json" \
+  -H "X-AdvPrint-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"pdf_url":"https://example.com/invoice.pdf","title":"Invoice 42"}'
 
 # print a thermal receipt
 curl -X POST http://127.0.0.1:9235/print \
-  -H "X-PrintHub-Token: PrintHub-2024" -H "Content-Type: application/json" \
+  -H "X-AdvPrint-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"text":"|center|MY SHOP\nItem 1      10.00\nTOTAL        10.00","paper":"thermal"}'
 
 # pause / resume / clear the queue
-curl -X POST -H "X-PrintHub-Token: PrintHub-2024" http://127.0.0.1:9235/queue/pause
+curl -X POST -H "X-AdvPrint-Token: $TOKEN" http://127.0.0.1:9235/queue/pause
 ```
 
 Full reference: [`docs/API.md`](docs/API.md) · Browser API: [`docs/EXTENSION-API.md`](docs/EXTENSION-API.md)
@@ -156,16 +159,16 @@ Full reference: [`docs/API.md`](docs/API.md) · Browser API: [`docs/EXTENSION-AP
 
 | Environment variable | Default | Meaning |
 |---|---|---|
-| `PRINTHUB_TOKEN` | `PrintHub-2024` | API token (header `X-PrintHub-Token`) |
-| `PRINTHUB_PORT` | `9235` | HTTP port |
-| `PRINTHUB_HOST` | `127.0.0.1` | Bind address — set `0.0.0.0` for office LAN sharing |
-| `PRINTHUB_PRINTER` | *(OS default)* | Force a specific printer |
-| `PRINTHUB_FILE_DIR` | `~/Downloads/PrintHub` | Where `destination:"file"` PDFs are saved |
-| `PRINTHUB_DATA` | `~/.printhub` | Data folder (SQLite history + job files) |
+| `ADVPRINT_TOKEN` | (random per install) | API token (header `X-AdvPrint-Token`; legacy `PRINTHUB_TOKEN` still honored) |
+| `ADVPRINT_PORT` | `9235` | HTTP port |
+| `ADVPRINT_HOST` | `127.0.0.1` | Bind address — set `0.0.0.0` for office LAN sharing |
+| `ADVPRINT_PRINTER` | *(OS default)* | Force a specific printer |
+| `ADVPRINT_FILE_DIR` | `~/Downloads/AdvPrint` | Where `destination:"file"` PDFs are saved |
+| `ADVPRINT_DATA` | `~/.advprint` | Data folder (SQLite history + job files) |
 
-**CLI:** `python hub/printhub.py serve | testprint [a4|thermal] | printers | history [n] | reprint <id> | queue | doctor | help`
+**CLI:** `python hub/advprint.py serve | testprint [a4|thermal] | printers | history [n] | reprint <id> | queue | doctor | help`
 
-**LAN mode:** set `PRINTHUB_HOST=0.0.0.0` and point the extension (Options → Hub URL) at your PC's LAN IP, e.g. `http://192.168.1.20:9235`. Token is always required.
+**LAN mode:** set `ADVPRINT_HOST=0.0.0.0` and point the extension (Options → Hub URL) at your PC's LAN IP, e.g. `http://192.168.1.20:9235`. Token is always required.
 
 ---
 
@@ -185,4 +188,4 @@ Full reference: [`docs/API.md`](docs/API.md) · Browser API: [`docs/EXTENSION-AP
 
 ## License
 
-MIT © Bitdream IT — free for personal and commercial use.
+MIT © Bit Dream IT — free for personal and commercial use.
