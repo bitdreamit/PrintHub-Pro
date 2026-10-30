@@ -25,6 +25,41 @@ HUB="$BASE/hub/printhub.py"
 PORT=9235
 OS="$(uname -s)"
 
+# ---- 0) --service: install as a SYSTEM service (Linux + systemd) -------
+#   sudo bash install-unix.sh --service
+#   Real headless service: starts at boot, survives logout, no desktop.
+#   Data dir: /var/lib/printhub.  The normal (no-sudo) user auto-run
+#   below stays the default when --service is not passed.
+if [ "${1:-}" = "--service" ]; then
+    [ "$(id -u)" = "0" ] || { echo "[!] --service needs root:"; echo "    sudo bash install-unix.sh --service"; exit 1; }
+    [ "$OS" = "Darwin" ] && { echo "[!] --service is Linux/systemd only (macOS uses the LaunchAgent auto-run)"; exit 1; }
+    command -v systemctl >/dev/null 2>&1 || { echo "[!] systemctl not found"; exit 1; }
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    UNIT_SRC=""
+    for cand in "$SCRIPT_DIR/printhub.service.system" \
+                "$SCRIPT_DIR/../unix/printhub.service.system"; do
+        [ -f "$cand" ] && UNIT_SRC="$cand" && break
+    done
+    [ -n "$UNIT_SRC" ] || { echo "[!] printhub.service.system not found next to this script"; exit 1; }
+    PYBIN="$(command -v python3)"
+    mkdir -p /var/lib/printhub
+    sed -e "s|__PYTHON__|$PYBIN|g" -e "s|__HUB__|$HUB|g" \
+        "$UNIT_SRC" > /etc/systemd/system/printhub.service
+    chmod 644 /etc/systemd/system/printhub.service
+    systemctl daemon-reload
+    systemctl enable --now printhub
+    sleep 1
+    if curl -s "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -q version; then
+        echo "[OK] PrintHub Pro SYSTEM service is running (starts at boot, no login needed)"
+        echo "     control : systemctl status|stop|restart printhub"
+        echo "     data    : /var/lib/printhub   logs: journalctl -u printhub -e"
+    else
+        echo "[!] Unit installed but the hub did not answer yet - check:"
+        echo "     systemctl status printhub ; journalctl -u printhub -e"
+    fi
+    exit 0
+fi
+
 # ---- 1) python3 -------------------------------------------------------
 if command -v python3 >/dev/null 2>&1; then
     echo "[OK] Python 3: $(python3 --version 2>&1)"

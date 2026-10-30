@@ -48,6 +48,16 @@ REM ---- 1) Python: BUNDLED runtime first, system Python = fallback ------
 REM  v2.4.0: PrintHubPro.exe = pythonw.exe renamed, so Task Manager
 REM  shows "PrintHubPro" instead of "python".
 set PYW=
+if exist "%~dp0..\runtime\PrintHubPro.exe" (
+  for %%I in ("%~dp0..\runtime\PrintHubPro.exe") do set "PYW=%%~fI"
+  echo [OK] Bundled runtime found - PrintHubPro.exe, no system Python needed
+  goto pyw_ready
+)
+if exist "%~dp0..\runtime\pythonw.exe" (
+  for %%I in ("%~dp0..\runtime\pythonw.exe") do set "PYW=%%~fI"
+  echo [OK] Bundled Python 3.11 runtime found - no system Python needed
+  goto pyw_ready
+)
 if exist "%~dp0..\installer\runtime\PrintHubPro.exe" (
   for %%I in ("%~dp0..\installer\runtime\PrintHubPro.exe") do set "PYW=%%~fI"
   echo [OK] Bundled runtime found - PrintHubPro.exe, no system Python needed

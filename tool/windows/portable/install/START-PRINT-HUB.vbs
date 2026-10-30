@@ -24,6 +24,11 @@ If fso.FileExists(base & "\installer\runtime\PrintHubPro.exe") Then
   py = base & "\installer\runtime\PrintHubPro.exe"
 ElseIf fso.FileExists(base & "\installer\runtime\pythonw.exe") Then
   py = base & "\installer\runtime\pythonw.exe"
+ElseIf fso.FileExists(base & "\runtime\PrintHubPro.exe") Then
+  ' NSIS-installed layout: runtime\ sits directly under $INSTDIR
+  py = base & "\runtime\PrintHubPro.exe"
+ElseIf fso.FileExists(base & "\runtime\pythonw.exe") Then
+  py = base & "\runtime\pythonw.exe"
 End If
 
 ' 1a) whatever is on PATH (where.exe, first hit wins)

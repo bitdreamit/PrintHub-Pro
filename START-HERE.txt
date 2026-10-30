@@ -1,4 +1,4 @@
-PrintHub Pro v2.5.0 - START HERE
+PrintHub Pro v2.5.3 - START HERE
 =================================
 
 YOUR GIT REPO AND THIS PACKAGE ARE NOW THE SAME TREE
@@ -16,8 +16,43 @@ WHAT HAPPENED IN 2.4.0 / 2.4.1 (honest note)
   Those two builds were rebuilt from an older 1.5.0 tree after the dev
   machine was reset, so they LOST v2.0-v2.3 features (LAN sharing,
   ESC/POS raw printing, scheduled prints, printer groups, /peers).
-  v2.5.0 merges your REAL 2.3.0 source (from this git repo) with the
-  2.4.x fixes - nothing is missing anymore. Tests: 78 pytest + 64 smoke.
+  v2.5.0 merged the REAL 2.3.0 hub source; v2.5.1 also restores the FULL
+  v2.3.0 EXTENSION (background/popup/options were stripped in the 2.5.0
+  merge) - Bangla UI, master switch, queue mode, retry-offline, rules
+  with type/title/per-rule enabled, alarms. Nothing missing anymore.
+
+WHAT'S NEW IN 2.5.3 (the COMPLETE RUNTIME fix)
+  Setup 2.5.2 fixed the payload but the bundled Python runtime it
+  shipped was INCOMPLETE - DLLs and .pyd modules only, without
+  python.exe / pythonw.exe / PrintHubPro.exe / the python311.zip
+  standard library. On a PC without Python it failed with "Setup could
+  not prepare the bundled Python runtime". v2.5.3 ships the COMPLETE
+  Python 3.11.9 runtime (34 files, byte-identical to the proven 2.5.0
+  installer) - Setup needs NO system Python and NO internet.
+  Also: every launcher (install-windows.bat, START-PRINT-HUB.vbs,
+  service-install.ps1) now resolves the runtime in BOTH layouts
+  (installed: runtime\ - portable: installer\runtime\).
+
+WHAT 2.5.2 ALREADY FIXED (kept in 2.5.3)
+  The old Setup exe still carried a 1.5.0-era payload: it copied only
+  printhub.py + a VBS launcher - no extension, no tool menu, no tray,
+  no service files. PrintHub-Pro-Setup-2.5.3.exe is rebuilt from this
+  tree and installs EVERYTHING:
+    - hub + PrintHub Tool (menu) + tray icon
+    - the v2.5.3 extension (load it from
+      %LOCALAPPDATA%\PrintHubPro\extension - or keep using the zip)
+    - RUN AS A REAL WINDOWS SERVICE: Start Menu > PrintHub Pro >
+      "Install Windows Service" (or: python hub\printhub.py
+      service-install). Visible in services.msc as "PrintHub Pro
+      Service", starts at boot, auto-restarts on crash. Remove it via
+      "Remove Windows Service". Fixed: the old service-install.ps1
+      called the hub with the wrong CLI form and never worked.
+  The .deb ships a SYSTEM service (/usr/lib/systemd/system/
+  printhub.service, data in /var/lib/printhub) and enables + starts it
+  on install when systemd is running - the user unit + autostart stay
+  as the no-root fallback. Portable systems: sudo bash tool/unix/
+  install-unix.sh --service. The deb now ALSO carries the extension at
+  /opt/printhub/extension (chrome://extensions > Load unpacked).
 
 WHY DID MY OLD VERSION SAY "SumatraPDF not found"?
   The hub finds SumatraPDF automatically for EVERY Windows user (your
@@ -30,7 +65,7 @@ WHY DID MY OLD VERSION SAY "SumatraPDF not found"?
   auto-retry. Still not found? Dashboard -> Settings -> paste the path.
 
 UPDATE IN 3 STEPS
-  1. Run PrintHub-Pro-Setup-2.5.0.exe (installs over the old version,
+  1. Run PrintHub-Pro-Setup-2.5.3.exe (installs over the old version,
      keeps your job history + settings in %USERPROFILE%\.printhub).
   2. Chrome -> chrome://extensions -> PrintHub Pro -> click RELOAD.
   3. TEST IT LIVE (proves the REAL printer was hit):
@@ -55,9 +90,11 @@ FILES IN THIS PACKAGE
   extension\       Chrome extension - load unpacked / reload after update
   docs\            EXTENSION-TEST, FOLDER-MAP, API.md, Full Guide, release notes
   tests\           pytest suite (78 tests) + pytest.ini
-  PrintHub-Pro-Setup-2.5.0.exe   standalone Windows installer (Python inside)
-  printhub-pro_2.5.0_all.deb     Debian/Ubuntu/Mint package
-  PrintHub-Pro-2.5.0.zip         portable zip (same tree, zipped)
-  PrintHub-Pro-Extension-v2.5.0.zip  extension only (CWS-ready)
+  PrintHub-Pro-Setup-2.5.3.exe   Windows installer: COMPLETE Python 3.11.9
+                                 runtime + extension + tool + tray + SERVICE
+  printhub-pro_2.5.3_all.deb     Debian/Ubuntu/Mint package (system + user
+                                 service + extension at /opt/printhub/extension)
+  PrintHub-Pro-2.5.3.zip         portable zip (same tree, zipped)
+  PrintHub-Pro-Extension-v2.5.3.zip  extension only (CWS-ready)
   README.md / CHANGELOG.md / LICENSE / pytest.ini / .gitignore
   SHA256SUMS.txt

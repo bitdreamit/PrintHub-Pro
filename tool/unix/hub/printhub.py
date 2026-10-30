@@ -57,7 +57,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
 
-VERSION = "2.5.0"
+VERSION = "2.5.3"
 BRANDING = ("PrintHub Pro - Version %s - by Bitdream IT - MIT license - "
             "100%% local - no cloud, no tracking" % VERSION)
 APP_NAME = "PrintHub Pro"
@@ -5271,6 +5271,7 @@ def cmd_help():
   service-install           Install PrintHub as a Windows service (UAC)
   service-remove            Remove the Windows service (UAC)
   service-status            Show Windows service state
+  service <action>          Alias: service install|remove|status
   update-check              Check GitHub for a newer release
   help                      This help
 
@@ -5337,6 +5338,12 @@ def main():
             cmd_service("remove")
         elif cmd == "service-status":
             cmd_service("status")
+        elif cmd == "service" and len(args) > 1 \
+                and args[1] in ("install", "remove", "status"):
+            # v2.5.2: the service-install.ps1 / service-remove.ps1 helpers
+            # call "printhub.py service install" (space form) - accept it
+            # (args = sys.argv[1:], so the action is args[1])
+            cmd_service(args[1])
         elif cmd == "update-check":
             rc = cmd_update_check()
             if rc:

@@ -14,6 +14,78 @@ function send(m) {
   });
 }
 
+/* ---------- v2.0: offline banner + retry queue ---------- */
+function showOffline(on, count) {
+  const b = $("offlineBanner");
+  b.classList.toggle("show", !!on);
+  if (on) {
+    const n = count || 0;
+    $("offlineText").textContent = PrintHubI18n.t("popOffline") +
+      (n ? " - " + n + " " + PrintHubI18n.t("popRetryCount") : "");
+  }
+}
+
+function showTokenWarning(on, mode) {
+  $("tokenBanner").classList.toggle("show", !!on);
+  if (on) {
+    // v2.1.0: mode "token"=401, "locked"=429, "default"=legacy token
+    $("tokenText").textContent = mode === "token"
+      ? PrintHubI18n.t("popTokenBad")
+      : mode === "locked"
+        ? PrintHubI18n.t("popTokenLocked")
+        : PrintHubI18n.t("popTokenWarn");
+  }
+}
+
+$("bRetry").addEventListener("click", async () => {
+  msg("Retrying parked jobs...", "info");
+  const r = await send({ type: "flushRetries" });
+  if (r.ok) msg((r.sent || 0) + " job(s) delivered to the hub", "info");
+  showOffline(false);
+  refresh();
+});
+
+$("bTokenHelp").addEventListener("click", () => {
+  chrome.tabs.create({ url: "options.html#settings" });
+});
+
+/* ---------- master switches (Enable / Queue Mode) ---------- */
+function renderEnabledState(off) {
+  document.body.classList.toggle("off", off);
+  $("swEnabledRow").classList.toggle("off", off);
+  $("swEnabledSub").textContent = off ? PrintHubI18n.t("popEnabledOff")
+                                      : PrintHubI18n.t("popEnabledOn");
+  ["bPage", "bFile", "bShot", "bTest"].forEach((id) => { $(id).disabled = off; });
+  $("bPause").disabled = off;
+}
+
+async function loadSwitches() {
+  const cfg = await send({ type: "getCfg" });
+  if (!cfg.ok) return;
+  const off = cfg.cfg.enabled === false;
+  $("swEnabled").checked = !off;
+  $("swQueue").checked = cfg.cfg.queueMode !== false;
+  renderEnabledState(off);
+}
+
+$("swEnabled").addEventListener("change", async () => {
+  const on = $("swEnabled").checked;
+  await send({ type: "saveCfg", patch: { enabled: on } });
+  renderEnabledState(!on);
+  msg(on ? "PrintHub enabled" : "PrintHub disabled - nothing will print", "info");
+});
+
+$("swQueue").addEventListener("change", async () => {
+  const on = $("swQueue").checked;
+  await send({ type: "saveCfg", patch: { queueMode: on } });
+  $("swQueueSub").textContent = on
+    ? "jobs wait in order + pause works"
+    : "instant print - auto-queues if no printer is active";
+  msg(on ? "Queue mode ON - jobs are printed in FIFO order"
+         : "Instant print ON - jobs print immediately; if no printer is " +
+           "active they are auto-queued for later", "info");
+});
+
 async function refresh() {
   const st = await send({ type: "hubStatus" });
   if (st.ok) {
@@ -21,25 +93,62 @@ async function refresh() {
     $("stat").textContent = `Connected - hub v${st.version} on ${st.os}`;
     $("connect").textContent = "";
     paused = !!st.paused;
-    $("qstate").textContent = paused ? "PAUSED" : "running";
-    $("bPause").textContent = paused ? "Resume" : "Pause";
+    const qs = $("qstate");
+    qs.textContent = paused ? PrintHubI18n.t("popPaused")
+                            : PrintHubI18n.t("popRunning");
+    // v2.2.1: PAUSED must be unmissable - red text (a paused queue is
+    // the #1 reason jobs "stay queued" and nothing prints)
+    qs.classList.toggle("paused", paused);
+    $("bPause").textContent = paused ? PrintHubI18n.t("popResume")
+                                     : PrintHubI18n.t("popPause");
     $("qpend").textContent = st.pending ? st.pending + " pending" : "";
+    showOffline(false);
+    // v2.1.0: token rejected earlier (KEY state) -> red banner; once an
+    // authed call succeeds below, the flag is cleared again
+    const ap = await chrome.storage.local.get({ authProblem: null });
+    if (ap.authProblem) {
+      showTokenWarning(true, ap.authProblem.why);
+    } else {
+      showTokenWarning(!!st.default_token_warning, "default");
+    }
+    // v2.0: hub is back - deliver anything parked while it was down
+    const ri = await send({ type: "retryInfo" });
+    if (ri.ok && ri.count) {
+      const fl = await send({ type: "flushRetries" });
+      if (fl.ok && fl.sent) msg(fl.sent + " parked job(s) delivered", "info");
+    }
   } else {
     $("dot").classList.remove("on");
     $("stat").textContent = "Hub offline";
     $("connect").textContent = "Connect";
     $("qstate").textContent = "-";
     $("qpend").textContent = "";
-    msg("Hub not reachable. Start it:  python printhub.py serve", "err");
+    const ri = await send({ type: "retryInfo" });
+    showOffline(true, ri.ok ? ri.count : 0);
+    msg(PrintHubI18n.t("popHubOfflineHint"), "err");
   }
 
   const jobs = await send({ type: "hubJobs", limit: 8 });
   const box = $("jobs");
   box.innerHTML = "";
+  if (jobs.ok) {
+    // v2.1.0: an authed call just succeeded -> the token works again;
+    // clear the KEY flag so the red banner disappears on next paint
+    const ap = await chrome.storage.local.get({ authProblem: null });
+    if (ap.authProblem) {
+      await chrome.storage.local.remove("authProblem");
+      showTokenWarning(!!st.default_token_warning, "default");
+    }
+  }
   if (jobs.ok && jobs.jobs && jobs.jobs.length) {
+    // v2.2.1: held jobs get their own banner with a one-click fix
+    let held = [];
     for (const j of jobs.jobs) {
+      if (j.status === "held") held.push(j);
       const d = document.createElement("div");
       d.className = "job";
+      const why = j.held_reason || j.error || "";
+      if (why) d.title = why;
       const t = document.createElement("span");
       t.className = "t";
       t.textContent = j.title || ("job #" + j.id);
@@ -51,10 +160,43 @@ async function refresh() {
       m.className = "m";
       m.textContent = (j.printer || "default");
       d.append(t, s, m);
+      // v2.2.1: one-click "Print now" for anything that is not moving -
+      // bypasses the global pause AND the printer-status hold
+      if (["queued", "held", "failed", "dead", "scheduled", "saved"]
+          .includes(j.status)) {
+        const b = document.createElement("button");
+        b.className = "pbtn";
+        b.textContent = "Print now";
+        b.title = "Send this job to the printer immediately " +
+                  "(bypasses pause and printer-status hold)";
+        b.addEventListener("click", async () => {
+          b.disabled = true; b.textContent = "...";
+          const r = await send({ type: "jobPrintNow", id: j.id });
+          msg(r.ok ? "Job #" + j.id + " - printing now"
+                   : "Failed: " + (r.error || "no response"),
+             r.ok ? "info" : "err");
+          setTimeout(refresh, 1500);
+        });
+        d.appendChild(b);
+      }
+      if (why) {
+        const e = document.createElement("span");
+        e.className = "e";
+        e.textContent = why.slice(0, 120);
+        d.appendChild(e);
+      }
       box.appendChild(d);
     }
+    if (held.length) {
+      $("heldText").textContent = held.length +
+        " job(s) held - the printer reports offline/out of paper.";
+      $("heldBanner").classList.add("show");
+    } else {
+      $("heldBanner").classList.remove("show");
+    }
   } else {
-    box.innerHTML = '<div class="empty">No jobs yet - print something!</div>';
+    box.innerHTML = '<div class="empty">' + PrintHubI18n.t("popNoJobs") + '</div>';
+    $("heldBanner").classList.remove("show");
   }
 }
 
@@ -98,11 +240,42 @@ $("bPause").addEventListener("click", async () => {
   if (r.ok) refresh(); else msg("Failed: " + r.error, "err");
 });
 
+/* v2.2.1: print every HELD job right now (printer-status hold bypass) */
+$("bPrintHeld").addEventListener("click", async () => {
+  msg("Sending held jobs to the printer...", "info");
+  const jobs = await send({ type: "hubJobs", limit: 50 });
+  if (!jobs.ok) return msg("Failed: " + (jobs.error || "hub offline"), "err");
+  const held = (jobs.jobs || []).filter((j) => j.status === "held");
+  let okn = 0;
+  for (const j of held) {
+    const r = await send({ type: "jobPrintNow", id: j.id });
+    if (r.ok) okn++;
+  }
+  msg(okn + " of " + held.length + " held job(s) now printing", okn ? "info" : "err");
+  $("heldBanner").classList.remove("show");
+  setTimeout(refresh, 1500);
+});
+
 $("bOpts").addEventListener("click", () => chrome.runtime.openOptionsPage());
+$("lnkDebug").addEventListener("click", (e) => {
+  e.preventDefault();
+  chrome.tabs.create({ url: "options.html#debug" });
+});
 $("lnkApi").addEventListener("click", (e) => {
   e.preventDefault();
   chrome.tabs.create({ url: chrome.runtime.getURL("options.html#api") });
 });
 $("connect").addEventListener("click", (e) => { e.preventDefault(); refresh(); });
 
+/* ---------- v2.0: apply UI language (en / bn / auto) ---------- */
+PrintHubI18n.currentLang().then((lang) => {
+  PrintHubI18n.apply(lang);
+  $("swQueueSub").textContent = $("swQueue").checked
+    ? PrintHubI18n.t("popQueueOn") : PrintHubI18n.t("popQueueOff");
+  const off = document.body.classList.contains("off");
+  $("swEnabledSub").textContent = off ? PrintHubI18n.t("popEnabledOff")
+                                      : PrintHubI18n.t("popEnabledOn");
+});
+
+loadSwitches();
 refresh();

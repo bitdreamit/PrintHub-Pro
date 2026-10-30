@@ -1,5 +1,100 @@
 # Changelog — PrintHub Pro
 
+## v2.5.3 — the COMPLETE RUNTIME fix (2026-10-30)
+
+### Fixed
+- **Setup 2.5.2 could not install on PCs without Python** ("Setup could
+  not prepare the bundled Python runtime and found no system Python").
+  Its bundled `runtime/` carried only the DLLs + .pyd modules (30
+  files) and was missing the four files that make it runnable:
+  `python.exe`, `pythonw.exe`, `PrintHubPro.exe` (pythonw renamed so
+  Task Manager shows "PrintHubPro") and `python311.zip` (the standard
+  library). v2.5.3 ships the COMPLETE Python 3.11.9 runtime - 34 files,
+  byte-identical to the proven 2.5.0 installer (verified with a
+  per-file `cmp` against the payload extracted from the 9.5 MB
+  Setup-2.5.0.exe). No system Python, no internet needed.
+- **Launchers only knew the portable layout.** `install-windows.bat`,
+  `START-PRINT-HUB.vbs` and `service-install.ps1`/`service-remove.ps1`
+  looked for the runtime under `installer\runtime\` only; the NSIS
+  installer puts it under `runtime\`. All four now resolve BOTH
+  layouts (installed: `runtime\` - portable: `installer\runtime\`),
+  so every entry point works after setup AND from the portable zip.
+
+### Verified
+- Payload of the rebuilt `PrintHub-Pro-Setup-2.5.3.exe` enumerated with
+  7-Zip: full runtime (34 files) + hub (printhub.py, tool.py,
+  tray_windows.py, service_main.py, service/) + install helpers
+  (INSTALL/REMOVE-WINDOWS-SERVICE, service ps1, install/uninstall bat,
+  START-PRINT-HUB.vbs) + the complete 15-file extension + docs +
+  START-HERE/VERSION + uninstaller with Add/Remove Programs entry.
+- `printhub-pro_2.5.3_all.deb` installs the extension to
+  `/opt/printhub/extension` next to the hub, CLI (`printhub`,
+  `printhub-start`), the SYSTEM service unit
+  (`/usr/lib/systemd/system/printhub.service`, data in
+  `/var/lib/printhub`, enabled at boot) and the user unit + XDG
+  autostart fallback.
+- 78-test pytest suite + 48-item live smoke: /debug 2.5.3,
+  /capabilities, dashboard, quality draft+dpi, instant, queue
+  shift/pause/resume, release_all, testprint.
+
+## v2.5.2 — installers rebuilt: full payload + run-as-service on both platforms (2026-10-30)
+
+### Fixed
+- **The Windows Setup exe shipped a 1.5.0-era payload.** It copied only
+  `printhub.py` + a VBS launcher - no `extension/`, no `tool.py` control
+  menu, no tray, no service files. Rebuilt from this tree (NSIS 3.11):
+  the v2.5.2 extension (all 15 files), `hub/printhub.py` + `tool.py` +
+  `tray_windows.py` + `service_main.py` + `service/PrintHubProService.cs`,
+  every `install/*.bat|ps1|vbs` helper, docs (API, extension API,
+  privacy), START-HERE, VERSION - plus the bundled Python 3.11 runtime
+  (unchanged, pure-stdlib service needs no pywin32).
+- **`service-install.ps1` / `service-remove.ps1` never worked.** They
+  called the hub with `service install` (space form) but the CLI only
+  dispatched `service-install`. The hub now accepts BOTH
+  (`printhub.py service <install|remove|status>` alias) and the ps1
+  helpers use the dash form.
+- **The .deb had no real run-as-service story.** It now ships
+  `/usr/lib/systemd/system/printhub.service` (system service, data in
+  `/var/lib/printhub`) next to the user unit + XDG autostart; postinst
+  enables + starts the system service on real systemd hosts (user-unit
+  path stays the no-root fallback), prerm stops/disables both.
+  `tool/unix/printhub.service.system` is versioned in the repo and
+  `install-unix.sh` gained `sudo bash install-unix.sh --service` for
+  portable system installs.
+- Version anchors updated to 2.5.2 (hub x2, manifest, api.js, popup,
+  tests).
+
+### Verified
+- pytest 78/78; live smoke 48/48 against the hub extracted from the
+  delivered zip; the hub inside the .deb answers /health 2.5.2;
+  `systemd-analyze verify` clean on both units; NSIS build log lists
+  the full payload (extension/, install/, hub/service).
+
+## v2.5.1 — extension restore release (2026-10-30)
+
+### Fixed
+- **The 2.5.0 merge had gutted the EXTENSION.** The hub came over complete,
+  but `extension/` was accidentally replaced by a stripped rewrite
+  (background 1,253→714 lines, options 761→280, popup 281→108). Everything
+  that existed in v2.3.0 is back, taken verbatim from the v2.3.0 tag and
+  only re-versioned:
+  - Bangla/English UI fully wired again (`i18n.js` loaded by popup +
+    options, `data-i18n` labels, Language selector auto/en/bn in Options).
+  - Master switch, Queue Mode (FIFO vs instant bypass), Retry-when-offline
+    buffer, per-rule `enabled` + `type` (glob/regex) + `title` matching.
+  - `alarms` permission restored (minute-interval retry + keep-alive).
+  - `managed.json` enterprise policy schema back to the full v2.3.0 set.
+  - v2.3.0 `background.js` error reporter (`reportDebug` → POST
+    `/debug/report`) - the hub keeps `/client/report` as its alias, so
+    nothing is lost from 2.5.0's side.
+- Version anchors updated to 2.5.1 (hub, manifest, api.js, popup, tests).
+
+### Verified
+- Hub unchanged from 2.5.0 except VERSION: still a strict superset of
+  v2.3.0 (routes, config keys, functions - diff-verified, zero losses).
+- pytest 78/78; live smoke 48/48 (fake-lp end-to-end incl. /debug,
+  capabilities, config sumatra_path round-trip, release_all, dashboard).
+
 ## v2.5.0 — the merge release (2026-10-30)
 
 ### Fixed

@@ -13,6 +13,27 @@
       "type": "string",
       "description": "Default printer name. Empty = OS default printer. Use __file__ for save-as-PDF."
     },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "MASTER SWITCH: false disables ALL PrintHub printing, auto-print, the window.print() hook and the page API (gray OFF badge)."
+    },
+    "queueMode": {
+      "type": "boolean",
+      "default": true,
+      "description": "Queue Mode: true = jobs wait in the hub FIFO queue (pause works); false = the hub prints each job immediately (queue bypass)."
+    },
+    "retryOffline": {
+      "type": "boolean",
+      "default": true,
+      "description": "v2.0: when the hub is unreachable, keep jobs in the browser and send them automatically once the hub answers again (checked every minute)."
+    },
+    "lang": {
+      "type": "string",
+      "enum": ["auto", "en", "bn"],
+      "default": "auto",
+      "description": "v2.0 UI language: auto (browser language), en (English) or bn (Bangla)."
+    },
     "hookPrint": {
       "type": "boolean",
       "description": "Intercept window.print() calls and route them to the hub"
@@ -44,6 +65,15 @@
           "pattern": {
             "type": "string"
           },
+          "type": {
+            "type": "string",
+            "enum": ["glob", "regex"],
+            "description": "v2.0: how 'pattern' is interpreted - glob (1.x default) or regular expression."
+          },
+          "title": {
+            "type": "string",
+            "description": "v2.0: only match when the page title contains this text (case-insensitive)."
+          },
           "printer": {
             "type": "string"
           },
@@ -57,6 +87,11 @@
           },
           "auto": {
             "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "v2.0: per-site on/off switch for this rule."
           }
         }
       }

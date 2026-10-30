@@ -1,0 +1,9 @@
+# PrintHub Pro v2.5.3 - all-in-one package checksums (2026-10-30)
+# Both installers were REBUILT from this tree (commit 4e70458):
+# Setup exe = NSIS full payload (hub + tool + tray + service + extension),
+# deb = system + user systemd units. Hashes pinned in the repo's
+# own SHA256SUMS.txt - sha256sum -c it to verify.
+940c8cb7ac4a6de8b12d2fba6d60d4869420b5540f8d2f892aae81e9b512986d  PrintHub-Pro-Setup-2.5.3.exe
+8f9cfcc2d3ccd644e4c05f4821e2f7e8098fcf8ef2d9376f55466945640c6a18  printhub-pro_2.5.3_all.deb
+ddcaf629a729ee31095609b00624b9ae583b458d877f0fc547b6b23094e2d9ff  PrintHub-Pro-Extension-v2.5.3.zip
+b1533dc721ffcd14d09a7d2b1d8c34c7425f80acbaef88b3d1fed099675a9c57  PrintHub-Pro-ChromeWebStore-v2.5.3.zip

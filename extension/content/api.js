@@ -1,14 +1,22 @@
-/* PrintHub Pro - MAIN world developer API (v1.1.6).
+/* PrintHub Pro - MAIN world developer API (v2.0).
  * Injected into every http(s) page by the browser itself (CSP-immune).
  *
  *   window.printhub.status()                 -> hub health
- *   window.printhub.printers()               -> [{name, is_default}]
+ *   window.printhub.printers()               -> [{name, is_default, status}]
  *   window.printhub.history(20)              -> last jobs
  *   window.printhub.printPage({title})       -> print current page
  *   window.printhub.printPdf(url, {title})   -> print a PDF URL (pure)
  *   window.printhub.print({                  -> generic hub print
- *     title, printer, copies,
+ *     title, printer, copies, priority, pages, profile, reason,
+ *     watermark, lang, rawBase64,
  *     pdfBase64 | pdfUrl | text | html | pageUrl
+ *   })
+ *   v2.0 extras:
+ *     priority: 1 (urgent) .. 9 (low)        -> queue jump
+ *     pages: "1-3,5"                          -> page range (PDF prints)
+ *     profile: hub print-profile name         -> paper/tray/duplex preset
+ *     lang: "escpos"|"zpl" + text             -> RAW receipt/label printing
+ *     reason: "..."                           -> recorded in the audit log
  *   })
  *
  * GLOBAL one-liner with automatic browser fallback:
@@ -93,7 +101,7 @@
   }
 
   window.printhub = {
-    version: "2.5.0",
+    version: "2.5.3",
     status: () => call({ fn: "status" }),
     printers: () => call({ fn: "printers" }),
     history: (limit) => call({ fn: "history", limit: limit || 20 }),
