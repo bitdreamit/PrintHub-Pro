@@ -18,6 +18,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import webbrowser
@@ -52,39 +53,150 @@ def hub_running():
     return ok
 
 
+def _port_listening():
+    """True when SOMETHING accepts TCP on our port (hub or not)."""
+    ph = _load_advprint()
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1.0)
+    try:
+        return s.connect_ex(("127.0.0.1", ph.CFG["port"])) == 0
+    finally:
+        s.close()
+
+
+def _tail(path, n=25):
+    """Last n lines of a text file (hub.log), [] when unreadable."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return [l.rstrip() for l in f.read().splitlines()[-n:]]
+    except OSError:
+        return []
+
+
+def _win_process_alive(image):
+    """Windows: is a process with this image name running?"""
+    if not IS_WIN:
+        return False
+    try:
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq %s" % image],
+                           capture_output=True, text=True, timeout=10)
+        return image.lower() in (r.stdout or "").lower()
+    except Exception:
+        return False
+
+
+def _manual_command():
+    """Copy/paste-ready manual start command with the REAL full path -
+    'python advprint.py serve' from C:\\Users\\<name> can never work."""
+    ph = _load_advprint()
+    script = os.path.join(HERE, "advprint.py")
+    if IS_WIN and os.path.isfile(sys.executable):
+        return '"%s" "%s" serve' % (sys.executable, script)
+    return 'python3 "%s" serve' % script
+
+
+def _report_start_failure():
+    """v2.6.1: when the hub did not answer, show WHY right here in the
+    tool - log tail, process state, port owner, manual command."""
+    ph = _load_advprint()
+    logp = os.path.join(ph.CFG["data_dir"], "hub.log")
+    print("")
+    print("  --- start-up diagnosis ------------------------------------")
+    if _port_listening():
+        print("  Port %d      : SOMETHING is listening but it is not the"
+              " hub (or the token blocked /health)." % ph.CFG["port"])
+    else:
+        print("  Port %d      : nothing is listening - the hub process is"
+              " not serving." % ph.CFG["port"])
+    if IS_WIN:
+        alive = (_win_process_alive("AdvPrintPro.exe")
+                 or _win_process_alive("pythonw.exe"))
+        print("  Hub process : %s" %
+              ("AdvPrintPro.exe is running (still starting? wait 10 s)"
+               if alive else "NOT running - it exited or was blocked"))
+        if not alive:
+            print("                 (antivirus tools sometimes silently kill"
+                  " a freshly downloaded exe - use menu [13] > Fix, it also"
+                  " unblocks the folder)")
+    tail = _tail(logp, 20)
+    if tail:
+        print("  hub.log (last lines):")
+        for l in tail:
+            print("    " + l)
+    else:
+        print("  hub.log     : not written yet - the hub died before it"
+              " could log anything (blocked exe / missing file / AV).")
+    print("  Manual start (copy/paste into cmd - full path, works from"
+          " any folder):")
+    print("    " + _manual_command())
+    print("  Or pick menu [13] Diagnose & fix - it finds and repairs the"
+          " usual causes automatically.")
+    print("  -----------------------------------------------------------")
+    print("")
+
+
 def start_hub():
     """Start the hub detached (returns True when the process spawned)."""
     if hub_running():
         print("AdvPrint Pro is ALREADY running (port in use).")
         return True
     ph = _load_advprint()
-    try:
-        if IS_WIN:
-            exe = ph.launcher_exe()                    # AdvPrintPro.exe / pythonw
-            script = os.path.join(HERE, "advprint.py")
-            det = 0x00000008 | 0x00000200              # DETACHED | NEW_PROCESS_GROUP
+    script = os.path.join(HERE, "advprint.py")
+    # v2.6.1 pre-flight: clear message instead of a silent death when
+    # the install folder is incomplete (bad unzip / AV quarantine).
+    if not os.path.isfile(script):
+        print("ERROR: %s" % script)
+        print("  ...is MISSING - your install folder is incomplete.")
+        print("  Re-extract the FULL AdvPrint-Pro zip (keep the folder")
+        print("  structure), or reinstall with the Setup exe.")
+        return False
+    if IS_WIN:
+        exe = ph.launcher_exe()                    # AdvPrintPro.exe / pythonw
+        if not os.path.isfile(exe):
+            exe = sys.executable                   # bundled python.exe
+            print("(note: AdvPrintPro.exe missing - starting with the"
+                  " bundled python)")
+        det = 0x00000008 | 0x00000200              # DETACHED | NEW_PROCESS_GROUP
+        try:
             subprocess.Popen([exe, script, "serve"], cwd=HERE,
                              close_fds=True, creationflags=det)
-        else:
+        except Exception as e:
+            print("Could not start the hub: %s" % e)
+            print("If this is 'Permission denied' or 'Access is denied':")
+            print("  Windows or your antivirus blocked the freshly downloaded"
+                  " file.")
+            print("  Pick menu [13] Diagnose & fix - it unblocks the folder"
+                  " automatically (no admin needed).")
+            return False
+    else:
+        try:
             subprocess.Popen(["nohup", sys.executable,
                               os.path.join(HERE, "advprint.py"), "serve"],
                              cwd=HERE,
                              stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
                              start_new_session=True)
-    except Exception as e:
-        print("Could not start the hub: %s" % e)
-        return False
+        except Exception as e:
+            print("Could not start the hub: %s" % e)
+            return False
     print("Starting AdvPrint Pro ...")
-    for _ in range(20):
+    # v2.6.1: poll up to 20 s (first start can be slow while the AV scans
+    # the fresh python runtime). Print a small progress beat.
+    for i in range(40):
         time.sleep(0.5)
         if hub_running():
             ok, info = _health()
             print("Started: v%s on http://127.0.0.1:%s"
                   % (info.get("version", "?"), info.get("port", ph.CFG["port"])))
+            print("Tray icon 'AdvPrint Pro' should now sit next to the clock"
+                  " (may hide under the ^ arrow).")
             return True
-    print("The hub did not answer yet - check %s"
-          % os.path.join(ph.CFG["data_dir"], "hub.log"))
+        if i in (9, 19, 29):
+            print("  ... still waiting (%d s) - first start can be slow"
+                  % ((i + 1) // 2))
+    print("The hub did not answer within 20 seconds.")
+    _report_start_failure()
     return False
 
 
@@ -140,6 +252,7 @@ def show_status():
               % ("ON" if ph.autostart_enabled() else "off"))
     if IS_WIN:
         print("  Data folder  : %s" % ph.CFG["data_dir"])
+        print("  Install folder: %s" % HERE)
         print("  SumatraPDF   : %s"
               % ("found" if info and info.get("sumatra_found")
                  else ("not found (PDF printing needs it)" if ok else "n/a")))
@@ -229,6 +342,151 @@ def livetest(do_print=False):
     return 0 if res["all_ok"] else 1
 
 
+def diagnose_and_fix():
+    """v2.6.1 menu [13]: find and REPAIR the usual 'hub offline' causes
+    without any console knowledge:
+      1. install-folder pre-flight (missing files -> exact name shown)
+      2. unblock the folder (Windows Mark-of-the-Web from downloaded zips)
+      3. free the port from zombies (old hub instances)
+      4. VISIBLE console start test - the hub's own output shows any
+         remaining error in plain text, right here in the tool
+      5. hub.log tail + copy/paste manual start command
+    Nothing here needs admin rights.
+    """
+    ph = _load_advprint()
+    print("-" * 62)
+    print(" Diagnose & fix - why does the hub not start?")
+    print("-" * 62)
+    script = os.path.join(HERE, "advprint.py")
+
+    # ---- 1. pre-flight ------------------------------------------------
+    print("\n[1/5] Install folder check")
+    need = ["advprint.py", "tool.py", "tray_windows.py", "service_main.py"]
+    missing = [f for f in need if not os.path.isfile(os.path.join(HERE, f))]
+    print("  folder      : %s" % HERE)
+    print("  hub script  : %s" % ("OK" if os.path.isfile(script) else "MISSING"))
+    if missing:
+        print("  also missing: %s" % ", ".join(missing))
+        print("  FIX: re-extract the FULL zip (keep folder structure) or"
+              " reinstall the Setup exe - files ARE missing, nothing to"
+              " repair here.")
+        return
+    if IS_WIN:
+        exe = ph.launcher_exe()
+        print("  launcher    : %s (%s)" %
+              (exe, "OK" if os.path.isfile(exe) else "missing - tool will"
+               " fall back to the bundled python"))
+
+    # ---- 2. unblock (Mark-of-the-Web) ----------------------------------
+    if IS_WIN:
+        print("\n[2/5] Unblock the folder (Windows may block downloaded"
+              " files)")
+        root = os.path.dirname(HERE.rstrip(os.sep)) or HERE
+        ps = ("$n=0; Get-ChildItem -LiteralPath '{p}' -Recurse -File -ErrorAction"
+              " SilentlyContinue | ForEach-Object {{ try {{ Unblock-File"
+              " -LiteralPath $_.FullName -ErrorAction Stop; $n++ }} catch {{}} }};"
+              " Write-Output ('unblocked ' + $n + ' files')").format(p=root)
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                 "-Command", ps],
+                creationflags=0x08000000, capture_output=True, text=True,
+                timeout=60)
+            out = (r.stdout or "").strip().splitlines()
+            print("  %s (folder: %s)" % (out[-1] if out else "done", root))
+        except Exception as e:
+            print("  skipped (%s) - not critical" % e)
+    else:
+        print("\n[2/5] Unblock: not needed on this OS")
+
+    # ---- 3. port + zombies ----------------------------------------------
+    print("\n[3/5] Port %d" % ph.CFG["port"])
+    if _port_listening():
+        if hub_running():
+            print("  the hub is ALREADY running and healthy - nothing to"
+                  " fix. Close and reopen the dashboard with menu [12].")
+            return
+        print("  SOMETHING (not the hub) is listening on the port.")
+        a = input("  Kill whatever holds port %d now? [Y/n]: "
+                  % ph.CFG["port"]).strip().lower()
+        if a not in ("n", "no"):
+            if IS_WIN:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     "Get-NetTCPConnection -LocalPort %d -State Listen "
+                     "-ErrorAction SilentlyContinue | Select-Object"
+                     " -ExpandProperty OwningProcess | ForEach-Object {"
+                     " Stop-Process -Id $_ -Force -ErrorAction"
+                     " SilentlyContinue }" % ph.CFG["port"]],
+                    capture_output=True, text=True, timeout=30)
+            else:
+                subprocess.run(["fuser", "-k", "%d/tcp" % ph.CFG["port"]],
+                               capture_output=True, text=True)
+            time.sleep(1.0)
+            print("  port now free" if not _port_listening()
+                  else "  still busy - reboot clears stubborn holders")
+    else:
+        print("  free - good")
+
+    # ---- 4. visible console start test ----------------------------------
+    print("\n[4/5] Start test (the hub runs in plain view - any error"
+          " shows here)")
+    if IS_WIN:
+        outp = os.path.join(tempfile.gettempdir(), "advprint-start-test.log")
+        try:
+            os.remove(outp)
+        except OSError:
+            pass
+        with open(outp, "w", encoding="utf-8") as tf:
+            proc = subprocess.Popen(
+                [sys.executable, script, "serve"], cwd=HERE,
+                stdout=tf, stderr=subprocess.STDOUT)
+        came_up = False
+        for _ in range(20):
+            time.sleep(0.5)
+            if hub_running():
+                came_up = True
+                break
+        if came_up:
+            ok, info = _health()
+            print("  THE HUB STARTS FINE when run in the open:")
+            print("    v%s on http://127.0.0.1:%s (token guard OK)"
+                  % (info.get("version", "?"), info.get("port", "?")))
+            print("  So the hub works - the blocked one was only the hidden"
+                  " background start (antivirus).")
+            b = input("  Keep THIS running and close the tool? [Y/n]: ")
+            if b.strip().lower() not in ("n", "no"):
+                print("  AdvPrint Pro stays running. For the normal hidden"
+                      " start (recommended, with tray icon) close the tool"
+                      " and use menu [1] next time.")
+                return
+            proc.terminate()
+            time.sleep(1.0)
+            print("  test instance stopped - use menu [1] to start hidden")
+            return
+        proc.terminate()
+        time.sleep(1.0)
+        print("  the hub FAILED to start - its own output:")
+        for l in _tail(outp, 30):
+            print("    " + l)
+    else:
+        print("  (unix: run 'python3 %s serve' in a terminal to see"
+              " the error directly)" % script)
+
+    # ---- 5. log tail + manual command -----------------------------------
+    print("\n[5/5] hub.log (last 20 lines) + manual start")
+    tail = _tail(os.path.join(ph.CFG["data_dir"], "hub.log"), 20)
+    if tail:
+        for l in tail:
+            print("    " + l)
+    else:
+        print("    (hub.log is empty or missing)")
+    print("\n  Manual start (copy/paste into cmd/terminal):")
+    print("    " + _manual_command())
+    print("  If the output above mentions permissions/antivirus: add the")
+    print("  AdvPrint folder to your AV's exclusions, then menu [1].")
+
+
 def uninstall():
     """Full removal: stop hub, remove autostart, offer service removal."""
     ph = _load_advprint()
@@ -275,6 +533,7 @@ MENU = """
   [4] Print test page           [8] Check for updates (GitHub)
   [9] Show recent jobs         [10] Uninstall / remove
   [11] LIVE TEST (A-to-Z)      [12] Open dashboard
+  [13] Diagnose & fix (hub offline / tray missing / blocked exe)
   [0] Exit
 """
 
@@ -283,7 +542,7 @@ def menu():
     while True:
         print(MENU)
         try:
-            c = input("  Choose [0-12]: ").strip()
+            c = input("  Choose [0-13]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("")
             return
@@ -317,10 +576,12 @@ def menu():
             import urllib.parse
             webbrowser.open("http://127.0.0.1:%d/dashboard?token=%s" % (
                 ph.CFG["port"], urllib.parse.quote(ph.CFG["token"])))
+        elif c == "13":
+            diagnose_and_fix()
         elif c == "0":
             return
         else:
-            print("Pick 0-12.")
+            print("Pick 0-13.")
         print("")
 
 
@@ -333,6 +594,7 @@ def usage():
   history [n]   show recent jobs
   autorun on|off   start-at-logon on/off
   livetest [print] full A-to-Z live self-test ("print" = real test page)
+  diagnose        find and fix why the hub will not start (menu [13])
   dashboard        open the dashboard with the current token
   service-install | service-remove | service-status
   update-check  check GitHub for updates
@@ -373,6 +635,8 @@ def main():
         uninstall()
     elif cmd == "livetest":
         sys.exit(livetest(do_print=(len(args) > 1 and args[1] == "print")))
+    elif cmd == "diagnose":
+        diagnose_and_fix()
     elif cmd == "dashboard":
         ph = _load_advprint()
         import urllib.parse

@@ -10,6 +10,7 @@ import base64
 import json
 import os
 import sqlite3
+import sys
 import time
 import urllib.request
 
@@ -26,7 +27,7 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.6.0"
+    assert d["version"] == "2.6.1"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
@@ -130,7 +131,10 @@ def test_old_default_token_gets_clear_hint(hub):
     code, d = hub.get("/jobs", token="PrintHub-2024")
     assert code == 401
     assert "OLD default token" in d["error"]
-    assert "advprint.py token" in d["error"]
+    # v2.6.1: the hint carries the FULL advprint.py path so it works
+    # from any folder (no more "can't open file" from a wrong cwd)
+    assert "advprint.py" in d["error"] and "token" in d["error"]
+    assert "/" in d["error"]          # contains a real absolute path
 
 
 def test_dashboard_wrong_token_html_error(hub):
@@ -495,13 +499,13 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert advprint.VERSION == "2.6.0"
+    assert advprint.VERSION == "2.6.1"
     # repo/package layout: tool/windows/portable/hub -> root/extension
     root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(advprint.__file__)))))
     ext = os.path.join(root, "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.6.0"
+        assert json.load(f)["version"] == "2.6.1"
 
 
 def test_log_rotation(tmp_path):
@@ -708,7 +712,7 @@ def test_v22_docs_page_served(hub):
     body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
             else d if isinstance(d, str) else json.dumps(d))
     assert "LAN sharing" in body and "POST /print" in body
-    assert "2.6.0" in body
+    assert "2.6.1" in body
 
 
 def test_v22_docs_wrong_token_json(hub):
@@ -721,7 +725,7 @@ def test_v22_dashboard_has_lan_card_and_docs(hub):
     assert 'id="lanBody"' in html and "LAN sharing" in html
     assert "/docs" in html and "shiftJob" in html
     assert 'id="dbgBody"' in html and "toggleDebug" in html
-    assert "2.6.0" in html
+    assert "2.6.1" in html
 
 
 def test_v22_health_lan_active(hub):
@@ -1008,7 +1012,7 @@ def test_v26_token_current_loopback_only(hub):
     code, d = hub.get("/token/current")
     assert code == 200 and d["ok"] is True
     assert d["token"] == hub.token
-    assert d["app"] == "AdvPrint Pro" and d["version"] == "2.6.0"
+    assert d["app"] == "AdvPrint Pro" and d["version"] == "2.6.1"
 
 
 def test_v26_token_current_rejects_remote(hub):
@@ -1052,3 +1056,80 @@ def test_v26_legacy_header_accepted(hub):
     """Old clients still send X-PrintHub-Token - accepted."""
     code, d = hub.get("/jobs", headers={"X-PrintHub-Token": hub.token})
     assert code == 200
+
+
+# ============================================================
+# v2.6.1 - hub start + tray fix release
+# ============================================================
+
+def test_v261_hub_dir_on_sys_path():
+    """The embedded runtime (isolated mode) does not add the script
+    folder to sys.path -> tray import failed in the portable layout.
+    advprint.py must self-insert its own folder (idempotent)."""
+    here = os.path.dirname(os.path.abspath(advprint.__file__))
+    assert here in sys.path
+    assert advprint._HUB_DIR == here
+
+
+def test_v261_tray_module_ships_and_parses():
+    """The real root cause of 'tray icon missing': tray_windows.py must
+    ship next to advprint.py and stay importable on Windows (it is a
+    Windows-only ctypes module - here we parse + sanity-check it)."""
+    import ast
+    p = os.path.join(os.path.dirname(advprint.__file__), "tray_windows.py")
+    src = open(p, encoding="utf-8").read()
+    ast.parse(src)
+    assert "def start(" in src
+    assert "Shell_NotifyIcon" in src
+
+
+def test_v261_version_single_source():
+    assert advprint.VERSION == "2.6.1"
+    assert advprint.VERSION_NAME.startswith("v2.6.1")
+
+
+def test_v261_cli_cmd_full_path():
+    cmd = advprint.cli_cmd("token-rotate")
+    assert "advprint.py" in cmd and "token-rotate" in cmd
+    assert os.sep in cmd or "/" in cmd      # contains a real path
+
+
+def test_v261_dashboard_live_tool_version():
+    """The live debug tool must show the REAL version (was stuck v2.5)."""
+    html = advprint.dashboard_html(query="?token=x")
+    assert "(v2.6.1)" in html
+    assert "(v2.5)" not in html
+    assert "Hub is OFFLINE" in html          # offline-friendly buttons
+
+
+def test_v261_boot_lines_and_crash_catcher():
+    src = open(os.path.join(os.path.dirname(advprint.__file__),
+                            "advprint.py"), encoding="utf-8").read()
+    assert "[BOOT] AdvPrint Pro v" in src            # boot bracket
+    assert "FATAL - the hub crashed" in src          # crash -> hub.log
+    assert "FATAL: startup failed before opening the port" in src
+
+
+def test_v261_tool_has_diagnose_menu():
+    tp = os.path.join(os.path.dirname(advprint.__file__), "tool.py")
+    src = open(tp, encoding="utf-8").read()
+    import ast
+    ast.parse(src)                                   # tool.py must parse
+    assert "def diagnose_and_fix()" in src
+    assert "def _report_start_failure()" in src
+    assert "def _manual_command()" in src
+    assert "Unblock-File" in src                     # MOTW repair
+    assert "[13] Diagnose & fix" in src
+    assert "Choose [0-13]" in src
+    assert "The hub did not answer within 20 seconds" in src
+
+
+def test_v261_tool_manual_command_uses_full_path():
+    import importlib.util
+    tp = os.path.join(os.path.dirname(advprint.__file__), "tool.py")
+    spec = importlib.util.spec_from_file_location("tool_chk", tp)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    cmd = m._manual_command()
+    assert "advprint.py" in cmd and " serve" in cmd
+    assert os.sep in cmd                     # absolute, works from any cwd

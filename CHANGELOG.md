@@ -1,6 +1,61 @@
 # Changelog - AdvPrint Pro (Advanced Printer)
 by Bit Dream IT - Innovative Healthcare Solutions
 
+## v2.6.1 - HUB START + TRAY FIX RELEASE (2026-10-31)
+
+### Fixed: "hub always offline" on Windows (the big one)
+- **Tool menu [13] "Diagnose & fix"** - finds and repairs the usual
+  causes without console knowledge: install-folder pre-flight,
+  **Unblock-File over the whole folder** (Mark-of-the-Web from
+  downloaded zips silently blocks the hub exe), zombie port cleanup
+  (offers to kill whatever holds 9235), then a **visible console
+  start test** - the hub's own output shows any remaining error as
+  readable text right in the tool. Ends with the hub.log tail and a
+  copy/paste manual start command using the REAL full path.
+- Failed starts now print WHY in the tool window itself: port
+  state, process state (AdvPrintPro.exe alive or blocked/shot),
+  the last 20 lines of hub.log, manual command, AV hint.
+- Start polling extended 10 s -> 20 s with progress beats (first
+  start can be slow while the antivirus scans the fresh runtime).
+- Pre-flight check: a missing advprint.py/runtime now gives a clear
+  "install folder is incomplete" message instead of silence.
+- The hub logs **[BOOT]** lines for every start (python version +
+  path, data dir, log path) and **any crash is written to hub.log**
+  (previously a pythonw crash was completely silent).
+- CLI hints in logs/messages now carry the full real path
+  (`cli_cmd()`), so "python advprint.py serve"-style hints can never
+  fail with "can't open file" from the wrong working directory.
+
+### Fixed: tray icon missing
+- Root cause: the bundled embedded runtime (pythonw + ._pth) runs
+  in isolated mode and never adds the script folder to sys.path, so
+  `import tray_windows` failed in the portable layout (hub served,
+  icon never appeared). advprint.py now inserts its own folder into
+  sys.path at boot (idempotent, works in every layout).
+- Successful tray start is confirmed in hub.log ("[TRAY] icon
+  active next to the clock").
+
+### Fixed: dashboard (the REAL cause of "buttons do nothing")
+- **The whole dashboard JavaScript never parsed** since v2.2: the
+  LAN card's printer-status-hold button had a stray quote
+  (`toggleHold(+(!HOLD_OFF)+")` -> `SyntaxError: Unexpected token ')'`),
+  which killed the ENTIRE `<script>` block - queue, jobs, printers,
+  audit table (Time/Event/Job/Site-IP/Printer/Reason) stayed as
+  placeholder dashes and the live test tool sat at "idle - click the
+  button above" no matter what was clicked. Fixed (and the dashboard
+  script is now node-syntax-checked on every build + smoke run).
+- Live debug & test tool header shows the real version
+  (`(v@@VERSION@@)`, was hardcoded "v2.5").
+- Every live-test button now says plainly "Hub is OFFLINE - start
+  AdvPrint Pro first ..." instead of an idle/error line, including
+  when the hub goes away in the middle of a watch.
+
+### Packaging
+- Version 2.6.1 in one place everywhere: hub VERSION, manifest,
+  popup, options (chip + About), i18n brandLine (en + bn), page API,
+  Setup exe (product/file/display version + uninstall entry), deb,
+  docs, tests. Extension About/manifest/popup all show 2.6.1.
+
 ## v2.6.0 - REBRAND + ONE-CLICK TOKEN FIX + ENTERPRISE POLISH (2026-10-31)
 
 ### Branding (no old name anywhere)

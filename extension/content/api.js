@@ -101,7 +101,7 @@
   }
 
   window.advprint = {
-    version: "2.6.0",
+    version: "2.6.1",
     status: () => call({ fn: "status" }),
     printers: () => call({ fn: "printers" }),
     history: (limit) => call({ fn: "history", limit: limit || 20 }),

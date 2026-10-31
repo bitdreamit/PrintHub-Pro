@@ -1,6 +1,45 @@
-AdvPrint Pro (Advanced Printer) v2.6.0 - START HERE
+AdvPrint Pro (Advanced Printer) v2.6.1 - START HERE
 ====================================================
 by Bit Dream IT - Innovative Healthcare Solutions
+
+WHAT'S NEW IN 2.6.1 (HUB START + TRAY FIX RELEASE)
+  1. "HUB OFFLINE" IS NOW SELF-DIAGNOSING AND SELF-HEALING:
+       - the desktop tool (AdvPrint-Tool.bat / Start Menu "AdvPrint
+         Tool") got a new menu item [13] "Diagnose & fix". One pick
+         and it: checks the install folder, UNBLOCKS every file
+         (Windows marks files of a downloaded zip as blocked - a
+         common reason the hub exe "never answers"), frees the port
+         from old zombie instances, then starts the hub in PLAIN
+         VIEW so any remaining error shows as readable text.
+       - when a normal start fails, the tool now prints WHY right
+         in the window: port state, process state, the last 20
+         lines of hub.log, and a copy/paste start command with the
+         REAL full path (a plain "python advprint.py serve" from
+         C:\Users\<you> can never work - the file is not there).
+       - the hub logs [BOOT] lines for every start and writes ANY
+         crash into hub.log, so "hub offline" always comes with the
+         reason on paper.
+  2. TRAY ICON FIXED: the bundled runtime runs Python in isolated
+     mode and did not see the tray module in the portable layout -
+     the hub ran but the icon never appeared. Fixed; the tray
+     "AdvPrint Pro" icon now appears next to the clock whenever the
+     hub runs (Open dashboard / test page / pause / auto-run /
+     exit). It can hide under the ^ arrow near the clock.
+  3. DASHBOARD FIXED FOR REAL: a single broken quote in the LAN
+     card made the WHOLE dashboard JavaScript fail to parse since
+     v2.2 - tables stayed empty ("-") and buttons did nothing
+     ("idle - click the button above"). Fixed; the script is now
+     syntax-checked on every build and smoke run. The live test
+     tool shows the REAL version (was stuck "v2.5") and every
+     button plainly says when the hub is offline.
+  4. STILL OFFLINE? 60-SECOND FIX, NO CONSOLE SKILLS NEEDED:
+       a. open the tool (AdvPrint-Tool.bat, or Start Menu >
+          AdvPrint Pro > AdvPrint Tool)
+       b. pick [13] Diagnose & fix -> read the [4/5] result
+       c. pick [1] Start -> "Started: v2.6.1 on http://127.0.0.1:9235"
+       d. tray icon appears -> right-click -> Open dashboard
+     If [13] says antivirus: add the AdvPrint folder to your AV's
+     exclusions and start again (menu [1]).
 
 WHAT'S NEW IN 2.6.0 (REBRAND + ONE-CLICK TOKEN FIX)
   1. THE WHOLE PRODUCT IS AdvPrint Pro (Advanced Printer) BY
@@ -21,10 +60,10 @@ WHAT'S NEW IN 2.6.0 (REBRAND + ONE-CLICK TOKEN FIX)
        - extension Options -> Settings -> "Detect token" asks the
          local hub and fills the token automatically.
   3. LIVE TEST TOOL (A-to-Z, everywhere):
-       - python advprint.py livetest [print]
        - desktop tool (AdvPrint Tool) menu [11]
        - dashboard "Full self-test (A-to-Z)" button
        - extension Debug tab "Run full self-test"
+       - CLI:  python "<install>\hub\advprint.py" livetest [print]
        Each check prints [OK]/[!!] with the exact fix.
   4. EXTENSION OPTIONS - tab-wise (Queue / History / Settings /
      Debug / LAN / PCs / About) + new "Hub settings (advanced)":
@@ -32,41 +71,42 @@ WHAT'S NEW IN 2.6.0 (REBRAND + ONE-CLICK TOKEN FIX)
      reprint policy, thermal engine, save-as-PDF folder and more
      LIVE from the browser.
   5. COMPLETE INSTALLERS:
-     - AdvPrint-Pro-Setup-2.6.0.exe (~9.6 MB): hub + tool + tray +
+     - AdvPrint-Pro-Setup-2.6.1.exe (~9.6 MB): hub + tool + tray +
        service files + FULL Python 3.11.9 runtime (34 files) +
        extension + docs. Per-user, no UAC, auto-run as a VISIBLE
        Startup app, silent install with /S, removes all old
        PrintHub Pro leftovers automatically.
-     - advprint-pro_2.6.0_all.deb: hub + tool + extension +
+     - advprint-pro_2.6.1_all.deb: hub + tool + extension +
        systemd user service + XDG autostart + CLI commands.
 
 WHY DID MY OLD VERSION SAY "cannot access" ON THE SETUP EXE?
   The 2.5.3 exe some users received was INCOMPLETE (missing
   payload) - Windows refused to run a broken exe and users had to
-  fight the Security tab manually. The 2.6.0 setup is complete and
-  the portable install-windows.bat additionally UNBLOCKS every
-  file automatically (fixes "Access is denied" on downloaded
-  zips). No manual Security-tab work is needed anywhere.
+  fight the Security tab manually. The 2.6.x setup is complete and
+  both the setup and install-windows.bat UNBLOCK every file
+  automatically (fixes "Access is denied" on downloaded zips).
+  No manual Security-tab work is needed anywhere.
 
 UPDATE IN 3 STEPS
-  1. Run AdvPrint-Pro-Setup-2.6.0.exe (installs over the old
+  1. Run AdvPrint-Pro-Setup-2.6.1.exe (installs over the old
      version; history + settings migrate to .advprint automatically).
+     Portable users: extract the new zip over the old folder, then
+     AdvPrint-Tool.bat > [13] once (unblocks), then [1] Start.
   2. Chrome -> chrome://extensions -> AdvPrint Pro -> RELOAD.
   3. TEST IT LIVE:
-       - python advprint.py livetest   (A-to-Z self-test)
+       - tool menu [11] LIVE TEST (A-to-Z)
        - or tray -> Open dashboard -> "Send test print & watch
          live" -> verdict: REAL PRINTER HIT / SAVED / HELD / FAILED
      Full step-by-step test: docs/EXTENSION-TEST.md
 
 THE TOKEN
   Fresh installs: a PRIVATE RANDOM token (shown once in hub.log,
-  readable with "python advprint.py token" or the config file).
-  Upgraded pre-2.0 installs: old default PrintHub-2024 keeps
-  working until you rotate it (the dashboard warns you).
-  Lost it? Stale bookmark? -> the dashboard error page has the
-  one-click fix, or tray -> Open dashboard, or extension ->
-  Detect token. Rotate: dashboard "Rotate token" button or
-  python advprint.py token-rotate.
+  readable with "python "<install>\hub\advprint.py" token" or the
+  config file). Upgraded pre-2.0 installs: old default
+  PrintHub-2024 keeps working until you rotate it (the dashboard
+  warns you). Lost it? Stale bookmark? -> the dashboard error page
+  has the one-click fix, or tray -> Open dashboard, or extension ->
+  Detect token. Rotate: dashboard "Rotate token" button.
 
 NO PRINTER RIGHT NOW?
   - Print to "Microsoft Print to PDF": the hub saves the PDF
@@ -81,8 +121,8 @@ FILES IN THIS PACKAGE
   docs\            API, EXTENSION-TEST, FOLDER-MAP, ENTERPRISE,
                    AdvPrint-Pro-Full-Guide.html + .pdf, release notes
   tests\           pytest suite + pytest.ini
-  installer\       AdvPrint-Pro-Setup-2.6.0.exe + advprint-pro_2.6.0_all.deb
-  AdvPrint-Pro-v2.6.0-FULL.zip   everything in one zip
+  installer\       AdvPrint-Pro-Setup-2.6.1.exe + advprint-pro_2.6.1_all.deb
+  AdvPrint-Pro-v2.6.1-FULL.zip   everything in one zip
   README.md / CHANGELOG.md / LICENSE / pytest.ini / .gitignore
   SHA256SUMS.txt
 
@@ -90,9 +130,10 @@ SUPPORT
   docs/AdvPrint-Pro-Full-Guide.html - the complete A-to-Z guide
   (setup, token, tabs, dashboard, LAN/IP, queue, settings, debug,
   enterprise, API, troubleshooting).
+  "Hub offline"? Tool menu [13] first - it prints the reason.
   Bug report? Debug tab -> Copy report - and attach hub.log from
-  the data folder.
+  the data folder (%USERPROFILE%\.advprint\hub.log).
 
-AdvPrint Pro (Advanced Printer) v2.6.0
+AdvPrint Pro (Advanced Printer) v2.6.1
 by Bit Dream IT - Innovative Healthcare Solutions
 100% local - no cloud - no tracking - MIT license

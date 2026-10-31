@@ -57,7 +57,18 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl, quote
 
-VERSION = "2.6.0"
+# v2.6.1 FIX: the bundled Windows runtime (AdvPrintPro.exe = embedded
+# pythonw with a ._pth file) runs in ISOLATED mode - it does NOT add
+# this script's folder to sys.path. Sibling modules (tray_windows, ...)
+# could then not import -> the hub ran but the TRAY ICON WAS MISSING in
+# the portable layout. Insert the hub folder ourselves (idempotent,
+# harmless in every other layout).
+_HUB_DIR = os.path.dirname(os.path.abspath(__file__))
+if _HUB_DIR not in sys.path:
+    sys.path.insert(0, _HUB_DIR)
+
+VERSION = "2.6.1"
+VERSION_NAME = "v2.6.1 (hub fix release)"
 FULL_BRAND = ("AdvPrint Pro (Advanced Printer) by "
               "Bit Dream IT - Innovative Healthcare Solutions")
 BRANDING = ("AdvPrint Pro (Advanced Printer) - Version %s - by "
@@ -195,6 +206,18 @@ DEFAULT_TOKEN_WARNING = False   # True while the legacy default token is active
 BOUND_LAN = False               # True once the listener actually bound 0.0.0.0
 
 
+def cli_cmd(args):
+    """v2.6.1: a copy/paste-ready command with the REAL advprint.py path,
+    so 'python advprint.py ...' hints never fail with 'can't open file'
+    just because the user is in another folder."""
+    py = sys.executable or "python"
+    try:
+        script = os.path.join(_HUB_DIR, "advprint.py")
+    except NameError:
+        script = "advprint.py"
+    return 'python "%s" %s' % (script, args)
+
+
 def config_path():
     return os.path.join(CFG["data_dir"], "config.json")
 
@@ -286,8 +309,8 @@ def init_config():
         CFG["token"] = env_token or str(CFG["token"])
     DEFAULT_TOKEN_WARNING = (CFG["token"] == LEGACY_TOKEN)
     if DEFAULT_TOKEN_WARNING:
-        log("[SECURITY] the default token '%s' is still in use - please"
-            " change it:  python advprint.py token-rotate" % LEGACY_TOKEN)
+        log("[SECURITY] the default token '%s' is still in use - rotate it"
+            " with:  %s" % (LEGACY_TOKEN, cli_cmd("token-rotate")))
     return CFG
 
 def default_file_dir():
@@ -2687,11 +2710,10 @@ class Handler(BaseHTTPRequestHandler):
         if given and given == LEGACY_TOKEN and CFG["token"] != LEGACY_TOKEN:
             return ("'%s' was the OLD default token and no longer works. "
                     "Get the current token from the tray menu (Open "
-                    "dashboard), read it from %s, or run: "
-                    "python advprint.py token"
-                    % (LEGACY_TOKEN, config_path()))
-        return ("get the token from the tray menu, from %s, or run: "
-                "python advprint.py token" % config_path())
+                    "dashboard), read it from %s, or run: %s"
+                    % (LEGACY_TOKEN, config_path(), cli_cmd("token")))
+        return ("get the token from the tray menu, from %s, or run: %s"
+                % (config_path(), cli_cmd("token")))
 
     def _auth_error(self, qtoken=None, body=None, allow_query=False):
         """Returns None when authorized, otherwise (code, message).
@@ -2750,8 +2772,8 @@ class Handler(BaseHTTPRequestHandler):
                     rec["warned"] = True
                     log("[AUTH] %d wrong tokens from loopback %s - NOT"
                         " locked (lockout_exempt_loopback=true; use the"
-                        " tray menu or 'python advprint.py token' to fix)"
-                        % (limit, ip))
+                        " tray menu or '%s' to fix)"
+                        % (limit, ip, cli_cmd("token")))
             else:
                 mins = int(CFG.get("lockout_minutes", 5))
                 rec["until"] = now + mins * 60
@@ -4026,7 +4048,7 @@ def _debug_problems():
             "level": "warn", "check": "token",
             "message": "the DEFAULT token is still in use - anyone who"
                        " knows it can print on this PC",
-            "fix": "run: python advprint.py token-rotate"})
+            "fix": "run: %s" % cli_cmd("token-rotate")})
     if not CFG.get("debug"):
         probs.append({
             "level": "info", "check": "debug off",
@@ -4505,8 +4527,8 @@ happens when a bookmark still uses the old default token
 <ol>
 <li><b>Tray icon (easiest)</b> - right-click the AdvPrint Pro tray icon
 and choose <i>Open dashboard</i>. It always opens with the right token.</li>
-<li><b>Command line</b> - in the hub folder run
-<code>python advprint.py token</code>, then open
+<li><b>Command line</b> - run <code>@@CLICMD@@</code> (full path -
+works from any folder), then open
 <code>/dashboard?token=THE-TOKEN</code>.</li>
 <li><b>Config file</b> - the token is the <code>"token"</code> value in
 <code>%USERPROFILE%\.advprint\config.json</code>
@@ -4548,7 +4570,9 @@ lock out the other windows - the hub never locks the loopback IP
 def dashboard_auth_error_html(message=""):
     """Friendly browser page when the dashboard token is wrong/missing."""
     msg = html.escape(str(message or "invalid or missing token"), quote=True)
-    return DASHBOARD_AUTH_ERROR_TMPL.replace("__MSG__", msg)
+    return (DASHBOARD_AUTH_ERROR_TMPL
+            .replace("__MSG__", msg)
+            .replace("@@CLICMD@@", html.escape(cli_cmd("token"), quote=True)))
 
 
 DASHBOARD_HTML = r"""<!DOCTYPE html>
@@ -4654,7 +4678,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   </tr></thead><tbody id="audit"><tr><td>-</td></tr></tbody></table></div>
 </main>
 <section id="livetest">
-  <h2>Live debug &amp; test tool <small>(v2.5)</small></h2>
+  <h2>Live debug &amp; test tool <small>(v@@VERSION@@)</small></h2>
   <p>Send a REAL test print and watch every step live until it hits the
      printer - or see exactly why it did not (offline, held, SumatraPDF...).</p>
   <p><label>Printer: <input id="ltPrinter" placeholder="(default printer)"></label>
@@ -4767,7 +4791,7 @@ async function loadLan(){
       (on?"<button onclick='copyLan()'>Copy URL</button>":"")+"</td></tr>";
     if(on&&!active)
       rows+="<tr><td colspan='3'><b>Restart the hub to apply</b> - tray icon → Exit, then start AdvPrint Pro again (the listener rebinds to the LAN on start).</td></tr>";
-    rows+="<tr><td><b>Printer status hold: </b>"+(HOLD_OFF?"<span class='st queued'>ON</span>":"<span class='st held'>OFF</span>")+"</td><td class='mono'>jobs wait while the printer reports offline</td><td><button onclick='toggleHold(+(!HOLD_OFF)+")'>"+(HOLD_OFF?"Disable":"Enable")+"</button></td></tr>";
+    rows+="<tr><td><b>Printer status hold: </b>"+(HOLD_OFF?"<span class='st queued'>ON</span>":"<span class='st held'>OFF</span>")+"</td><td class='mono'>jobs wait while the printer reports offline</td><td><button onclick='toggleHold(+(!HOLD_OFF))'>"+(HOLD_OFF?"Disable":"Enable")+"</button></td></tr>";
     try{const pr=await jget("/peers");PEERS=(pr&&pr.peers)||pr||[];}catch(_){PEERS=[];}
     for(const p of (PEERS||[])){
       rows+="<tr><td><span class='st "+(p.alive?"queued":"offline")+"'>peer "+(p.alive?"online":"offline")+"</span> "+esc(p.url)+" <small>"+esc(p.version||"")+"</small></td>"+
@@ -4882,9 +4906,11 @@ async function ltSend(){
           out.textContent="VERDICT: job #"+jid+" "+st.toUpperCase()+" - "+(j.error||"open /debug for details");}
         else if(++n>60){clearInterval(timer);
           out.textContent="job #"+jid+" still '"+st+"' after 60 s - open /debug";}
-      }catch(e){clearInterval(timer);out.textContent="poll error: "+e;}
-    },900);
-  }catch(e){out.textContent="error: "+e;}
+      }catch(e){clearInterval(timer);
+        out.textContent="Hub went OFFLINE during the test (start AdvPrint"
+          +" Pro again, then retry) - "+e;} },900);
+  }catch(e){out.textContent="Hub is OFFLINE - start AdvPrint Pro first"
+    +" (AdvPrint Tool > 1 Start, or the tray icon), then try again.";}
 }
 async function ltRelease(){
   const r=await act("/jobs/release_all",{});
@@ -4906,7 +4932,9 @@ async function ltFull(){
       "ALL CHECKS PASSED - AdvPrint Pro is production-ready on this PC.":
       "FIX THE [!!] ITEMS ABOVE, then run the self-test again.");
     out.textContent=L.join("\n");
-  }catch(e){out.textContent="self-test error: "+e.message;}
+  }catch(e){out.textContent="Hub is OFFLINE - start AdvPrint Pro first"
+    +" (AdvPrint Tool > 1 Start, or the tray icon), then run the"
+    +" self-test again. ("+e.message+")";}
 }
 async function ltSaveSumatra(){
   const v=document.getElementById("ltSumatra").value.trim();
@@ -5116,8 +5144,21 @@ def lan_ip():
         s.close()
 
 def cmd_serve():
-    db_init()
-    start_worker()
+    # v2.6.1: bracket EVERY startup in hub.log - if the hub dies on this
+    # PC, hub.log now always shows how far it got and why it stopped.
+    log("[BOOT] AdvPrint Pro v%s starting - python %s at %s"
+        % (VERSION, "%d.%d.%d" % sys.version_info[:3], sys.executable))
+    log("[BOOT] data dir: %s" % CFG["data_dir"])
+    log("[BOOT] this log: %s (send the last 20 lines when asking for help)"
+        % os.path.join(CFG["data_dir"], "hub.log"))
+    try:
+        db_init()
+        start_worker()
+    except Exception:
+        import traceback
+        log("[BOOT] FATAL: startup failed before opening the port:")
+        log(traceback.format_exc())
+        raise
     host = CFG["host"]
     if CFG.get("share_lan") and not _env("HOST"):
         host = "0.0.0.0"
@@ -5144,7 +5185,7 @@ def cmd_serve():
     log("Dashboard     -> http://127.0.0.1:%d/dashboard?token=%s" % (CFG["port"], CFG["token"]))
     if DEFAULT_TOKEN_WARNING:
         log("[SECURITY] WARNING: the default token is still in use!"
-            " Change it with:  python advprint.py token-rotate")
+            " Change it with:  %s" % cli_cmd("token-rotate"))
     log("Open the extension popup and click Connect. Press Ctrl+C to stop.")
     _start_tray(httpd)
     try:
@@ -5214,6 +5255,9 @@ def _start_tray(httpd):
             "on_exit": _exit,
         },
         logf=log)
+    log("[TRAY] icon active next to the clock - right-click it for the"
+        " control menu (Open dashboard / test page / pause / auto-run"
+        " / exit).")
 
 def cmd_testprint(kind):
     db_init(); start_worker()
@@ -5598,5 +5642,19 @@ def main():
         print("\nBye!")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        # v2.6.1: a silent death is the worst failure mode (pythonw has no
+        # console) - ALWAYS leave the reason in hub.log so the desktop tool
+        # can show it and support can see exactly what happened.
+        try:
+            import traceback
+            log("[BOOT] FATAL - the hub crashed with an exception:")
+            log(traceback.format_exc())
+        except Exception:
+            pass
+        raise
 

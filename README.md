@@ -113,7 +113,7 @@ used to create. If the hub ever fails to start after a reboot, open
 startup and print there.
 
 The hub starts on `http://127.0.0.1:9235`. Fresh installs generate a private
-random token (read it with `python advprint.py token`); upgrades of pre-2.0
+random token (read it with `python "C:\\...\\hub\\advprint.py" token` — use the full path, or the desktop tool); upgrades of pre-2.0
 installs keep working with the old default `PrintHub-2024` until you rotate it.
 Wrong-token bookmarks are fixed in one click on the dashboard error page itself.
 

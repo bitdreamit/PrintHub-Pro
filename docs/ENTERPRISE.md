@@ -1,15 +1,15 @@
 # AdvPrint Pro — Enterprise Deployment Guide
 
 **AdvPrint Pro (Advanced Printer) by Bit Dream IT — Innovative Healthcare Solutions**
-Version 2.6.0 — 100% local, no cloud, no tracking. MIT licensed.
+Version 2.6.1 — 100% local, no cloud, no tracking. MIT licensed.
 
 ---
 
 ## 1. What "enterprise edition" means here
 
-* **Per-user install with zero elevation** — `AdvPrint-Pro-Setup-2.6.0.exe` installs to
+* **Per-user install with zero elevation** — `AdvPrint-Pro-Setup-2.6.1.exe` installs to
   `%LOCALAPPDATA%\AdvPrintPro`, needs no admin and no UAC. Works on locked-down PCs.
-* **Silent install** — `AdvPrint-Pro-Setup-2.6.0.exe /S` (NSIS silent flag), scriptable via
+* **Silent install** — `AdvPrint-Pro-Setup-2.6.1.exe /S` (NSIS silent flag), scriptable via
   Intune / GPO / SCCM / any RMM: push per user.
 * **Headless service mode** — run the hub as a real Windows service (`services.msc` →
   *AdvPrint Pro Service*) for print-server PCs; systemd service on Linux servers.
@@ -25,12 +25,12 @@ Version 2.6.0 — 100% local, no cloud, no tracking. MIT licensed.
 ### 2.1 Windows — per-user silent rollout
 
 ```
-AdvPrint-Pro-Setup-2.6.0.exe /S
+AdvPrint-Pro-Setup-2.6.1.exe /S
 ```
 
 The setup registers the visible Startup app **AdvPrint Pro** and starts the hub.
 Detection rule for RMM: registry `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro`
-`DisplayVersion` = `2.6.0`.
+`DisplayVersion` = `2.6.1`.
 
 ### 2.2 Windows — print-server mode (service)
 
@@ -47,7 +47,7 @@ instance exits gracefully (port guard).
 ### 2.3 Linux (Debian/Ubuntu/Mint)
 
 ```
-sudo apt install ./advprint-pro_2.6.0_all.deb
+sudo apt install ./advprint-pro_2.6.1_all.deb
 advprint-start
 sudo /opt/advprint/install/install-unix.sh --service   # headless server mode
 ```
