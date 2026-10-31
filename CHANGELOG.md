@@ -1,123 +1,40 @@
 # Changelog - AdvPrint Pro (Advanced Printer)
 by Bit Dream IT - Innovative Healthcare Solutions
 
-## v2.6.3 - INSTANT HEALTH + TRAY 64-BIT FIX + OWNER-LOCKOUT FIX RELEASE (2026-10-31)
+## v2.6.4 - WINREG FIX + NEVER-EMPTY-RESPONSE + TOKEN AUTO-REPAIR (2026-10-31)
 
-### Fixed: "hub did not answer within 20 seconds" while hub.log said "listening"
-(the exact user report this release fixes - hub.log showed
-`AdvPrint Pro v2.6.2 listening on http://127.0.0.1:9235` but the console
-tool gave up after 20 s and the extension showed OFFLINE)
-- **Root cause**: `/health` ran up to THREE PowerShell/WMI scans on the
-  request path (default printer + printer status + printer list, each
-  with a 20 s timeout). A cold WMI or an AV-slowed powershell.exe made
-  every probe outlive every client timeout - the desktop tool's TCP-only
-  check said RUNNING while /health never answered.
-- **Instant /health snapshot**: a background thread precomputes the whole
-  health body every 3 s; the HTTP route only hands out the finished dict.
-  No PowerShell/WMI call can ever block /health again. Printer name /
-  status / default caches refresh stale-while-revalidate in the
-  background; a failed scan is stamped so it cannot re-run on every
-  request. The snapshot is warmed BEFORE the hub prints "listening".
-
-### Fixed: tray never appeared - `ArgumentError('argument 11: OverflowError')`
-- hub.log showed `[TRAY] tray unavailable: ArgumentError('argument 11:
-  OverflowError: int too long to convert')` on every 64-bit machine:
-  the ctypes bindings had no prototypes, so the real 64-bit HMODULE of
-  GetModuleHandleW was truncated, sign-extended into a bogus value and
-  CreateWindowExW argument 11 (hInstance) failed to convert.
-- Every win32 function in the tray module now has exact
-  argtypes/restypes and the module handle is captured once as a true
-  64-bit value. The tray icon with the self-drawn dark menu really
-  shows on 64-bit Windows now.
-
-### Fixed: the owner's own PC could be locked out ("this IP is locked for another 124s" ON 127.0.0.1)
-- The loopback exemption was a config option that could be OFF; one
-  stale browser token then locked the owner's own dashboard, tray and
-  extension out for minutes.
-- Loopback is now UNCONDITIONALLY exempt (hard-coded in the hub).
-  Remote IPs keep the full 10-wrong-tokens -> 5 min lockout. The
-  Settings toggle is fixed ON everywhere.
-
-### Fixed: two hub instances could share one port (two BOOT lines in hub.log)
-- ThreadingHTTPServer defaults to SO_REUSEADDR, which on Windows lets a
-  SECOND hub process silently bind the SAME port (two BOOT lines 47 s
-  apart in hub.log, one socket, undefined owner).
-- The hub now binds exclusively on Windows (SO_EXCLUSIVEADDRUSE) and
-  pre-checks /health before binding: a second start exits cleanly with
-  "ALREADY running - single-instance guard" in hub.log.
-
-### Installer v2.6.3
-- PER-MACHINE install to %ProgramFiles%\AdvPrintPro with REAL admin
-  rights: the setup requests administrator in its manifest, so Windows
-  shows the UAC prompt by itself ("installation permission" is set
-  correctly, automatically). Upgrades remove the old per-user copy and
-  the old Start-Menu entries automatically.
-- SumatraPDF: when the PDF print engine is missing, the installer now
-  auto-installs it via winget (silent) - no more "SumatraPDF: n/a".
-
-### Also
-- Tray icon redrawn: deep brand blue + white printer + green ready LED,
-  clearly visible on light AND dark taskbars (the old light-periwinkle
-  icon washed out on white taskbars).
-- The console tool now waits up to 30 s and prints "port is up - the hub
-  process is starting, waiting for its health endpoint" instead of a
-  bare failure.
-- The extension popup and Options page distinguish OFFLINE / HUB
-  STARTING / HUB RUNNING - token problem (never a wrong "OFFLINE").
-- The extension polls /health with an 8 s AbortController timeout.
-- Removed the legacy `printhub.py` shim file (branding: one name only).
-
-## v2.6.2 - EXTENSION AUTO-HEAL + TRAY MENU FIX RELEASE (2026-10-31)
-
-### Fixed: extension said "OFFLINE" while the desktop tool showed "running"
-(the exact user report this release fixes)
-- **Root cause found in real user data**: the hub audit log was full of
-  `auth.failed "wrong token"` entries arriving every minute from the
-  extension. The extension stores the hub token in its own storage;
-  after an update / token rotation the stored token no longer matched
-  the hub's config token, so every call answered HTTP 401 - and the
-  popup MISLABELED that as "OFFLINE - start the hub first", while the
-  desktop tool (which reads the token from config.json) correctly
-  showed "running on 127.0.0.1:9235".
-- **Token auto-heal (zero user action)**: the moment the hub rejects
-  the token (401), the extension now asks the RUNNING hub for its
-  current token via GET /token/current (loopback-only pairing),
-  stores it and retries the original call transparently. A stale
-  token can never again make the extension look offline. Rate-limited
-  to one attempt per 30 s.
-- **Honest status line**: the popup now distinguishes "Hub offline"
-  (really not reachable) from "Hub running - token mismatch". The
-  token banner gained a one-click **Fix token** button that runs the
-  same pairing on demand (works even when the auto attempt is inside
-  its rate-limit window).
-
-### Fixed: tray menu text invisible (white on white)
-- On PCs with third-party shell replacements / custom themes
-  (ExplorerPatcher, StartAllBack, dark-theme tools) the native Win32
-  tray menu inherited shell colors and rendered **white text on a
-  white background** - the menu looked like an empty white box.
-- The tray menu is now a **self-drawn topmost popup window**: dark
-  navy background, white text, blue hover highlight, green
-  checkmarks, rounded corners on Windows 11, DPI-aware. It paints
-  identically on every machine regardless of theme or shell tools.
-- If the self-drawn menu ever fails to open, the hub falls back to
-  the classic native menu (previous behavior) - fail-safe as always.
-
-### Security hardening
-- `/token/current` (the loopback pairing endpoint) previously answered
-  with `Access-Control-Allow-Origin: *` on the default config - any
-  website could silently READ the hub token out of it. It now always
-  answers with `Access-Control-Allow-Origin: "null"`: browsers block
-  web pages, the extension keeps working through its host
-  permissions, LAN hubs never served it at all (loopback-only).
-
-### Single version source (extension)
-- `window.advprint.version` (MAIN world) now reads the REAL manifest
-  version stamped into the DOM by the relay content script - no more
-  hardcoded version copies drifting apart inside the extension.
-- The Options update check reads `chrome.runtime.getManifest()`
-  directly; the popup header, options header and About line all show
-  2.6.2 from one release-wide bump.
+### Fixed: /health stuck on "starting": true and /debug + /diagnostics
+### dying with ERR_EMPTY_RESPONSE (the v2.6.3 field incident)
+- **ROOT CAUSE: missing `import winreg`.** v2.6.3 read the Windows
+  registry in `_winreg_lookup_sumatra()` without ever importing the
+  module. On Windows every call raised `NameError` inside
+  `find_sumatra()` - which sits on the /health snapshot path (so /health
+  answered the tiny `"starting": true` fallback forever), on /debug and
+  /diagnostics (both requests crashed before sending a single byte =
+  Chrome's ERR_EMPTY_RESPONSE) and on the PDF PRINT PATH ITSELF (every
+  print job would fail). Linux/macOS never execute that code, which is
+  why the v2.6.3 smoke tests were green while the user's Windows PC was
+  broken. The import is now guarded (`winreg = None` off-Windows) and
+  `find_sumatra()` is fully crash-proof on top.
+- **Never-empty-response guarantee**: `do_GET` / `do_POST` are wrapped -
+  an unexpected handler crash now answers a readable JSON 500 (browsers
+  get an HTML error page) and the full traceback lands in hub.log and
+  the audit trail. A hub bug can never again look like "connection
+  reset" to the user.
+- **Stale-token 302 auto-repair**: a browser opening /dashboard, /docs
+  or any page with an OLD token from the hub PC is redirected (302) to
+  the SAME page with the CURRENT token - old bookmarks and old popup
+  links simply work again. Remote IPs and API clients keep the strict
+  401 + lockout rules (the redirect is loopback + browser-only).
+- **Installer zombie sweep**: the Setup exe now stops a running hub by
+  IMAGE NAME (AdvPrintPro.exe / legacy PrintHubPro.exe) in addition to
+  the port-9235 kill - a hub on a non-default port can no longer
+  survive an upgrade with its old token in memory.
+- Tests: +8 v2.6.4 regressions (winreg guard, find_sumatra never
+  raises, health snapshot survives Sumatra crashes, crashed endpoint
+  answers 500, loopback 302 with Location check, extension auto-heal
+  anchor, setup.exe zombie kill). Lockout test now simulates a REMOTE
+  IP. Suite: 100 passed.
 
 ## v2.6.1 - HUB START + TRAY FIX RELEASE (2026-10-31)
 

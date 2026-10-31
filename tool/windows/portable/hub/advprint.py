@@ -57,6 +57,21 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl, quote
 
+# v2.6.4 CRITICAL FIX: winreg is the Windows-only registry module (stdlib).
+# v2.6.3 used `winreg` in _winreg_lookup_sumatra() but NEVER imported it -
+# on Windows that raised NameError inside find_sumatra(), which is called
+# by the /health snapshot builder (so /health answered with the 6-key
+# "starting": true fallback forever), by /debug + /diagnostics (those
+# requests died with ERR_EMPTY_RESPONSE) and by the PDF print path itself
+# (every print job failed). Linux/macOS never execute that code, which is
+# why the sandbox smoke tests looked green while the user's Windows PC
+# was broken. The import is now guarded: present on Windows, None
+# elsewhere (the Sumatra registry lookup is simply skipped).
+try:
+    import winreg
+except ImportError:                       # non-Windows platform
+    winreg = None
+
 # v2.6.1 FIX: the bundled Windows runtime (AdvPrintPro.exe = embedded
 # pythonw with a ._pth file) runs in ISOLATED mode - it does NOT add
 # this script's folder to sys.path. Sibling modules (tray_windows, ...)
@@ -68,8 +83,9 @@ if _HUB_DIR not in sys.path:
     sys.path.insert(0, _HUB_DIR)
 
 
-VERSION = "2.6.3"
-VERSION_NAME = "v2.6.3 (instant health + tray ctypes fix + owner-lockout fix release)"
+VERSION = "2.6.4"
+VERSION_NAME = ("v2.6.4 (winreg import fix - health snapshot, /debug and"
+                " printing work on Windows again)")
 FULL_BRAND = ("AdvPrint Pro (Advanced Printer) by "
               "Bit Dream IT - Innovative Healthcare Solutions")
 BRANDING = ("AdvPrint Pro (Advanced Printer) - Version %s - by "
@@ -756,7 +772,24 @@ def find_sumatra():
     SumatraPDF even when running as a SERVICE under a different account.
     Detection is re-run fresh on every call - installing SumatraPDF takes
     effect on the NEXT print job, no hub restart needed. Manual override:
-    dashboard Settings (config.json "sumatra_path") or ADVPRINT_SUMATRA."""
+    dashboard Settings (config.json "sumatra_path") or ADVPRINT_SUMATRA.
+    v2.6.4: the whole body is crash-proof - this function is on the
+    /health snapshot path, /debug, /diagnostics AND the print path, so
+    ANY problem (registry, glob, environment) must degrade to 'not
+    found', never raise."""
+    try:
+        return _find_sumatra_inner()
+    except Exception as e:                # never break health/debug/print
+        try:
+            log("[WARN] SumatraPDF lookup failed (%s) - treated as not"
+                " found" % e)
+        except Exception:
+            pass
+        SUMATRA_LAST["found"] = None
+        return None
+
+
+def _find_sumatra_inner():
     tried = []
     if not IS_WIN:
         SUMATRA_LAST["found"] = None
@@ -3041,7 +3074,112 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    # v2.6.4 NEVER-EMPTY-RESPONSE GUARANTEE. Every request is wrapped:
+    # if ANY handler raises (a bug, a broken disk, a bad config value...),
+    # the client now gets a readable JSON 500 (or the HTML error page for
+    # browsers) instead of the connection dying with Chrome's
+    # ERR_EMPTY_RESPONSE - and the traceback lands in hub.log + /debug so
+    # the cause is always visible. (The v2.6.3 field incident: a missing
+    # `winreg` import killed /debug + /diagnostics exactly this way.)
     def do_GET(self):
+        try:
+            return self._do_get_impl()
+        except (BrokenPipeError, ConnectionResetError):
+            pass                          # client hung up - fine
+        except Exception:
+            self._internal_error("GET")
+
+    def do_POST(self):
+        try:
+            return self._do_post_impl()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            self._internal_error("POST")
+
+    def _internal_error(self, method):
+        """Last-resort answer for an unexpected handler exception."""
+        try:
+            import traceback
+            tb = traceback.format_exc()
+            log("[ERROR] %s %s crashed:" % (method, self.path.split("?")[0]))
+            for line in tb.strip().splitlines():
+                log("        " + line)
+            try:
+                db_audit("error", details="%s %s failed: %s"
+                         % (method, self.path.split("?")[0],
+                            tb.strip().splitlines()[-1][:160]),
+                         ip=self._client_ip())
+            except Exception:
+                pass
+            msg = {"ok": False, "error": "internal error - see hub.log"
+                   " (the traceback was logged; this is an AdvPrint Pro"
+                   " bug, please report the log tail)"}
+            if "text/html" in (self.headers.get("Accept") or ""):
+                page = ("<html><head><meta charset=\"utf-8\">"
+                        "<title>AdvPrint Pro - internal error</title></head>"
+                        "<body style=\"font-family:Segoe UI,sans-serif;"
+                        "background:#f5f8fc;color:#0f172a;padding:40px\">"
+                        "<h2 style=\"color:#dc2626\">AdvPrint Pro -"
+                        " internal error</h2>"
+                        "<p>This page crashed inside the hub. It has been"
+                        " logged to <code>hub.log</code>.</p>"
+                        "<p>Printing and the rest of the hub keep"
+                        " working. Please send the last 20 lines of"
+                        " hub.log when asking for help.</p>"
+                        "<p><a href=\"/dashboard\">Back to the"
+                        " dashboard</a></p></body></html>").encode("utf-8")
+                self.send_response(500)
+                self._cors()
+                self.send_header("Content-Type",
+                                 "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(page)))
+                self.end_headers()
+                try:
+                    self.wfile.write(page)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            self._send(500, msg)
+        except Exception:
+            pass                          # even the rescue must not raise
+
+    def _loopback_token_redirect(self, route, query):
+        """v2.6.4 ONE-CLICK-FREE TOKEN REPAIR for the owner's browser.
+        When a browser navigates (Accept: text/html) to /dashboard, /docs
+        or any GET page with a STALE token - an old bookmark, an old
+        popup link, a token the hub rotated - and the request comes from
+        the hub PC itself (loopback), the hub answers 302 to the SAME
+        page with the CURRENT token instead of an error page. Same trust
+        level as /token/current (which hands the token to loopback
+        callers anyway); remote IPs and API clients (fetch sends
+        Accept: */*) keep the strict 401 + lockout rules untouched."""
+        if not CFG.get("token") or not self._is_loopback():
+            return False
+        if "text/html" not in (self.headers.get("Accept") or ""):
+            return False
+        parts = []
+        for k, vals in (query or {}).items():
+            if k == "token":
+                continue
+            for v in vals:
+                parts.append("%s=%s" % (quote(str(k)), quote(str(v))))
+        loc = route + "?token=" + quote(CFG["token"])
+        if parts:
+            loc += "&" + "&".join(parts)
+        try:
+            self.send_response(302)
+            self._cors()
+            self.send_header("Location", loc)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        log("[AUTH] loopback %s had a stale/missing token - redirected"
+            " to the current one (302 auto-repair)" % route)
+        return True
+
+    def _do_get_impl(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         qt = (q.get("token") or [""])[0]
@@ -3089,6 +3227,10 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/dashboard":
             err = self._auth_error(qt, allow_query=True)
             if err:
+                # v2.6.4: the owner's own browser with an old bookmark
+                # is redirected to the working URL (no error page)
+                if self._loopback_token_redirect(route, q):
+                    return
                 # v2.0.1: browsers get a readable HTML page with fix
                 # instructions instead of a raw JSON blob
                 if "text/html" in (self.headers.get("Accept") or ""):
@@ -3122,6 +3264,8 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/docs":
             err = self._auth_error(qt, allow_query=True)
             if err:
+                if self._loopback_token_redirect(route, q):
+                    return
                 if "text/html" in (self.headers.get("Accept") or ""):
                     page = dashboard_auth_error_html(err[1]).encode("utf-8")
                     self.send_response(err[0])
@@ -3152,6 +3296,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(err[0], {"ok": False, "error": err[1]})
         err = self._auth_error(qt, allow_query=True)   # v2.0.2: every GET
         if err:
+            if self._loopback_token_redirect(route, q):
+                return
             # v2.0.2: a browser that followed a link gets the same
             # readable HTML error page as the dashboard; API clients
             # (fetch/curl) keep the JSON error
@@ -3351,7 +3497,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    def do_POST(self):
+    def _do_post_impl(self):
         u = urlparse(self.path)
         route = u.path.rstrip("/")
         q = parse_qs(u.query)

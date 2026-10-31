@@ -1029,9 +1029,9 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           // (token mismatch - hub is RUNNING). Before this, any 401
           // landed here as a generic error and the popup showed a
           // misleading "OFFLINE - start the hub first".
-          // v2.6.3: third state "slow" - the hub is LISTENING but
+          // v2.6.4: third state "slow" - the hub is LISTENING but
           // /health did not answer within 8 s (still starting). The
-          // v2.6.3 hub serves /health from an instant snapshot, so this
+          // v2.6.4 hub serves /health from an instant snapshot, so this
           // should be rare - but the popup must never hang or lie.
           try {
             const cfgS = await loadCfg();

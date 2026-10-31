@@ -150,7 +150,7 @@ async function refresh() {
     showOffline(false);
     showTokenWarning(true, "token");
   } else if (st.reason === "slow") {
-    /* v2.6.3: the hub IS listening (TCP accepted) but /health did not
+    /* v2.6.4: the hub IS listening (TCP accepted) but /health did not
      * answer within 8 s - it is still starting. Never say "offline":
      * the desktop tool already shows it running. */
     $("dot").classList.remove("on");

@@ -1,10 +1,10 @@
 ; ============================================================
 ;  AdvPrint Pro (Advanced Printer) - Windows one-time installer
 ;  by Bit Dream IT - Innovative Healthcare Solutions
-;  v2.6.3 - built with NSIS 3.11 on Linux
+;  v2.6.4 - built with NSIS 3.11 on Linux
 ; ------------------------------------------------------------
 ;  - PER-MACHINE install to %ProgramFiles%\AdvPrintPro with
-;    REAL administrator rights (v2.6.3): the exe requests admin
+;    REAL administrator rights (v2.6.4): the exe requests admin
 ;    via its manifest, so Windows shows the UAC prompt by itself
 ;    ("installation permission" is set correctly, automatically).
 ;    Users without admin: use the portable FULL zip instead
@@ -19,18 +19,18 @@
 ;  - auto-run = NORMAL STARTUP APP (visible in Task Manager >
 ;    Startup apps; old PrintHub Pro auto-run/task is removed)
 ;  - optional: run as a REAL Windows service (headless, services.msc)
-;  - cleans up pre-2.6.3 installs on upgrade (per-user
+;  - cleans up pre-2.6.4 installs on upgrade (per-user
 ;    %LOCALAPPDATA%\AdvPrintPro copy AND the old "PrintHub Pro")
 ;  - real uninstaller with Add/Remove Programs entry
-;  Silent install:  AdvPrint-Pro-Setup-2.6.3.exe /S
+;  Silent install:  AdvPrint-Pro-Setup-2.6.4.exe /S
 ; ============================================================
 
 Unicode true
 Name "AdvPrint Pro (Advanced Printer)"
-OutFile "/home/z/my-project/build/AdvPrint/installer/AdvPrint-Pro-Setup-2.6.3.exe"
+OutFile "/home/z/my-project/build/AdvPrint/installer/AdvPrint-Pro-Setup-2.6.4.exe"
 InstallDir "$PROGRAMFILES64\AdvPrintPro"
 InstallDirRegKey HKLM "Software\AdvPrintPro" "InstallDir"
-; v2.6.3: full admin rights - the Windows UAC prompt appears by itself
+; v2.6.4: full admin rights - the Windows UAC prompt appears by itself
 ; when the setup starts (requestedExecutionLevel requireAdministrator).
 ; Nothing is installed "half-permissioned" any more.
 RequestExecutionLevel admin
@@ -40,10 +40,10 @@ ShowInstDetails show
 ShowUnInstDetails show
 ManifestDPIAware true
 
-VIProductVersion "2.6.3.0"
+VIProductVersion "2.6.4.0"
 VIAddVersionKey ProductName "AdvPrint Pro (Advanced Printer)"
-VIAddVersionKey FileVersion "2.6.3"
-VIAddVersionKey ProductVersion "2.6.3"
+VIAddVersionKey FileVersion "2.6.4"
+VIAddVersionKey ProductVersion "2.6.4"
 VIAddVersionKey CompanyName "Bit Dream IT - Innovative Healthcare Solutions"
 VIAddVersionKey LegalCopyright "MIT License"
 VIAddVersionKey FileDescription "AdvPrint Pro - silent printing for any web page, PDF or application (setup)"
@@ -150,7 +150,7 @@ FunctionEnd
 ; ------------------------------------------------------------
 ; remove ALL older installs (upgrade safety):
 ;   - pre-2.6 "PrintHub Pro" leftovers
-;   - pre-2.6.3 PER-USER copy in %LOCALAPPDATA%\AdvPrintPro
+;   - pre-2.6.4 PER-USER copy in %LOCALAPPDATA%\AdvPrintPro
 ; ------------------------------------------------------------
 Function RemoveLegacyInstalls
   DetailPrint "Removing older AdvPrint Pro / legacy auto-runs..."
@@ -162,7 +162,7 @@ Function RemoveLegacyInstalls
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro"
   DeleteRegKey HKCU "Software\PrintHubPro"
   RMDir "$SMPROGRAMS\PrintHub Pro"
-  ; pre-2.6.3 per-user install (this setup is per-machine now)
+  ; pre-2.6.4 per-user install (this setup is per-machine now)
   ReadRegStr $R7 HKCU "Software\AdvPrintPro" "InstallDir"
   ${If} $R7 != ""
     ${AndIf} $R7 != "$INSTDIR"
@@ -181,6 +181,13 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
 
   DetailPrint "Stopping any hub already running on port 9235..."
   nsExec::Exec 'powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 9235 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $$_ -Force -ErrorAction SilentlyContinue }"'
+  ; v2.6.4: also kill by image name - a hub running on a DIFFERENT port
+  ; (or a half-upgraded zombie from a previous setup) must never survive
+  ; into the new install with an old token in memory.
+  DetailPrint "Stopping any AdvPrint Pro hub process still running..."
+  nsExec::Exec 'taskkill /F /IM AdvPrintPro.exe'
+  nsExec::Exec 'taskkill /F /IM PrintHubPro.exe'
+  Sleep 600
 
   DetailPrint "Copying program files..."
   SetOutPath "$INSTDIR\hub"
@@ -205,7 +212,7 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
   File "/oname=README.md" "/home/z/my-project/build/AdvPrint/installer/stage/README.md"
   File "/oname=LICENSE" "/home/z/my-project/build/AdvPrint/installer/LICENSE"
   File "/oname=advprint.ico" "/home/z/my-project/build/AdvPrint/installer/installer.ico"
-  ;;SUMATRA_LINE;;
+  DetailPrint "SumatraPDF: not bundled - the installer auto-installs it via winget when missing (needs internet once)."
 
   DetailPrint "Installing the bundled Python 3.11.9 runtime (standalone - no system Python needed)..."
   SetOutPath "$INSTDIR\runtime"
@@ -249,7 +256,7 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
   ${Else}
     DetailPrint "No usable pythonw.exe (bundled runtime missing + no system Python)."
     MessageBox MB_ICONEXCLAMATION|MB_OK \
-      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download AdvPrint-Pro-Setup-2.6.3.exe (the file may be damaged in transit) and run it again."
+      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download AdvPrint-Pro-Setup-2.6.4.exe (the file may be damaged in transit) and run it again."
   ${EndIf}
 
   ; ---- shortcuts + uninstaller (Start Menu: all users) ----
@@ -268,7 +275,7 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "DisplayName" "AdvPrint Pro (Advanced Printer) by Bit Dream IT"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
-    "DisplayVersion" "2.6.3"
+    "DisplayVersion" "2.6.4"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "Publisher" "Bit Dream IT - Innovative Healthcare Solutions"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
@@ -337,7 +344,7 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\AdvPrint Pro"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro"
   DeleteRegKey HKLM "Software\AdvPrintPro"
-  ; also clean a pre-2.6.3 per-user install if one is still around
+  ; also clean a pre-2.6.4 per-user install if one is still around
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro"
   DeleteRegKey HKCU "Software\AdvPrintPro"
   RMDir /r "$INSTDIR"

@@ -486,13 +486,13 @@ async function testHub(verbose = true) {
       ((r.printers_count) || "") + (r.default_printer ? " default: " + r.default_printer : "");
     $("hubState").style.color = "#16a34a";
   } else if (r.reason === "auth" || r.reason === "locked") {
-    // v2.6.3: the hub ANSWERED - it is running, the token is the problem.
+    // v2.6.4: the hub ANSWERED - it is running, the token is the problem.
     $("hubState").textContent =
       "HUB RUNNING - token problem: " + (r.error || r.reason) +
       " - click Detect token";
     $("hubState").style.color = "#d97706";
   } else if (r.reason === "slow") {
-    // v2.6.3: the hub is listening but /health has not answered yet.
+    // v2.6.4: the hub is listening but /health has not answered yet.
     $("hubState").textContent =
       "HUB STARTING - it is listening but not answering yet, try again in a few seconds";
     $("hubState").style.color = "#d97706";
