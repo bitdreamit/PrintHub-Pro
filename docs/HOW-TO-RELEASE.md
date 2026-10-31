@@ -2,11 +2,11 @@
 
 Goal: after this, **AdvPrint Tool → 8 / extension "Check for update" /
 `advprint.py update-check`** will find and open your release automatically
-(they query `https://api.github.com/repos/bitdreamit/PrintHub-Pro/releases/latest`).
+(they query `https://api.github.com/repos/bitdreamit/AdvPrint-Pro/releases/latest`).
 
 ## Option A — Web UI (no tools needed)
 
-1. Open https://github.com/bitdreamit/PrintHub-Pro/releases/new
+1. Open https://github.com/bitdreamit/AdvPrint-Pro/releases/new
 2. **Choose a tag:** type `v1.7.2` → **Create new tag on publish** (target: main).
 3. **Release title:** `v1.7.2 — Simple Install & Control`
 4. **Describe:** paste the contents of `RELEASE-NOTES-v1.7.2.md` (this folder).
@@ -20,7 +20,7 @@ Goal: after this, **AdvPrint Tool → 8 / extension "Check for update" /
    - SHA256SUMS-1.7.2.txt
 
 6. Tick **Set as the latest release** → **Publish release**.
-7. Verify: open https://github.com/bitdreamit/PrintHub-Pro/releases/latest —
+7. Verify: open https://github.com/bitdreamit/AdvPrint-Pro/releases/latest —
    it must show v1.7.2. Then run `AdvPrint Tool → 8` on the Windows PC:
    it should say "You are up to date (latest release: v1.7.2)".
 
@@ -29,7 +29,7 @@ Goal: after this, **AdvPrint Tool → 8 / extension "Check for update" /
 ```bash
 cd download           # the folder that holds the six files
 gh release create v1.7.2 \
-  --repo bitdreamit/PrintHub-Pro \
+  --repo bitdreamit/AdvPrint-Pro \
   --title "v1.7.2 — Simple Install & Control" \
   --notes-file GitHub-Release-Kit/RELEASE-NOTES-v1.7.2.md \
   --latest \

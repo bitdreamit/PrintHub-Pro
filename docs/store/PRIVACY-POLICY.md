@@ -47,4 +47,4 @@ The extension is a general-purpose printing tool. Because no personal data is co
 If this policy changes, the new version will be posted at this same address with a new "last updated" date. If a change ever materially affects how data is handled, the extension will also show a notice in its store listing description.
 
 ## 9. Contact
-Questions, requests, or complaints? Open an issue at [github.com/bitdreamit/PrintHub-Pro/issues](https://github.com/bitdreamit/PrintHub-Pro/issues) or email **support@bitdreamit.com**.
+Questions, requests, or complaints? Open an issue at [github.com/bitdreamit/AdvPrint-Pro/issues](https://github.com/bitdreamit/AdvPrint-Pro/issues) or email **support@bitdreamit.com**.

@@ -2,7 +2,7 @@
 
 **This package and your git repo are now the SAME tree.**
 
-`github.com/bitdreamit/PrintHub-Pro` ↔ `full.zip` → `AdvPrintPro/`, 1:1.
+`github.com/bitdreamit/AdvPrint-Pro` ↔ `full.zip` → `AdvPrintPro/`, 1:1.
 Extract the zip over your repo working copy → `git status` shows only real
 changes, never renames.
 

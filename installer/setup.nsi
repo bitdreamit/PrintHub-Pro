@@ -1,7 +1,7 @@
 ; ============================================================
 ;  AdvPrint Pro (Advanced Printer) - Windows one-time installer
 ;  by Bit Dream IT - Innovative Healthcare Solutions
-;  v2.6.4 - built with NSIS 3.11 on Linux
+;  v2.6.5 - built with NSIS 3.11 on Linux
 ; ------------------------------------------------------------
 ;  - PER-MACHINE install to %ProgramFiles%\AdvPrintPro with
 ;    REAL administrator rights (v2.6.4): the exe requests admin
@@ -19,15 +19,15 @@
 ;  - auto-run = NORMAL STARTUP APP (visible in Task Manager >
 ;    Startup apps; old PrintHub Pro auto-run/task is removed)
 ;  - optional: run as a REAL Windows service (headless, services.msc)
-;  - cleans up pre-2.6.4 installs on upgrade (per-user
+;  - cleans up ALL older installs on upgrade (per-user
 ;    %LOCALAPPDATA%\AdvPrintPro copy AND the old "PrintHub Pro")
 ;  - real uninstaller with Add/Remove Programs entry
-;  Silent install:  AdvPrint-Pro-Setup-2.6.4.exe /S
+;  Silent install:  AdvPrint-Pro-Setup-2.6.5.exe /S
 ; ============================================================
 
 Unicode true
 Name "AdvPrint Pro (Advanced Printer)"
-OutFile "/home/z/my-project/build/AdvPrint/installer/AdvPrint-Pro-Setup-2.6.4.exe"
+OutFile "/home/z/my-project/build/AdvPrint/installer/AdvPrint-Pro-Setup-2.6.5.exe"
 InstallDir "$PROGRAMFILES64\AdvPrintPro"
 InstallDirRegKey HKLM "Software\AdvPrintPro" "InstallDir"
 ; v2.6.4: full admin rights - the Windows UAC prompt appears by itself
@@ -40,10 +40,10 @@ ShowInstDetails show
 ShowUnInstDetails show
 ManifestDPIAware true
 
-VIProductVersion "2.6.4.0"
+VIProductVersion "2.6.5.0"
 VIAddVersionKey ProductName "AdvPrint Pro (Advanced Printer)"
-VIAddVersionKey FileVersion "2.6.4"
-VIAddVersionKey ProductVersion "2.6.4"
+VIAddVersionKey FileVersion "2.6.5"
+VIAddVersionKey ProductVersion "2.6.5"
 VIAddVersionKey CompanyName "Bit Dream IT - Innovative Healthcare Solutions"
 VIAddVersionKey LegalCopyright "MIT License"
 VIAddVersionKey FileDescription "AdvPrint Pro - silent printing for any web page, PDF or application (setup)"
@@ -256,7 +256,7 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
   ${Else}
     DetailPrint "No usable pythonw.exe (bundled runtime missing + no system Python)."
     MessageBox MB_ICONEXCLAMATION|MB_OK \
-      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download AdvPrint-Pro-Setup-2.6.4.exe (the file may be damaged in transit) and run it again."
+      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download AdvPrint-Pro-Setup-2.6.5.exe (the file may be damaged in transit) and run it again."
   ${EndIf}
 
   ; ---- shortcuts + uninstaller (Start Menu: all users) ----
@@ -275,7 +275,7 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "DisplayName" "AdvPrint Pro (Advanced Printer) by Bit Dream IT"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
-    "DisplayVersion" "2.6.4"
+    "DisplayVersion" "2.6.5"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "Publisher" "Bit Dream IT - Innovative Healthcare Solutions"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \

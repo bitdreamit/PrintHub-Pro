@@ -13,9 +13,21 @@ Web page ──► Chrome extension ──► AdvPrint Pro hub (localhost:9235) 
 
 ---
 
+## What's new in v2.6.5 (baseline restore — full v2.6.4 feature set, all polished)
+
+- **The feature baseline is v2.6.4 — kept 1:1.** An intermediate build had accidentally started from the old 1.5.0 tree and shipped with fewer features (no tray icon, missing TUI menu items). v2.6.5 is built **from the published v2.6.4 source**: TUI menu [0–13], tray icon with auto-start, every endpoint, all six extension tabs, service, installers — **nothing reduced**.
+- **Missing `import glob` fixed** (same family as the v2.6.4 winreg fix): the SumatraPDF **all-users profile scan** (`C:\Users\*\AppData\Local\SumatraPDF\...`) and portable folder scans were dead on Windows — service-mode PDF printing lost its last-resort detection. Now they really run; plus a new `%LOCALAPPDATA%\Programs\SumatraPDF` candidate.
+- **Windows service cannot hang at "Starting"** anymore: synchronous bind with SCM checkpoints, RUNNING only after a real bind, port-busy → clean STOPPED with the reason in hub.log.
+- **Token self-check**: `/health` now carries `token_hint` (last 4 chars) — verify hub ↔ extension token match in seconds (the 401 / auth.failed family). One-click *Fix token* (popup) and *Detect token* (Options) unchanged.
+- **Extension Options UI refresh**: live hub status pill in the header (online / token problem / starting / offline), tab-bar hover states, and saving with an empty token field keeps your stored token.
+- **Tool [13] Diagnose & fix unblocks more**: install folder + per-user locations (legacy `%LOCALAPPDATA%\AdvPrintPro`, per-user SumatraPDF) — blocked per-user exes can no longer hold jobs in "queued" silently. Step [1/5] prints the detected SumatraPDF path.
+- **GitHub links corrected** to `github.com/bitdreamit/AdvPrint-Pro` everywhere (hub update check, extension manifest + Options, docs).
+
+---
+
 ## What's new in v2.5.0 (the merge release — git-repo parity)
 
-- **Package = your git repo, 1:1.** The zip now unpacks to the exact tree of `github.com/bitdreamit/PrintHub-Pro`: `tool/` (windows portable hub + service + runtime, unix hub), `extension/` (incl. `i18n.js` Bangla strings restored), `docs/`, `tests/` + `pytest.ini` + `.gitignore` at the root. Extract `full.zip` over your repo working copy and `git status` shows only real changes — no renames, no deletions. (`doc/` in the repo is an old duplicate of `docs/` — `git rm -r doc` once.)
+- **Package = your git repo, 1:1.** The zip now unpacks to the exact tree of `github.com/bitdreamit/AdvPrint-Pro`: `tool/` (windows portable hub + service + runtime, unix hub), `extension/` (incl. `i18n.js` Bangla strings restored), `docs/`, `tests/` + `pytest.ini` + `.gitignore` at the root. Extract `full.zip` over your repo working copy and `git status` shows only real changes — no renames, no deletions. (`doc/` in the repo is an old duplicate of `docs/` — `git rm -r doc` once.)
 - **Honest fix: v2.4.0/2.4.1 were rebuilt from an older 1.5.0 tree after a dev-machine reset and accidentally dropped v2.0–v2.3 features.** v2.5.0 merges the REAL 2.3.0 source (recovered from this git repo) with the 2.4.x fixes, so **everything is back**: LAN sharing (`share_lan`, `/peers`, peer forwarding), the full **ESC/POS + ZPL raw printing** suite with Bangla auto-routing via headless Chrome, **scheduled prints** (`run_at`), printer groups + profiles, priority queue, dedupe, exponential retry.
 - **SumatraPDF detection made service-proof** — per-user `%LOCALAPPDATA%\SumatraPDF` (dynamic user name), both Program Files, **registry (HKCU+HKLM, 32/64 views)**, `PATH`, portable folder scan, and a new **all-users profile scan** (`C:\Users\*`) so it is found even when the hub runs as a Windows **service** under a different account. Fresh re-scan on every job + `sumatra_path` manual override (dashboard Settings → Save).
 - **Virtual PDF printers save directly** to `Downloads\AdvPrint` (status `saved`, no Save-As dialog) — printing to *Microsoft Print to PDF* works with **no physical printer** and no SumatraPDF.

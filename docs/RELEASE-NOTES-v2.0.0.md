@@ -57,4 +57,4 @@ live in `config.json` and the Options page; defaults keep the 1.x behaviour.
 3. Reload the extension (`chrome://extensions` → AdvPrint Pro → reload icon).
 4. New hub toys: open `http://127.0.0.1:9235/dashboard?token=YOURTOKEN`.
 
-Full changelog: [CHANGELOG.md](https://github.com/bitdreamit/PrintHub-Pro/blob/main/CHANGELOG.md)
+Full changelog: [CHANGELOG.md](https://github.com/bitdreamit/AdvPrint-Pro/blob/main/CHANGELOG.md)

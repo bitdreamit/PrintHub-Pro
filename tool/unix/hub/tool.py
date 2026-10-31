@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # ============================================================
 #  AdvPrint Pro - Control Tool  (the friendly one-stop tool)
+#  v2.6.5 - same full menu as v2.6.4, nothing removed
 # ------------------------------------------------------------
 #  One menu for everything a normal user needs:
 #    start / stop / status, auto-run on/off, Windows service
@@ -391,26 +392,55 @@ def diagnose_and_fix():
         print("  launcher    : %s (%s)" %
               (exe, "OK" if os.path.isfile(exe) else "missing - tool will"
                " fall back to the bundled python"))
+        # v2.6.5: show the PDF engine detection result up front - the
+        # per-user SumatraPDF (C:\Users\<name>\AppData\Local\...) is the
+        # most common "why can I not print PDFs" answer.
+        try:
+            sm = ph.find_sumatra()
+            print("  SumatraPDF  : %s" % (sm if sm else
+                  "not found - install it or set it in the dashboard"
+                  " Settings"))
+        except Exception:
+            print("  SumatraPDF  : lookup failed (non-critical)")
 
     # ---- 2. unblock (Mark-of-the-Web) ----------------------------------
     if IS_WIN:
         print("\n[2/5] Unblock the folder (Windows may block downloaded"
               " files)")
+        # v2.6.5: unblock EVERY location the hub can execute from -
+        # the install folder (Setup: Program Files, portable: the zip
+        # folder) AND the per-user copies a previous install may have
+        # left behind (%LOCALAPPDATA%\AdvPrintPro) AND the per-user
+        # SumatraPDF.exe (%LOCALAPPDATA%\SumatraPDF / ...\Programs\
+        # SumatraPDF). Blocked exes there produced "print jobs stuck
+        # queued" with no visible error - now they are repaired too.
         root = os.path.dirname(HERE.rstrip(os.sep)) or HERE
-        ps = ("$n=0; Get-ChildItem -LiteralPath '{p}' -Recurse -File -ErrorAction"
-              " SilentlyContinue | ForEach-Object {{ try {{ Unblock-File"
-              " -LiteralPath $_.FullName -ErrorAction Stop; $n++ }} catch {{}} }};"
-              " Write-Output ('unblocked ' + $n + ' files')").format(p=root)
-        try:
-            r = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                 "-Command", ps],
-                creationflags=0x08000000, capture_output=True, text=True,
-                timeout=60)
-            out = (r.stdout or "").strip().splitlines()
-            print("  %s (folder: %s)" % (out[-1] if out else "done", root))
-        except Exception as e:
-            print("  skipped (%s) - not critical" % e)
+        roots = {root,
+                 os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                              "AdvPrintPro"),
+                 os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                              "SumatraPDF"),
+                 os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                              "Programs", "SumatraPDF")}
+        roots.discard("")
+        roots = [r for r in sorted(roots) if os.path.isdir(r)]
+        for p in roots:
+            ps = ("$n=0; Get-ChildItem -LiteralPath '{p}' -Recurse -File"
+                  " -ErrorAction"
+                  " SilentlyContinue | ForEach-Object {{ try {{ Unblock-File"
+                  " -LiteralPath $_.FullName -ErrorAction Stop; $n++ }}"
+                  " catch {{}} }};"
+                  " Write-Output ('unblocked ' + $n + ' files')").format(p=p)
+            try:
+                r = subprocess.run(
+                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                     "-Command", ps],
+                    creationflags=0x08000000, capture_output=True, text=True,
+                    timeout=60)
+                out = (r.stdout or "").strip().splitlines()
+                print("  %s (folder: %s)" % (out[-1] if out else "done", p))
+            except Exception as e:
+                print("  skipped (%s) - not critical" % e)
     else:
         print("\n[2/5] Unblock: not needed on this OS")
 

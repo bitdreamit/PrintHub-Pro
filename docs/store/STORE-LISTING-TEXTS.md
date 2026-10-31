@@ -42,7 +42,7 @@ HOW IT WORKS
 3. Click "Print this page". Done. The job goes straight to your default printer.
 
 WHERE TO GET THE HUB
-https://github.com/bitdreamit/PrintHub-Pro/releases
+https://github.com/bitdreamit/AdvPrint-Pro/releases
 (Windows: run AdvPrint-Pro-Setup-1.5.0.exe — includes its own Python, nothing else to install. Linux: .deb package or install-unix.sh.)
 
 PRIVACY — 100% LOCAL
@@ -56,7 +56,7 @@ WHO IS THIS FOR
 
 The extension alone cannot print — the free local hub must be installed on the same computer. Get it from the link above; setup takes about two minutes and the popup walks you through it.
 
-Support: https://github.com/bitdreamit/PrintHub-Pro/issues
+Support: https://github.com/bitdreamit/AdvPrint-Pro/issues
 ```
 
 ## 4. Category / language / region
@@ -159,7 +159,7 @@ options page, context menu and hotkey remain functional and safe to test.
 No page content is read or transmitted in this state.
 
 TESTING WITH THE HUB (full flow):
-1. Download the free hub from https://github.com/bitdreamit/PrintHub-Pro/releases
+1. Download the free hub from https://github.com/bitdreamit/AdvPrint-Pro/releases
    (Windows Setup exe includes an embedded Python runtime; nothing else needed),
    run it, then reload the extension — the popup shows "Hub connected".
 2. Click "Print this page" or press Alt+P — the page is sent to the local
@@ -168,7 +168,7 @@ TESTING WITH THE HUB (full flow):
 
 The <all_urls> content script (content/relay.js) only relays window messages
 for user-triggered print actions and the window.advprint JS API; it collects
-no data. Source: https://github.com/bitdreamit/PrintHub-Pro
+no data. Source: https://github.com/bitdreamit/AdvPrint-Pro
 ```
 
 ## 9. Screenshot files (Privacy → nothing; Store listing → Screenshots)

@@ -59,7 +59,7 @@ auto-run / updates any more. Scriptable too: `python hub\tool.py <command>`.
 - **About** tab: version, GitHub links, **Check for update** button.
 
 ### 7. Update through GitHub
-- Official releases page: `https://github.com/bitdreamit/PrintHub-Pro/releases/latest`
+- Official releases page: `https://github.com/bitdreamit/AdvPrint-Pro/releases/latest`
 - Checkers built in: AdvPrint Tool → 8, hub CLI `python advprint.py update-check`,
   extension Options → About → **Check for update**.
 - Install a new Setup.exe **over** the old one — settings and history are kept.

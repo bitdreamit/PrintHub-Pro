@@ -7,6 +7,7 @@ dedupe, schedule, dead-letter, peers), audit (log, reason, watermark, CSV,
 diagnostics, dashboard) plus repo sanity (version anchors, migrations).
 """
 import base64
+import re
 import json
 import os
 import sqlite3
@@ -27,9 +28,41 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.6.4"
+    assert d["version"] == "2.6.5"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
+
+
+def test_health_carries_token_hint_v265(hub):
+    """v2.6.5: /health exposes the LAST 4 CHARACTERS of the active token
+    only - enough to verify the extension token matches (the 401 /
+    auth.failed family), never enough to reuse the token."""
+    code, d = hub.get("/health", token=None)
+    assert code == 200
+    assert d["token_hint"] == advprint.CFG["token"][-4:]
+    assert advprint.CFG["token"] not in json.dumps(d)   # never the full token
+
+
+def test_sumatra_scans_have_glob_v265():
+    """v2.6.5 regression: the all-users SumatraPDF profile scan uses
+    glob - the module MUST be imported or find_sumatra() silently
+    degrades on Windows (service-mode PDF printing lost its last-resort
+    detection in 2.6.4 exactly this way)."""
+    import glob as _glob  # noqa: F401
+    src = open(advprint.__file__, encoding="utf-8").read()
+    assert re.search(r"^import glob$", src, re.M)
+    assert advprint.glob is _glob
+
+
+def test_service_lifecycle_has_no_bind_race_v265():
+    """v2.6.5 regression: the Windows service reports RUNNING only after
+    a real port bind (ready-event handshake), never after a blind
+    0.5 s sleep - the 'stuck at Starting' fix."""
+    src = open(os.path.join(os.path.dirname(advprint.__file__),
+                            "service_main.py"), encoding="utf-8").read()
+    assert "_signal_ready" in src
+    assert 'ready_event.set("ready")' in src
+    assert "time.sleep(0.5)             # give bind failures a moment" not in src
 
 
 def test_new_install_random_token(hub):
@@ -505,13 +538,13 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert advprint.VERSION == "2.6.4"
+    assert advprint.VERSION == "2.6.5"
     # repo/package layout: tool/windows/portable/hub -> root/extension
     root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(advprint.__file__)))))
     ext = os.path.join(root, "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.6.4"
+        assert json.load(f)["version"] == "2.6.5"
 
 
 def test_log_rotation(tmp_path):
@@ -718,7 +751,7 @@ def test_v22_docs_page_served(hub):
     body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
             else d if isinstance(d, str) else json.dumps(d))
     assert "LAN sharing" in body and "POST /print" in body
-    assert "2.6.4" in body
+    assert advprint.VERSION in body
 
 
 def test_v22_docs_wrong_token_json(hub):
@@ -731,7 +764,7 @@ def test_v22_dashboard_has_lan_card_and_docs(hub):
     assert 'id="lanBody"' in html and "LAN sharing" in html
     assert "/docs" in html and "shiftJob" in html
     assert 'id="dbgBody"' in html and "toggleDebug" in html
-    assert "2.6.4" in html
+    assert advprint.VERSION in html
 
 
 def test_v22_health_lan_active(hub):
@@ -1018,7 +1051,7 @@ def test_v26_token_current_loopback_only(hub):
     code, d = hub.get("/token/current")
     assert code == 200 and d["ok"] is True
     assert d["token"] == hub.token
-    assert d["app"] == "AdvPrint Pro" and d["version"] == "2.6.4"
+    assert d["app"] == "AdvPrint Pro" and d["version"] == "2.6.5"
 
 
 def test_v26_token_current_rejects_remote(hub):
@@ -1092,8 +1125,8 @@ def test_v261_tray_module_ships_and_parses():
 
 
 def test_v261_version_single_source():
-    assert advprint.VERSION == "2.6.4"
-    assert advprint.VERSION_NAME.startswith("v2.6.4")
+    assert advprint.VERSION == "2.6.5"
+    assert advprint.VERSION_NAME.startswith("v2.6.5")
 
 
 def test_v261_cli_cmd_full_path():
@@ -1105,7 +1138,7 @@ def test_v261_cli_cmd_full_path():
 def test_v261_dashboard_live_tool_version():
     """The live debug tool must show the REAL version (was stuck v2.5)."""
     html = advprint.dashboard_html(query="?token=x")
-    assert "(v2.6.4)" in html
+    assert "(v%s)" % advprint.VERSION in html
     assert "(v2.5)" not in html
     assert "Hub is OFFLINE" in html          # offline-friendly buttons
 
@@ -1235,7 +1268,8 @@ def test_v264_extension_auto_heal_unchanged():
     """The v2.6.2 extension auto-heal must stay wired: hubFetch retries
     through /token/current on the first 401 (the audit spam the user
     saw was a stale-token client polling every ~15 s)."""
-    p = "/home/z/my-project/build/AdvPrint/installer/stage/extension/background.js"
+    p = os.path.join(os.path.dirname(advprint.__file__),
+                     "..", "..", "..", "..", "extension", "background.js")
     src = open(p, encoding="utf-8").read()
     assert "function autoHealToken()" in src
     assert '"/token/current"' in src
@@ -1246,8 +1280,9 @@ def test_v264_setup_exe_kills_zombie_hubs():
     """The Setup exe must stop a running hub by IMAGE NAME too (the old
     code only killed the port-9235 listener, so a hub on another port
     survived the upgrade with its old token in memory)."""
-    src = open("/home/z/my-project/build/AdvPrint/installer/setup.nsi",
-               encoding="utf-8").read()
+    src = open(os.path.join(os.path.dirname(advprint.__file__),
+                            "..", "..", "..", "..",
+                            "installer", "setup.nsi"), encoding="utf-8").read()
     assert "taskkill /F /IM AdvPrintPro.exe" in src
     assert "taskkill /F /IM PrintHubPro.exe" in src
-    assert 'VIProductVersion "2.6.4.0"' in src
+    assert 'VIProductVersion "2.6.5.0"' in src

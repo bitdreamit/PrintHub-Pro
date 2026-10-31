@@ -6,6 +6,9 @@
 
 const DEFAULTS = {
   hubUrl: "http://127.0.0.1:9235",
+  // pre-2.0 hub default - kept ONLY so upgraded old installs keep
+  // working; new hubs generate a private random token and the popup
+  // offers the one-click "Fix token" (loopback /token/current).
   token: "PrintHub-2024",
   defaultPrinter: "",
   enabled: true,            // MASTER SWITCH: false = AdvPrint fully off

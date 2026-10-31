@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  AdvPrint Pro v2.6.2  -  Print from any web page to any printer
+#  AdvPrint Pro v2.6.5  -  Print from any web page to any printer
 #  by Bit Dream IT  -  MIT licensed, 100% local & open source
-#  AdvPrint Pro - Version 2.3.0 - by Bit Dream IT - MIT license
+#  AdvPrint Pro - Version 2.6.5 - by Bit Dream IT - MIT license
 #  100% local - no cloud, no tracking.
 # ------------------------------------------------------------
 #  Chrome extension <-> this hub (localhost) -> ANY printer
@@ -34,6 +34,14 @@
 
 import base64
 import csv
+# v2.6.5 FIX: glob is used by the SumatraPDF folder scans (portable zips
+# that keep the exe in a subfolder) and by the ALL-USERS profile scan
+# (C:\Users\*\AppData\Local\SumatraPDF\SumatraPDF.exe) that makes PDF
+# printing work when the hub runs as a SERVICE under a different account.
+# The import was missing - the scan raised NameError, find_sumatra()
+# swallowed it as "not found" and service-mode PDF printing silently
+# lost its last-resort detection. Imported once here, at the top.
+import glob
 import hashlib
 import hmac
 import html
@@ -83,9 +91,10 @@ if _HUB_DIR not in sys.path:
     sys.path.insert(0, _HUB_DIR)
 
 
-VERSION = "2.6.4"
-VERSION_NAME = ("v2.6.4 (winreg import fix - health snapshot, /debug and"
-                " printing work on Windows again)")
+VERSION = "2.6.5"
+VERSION_NAME = ("v2.6.5 (baseline restore - full v2.6.4 feature set kept 1:1"
+                " - SumatraPDF per-user scan fix - service start hardened"
+                " - token self-check - extension UI refresh)")
 FULL_BRAND = ("AdvPrint Pro (Advanced Printer) by "
               "Bit Dream IT - Innovative Healthcare Solutions")
 BRANDING = ("AdvPrint Pro (Advanced Printer) - Version %s - by "
@@ -94,7 +103,7 @@ BRANDING = ("AdvPrint Pro (Advanced Printer) - Version %s - by "
 APP_NAME = "AdvPrint Pro"
 VENDOR = "Bit Dream IT"
 ORG_NAME = "Innovative Healthcare Solutions"
-GITHUB_REPO = "bitdreamit/PrintHub-Pro"
+GITHUB_REPO = "bitdreamit/AdvPrint-Pro"
 GITHUB_RELEASES = "https://github.com/%s/releases" % GITHUB_REPO
 SERVICE_NAME = "AdvPrint"          # optional Windows service (services.msc)
 SERVICE_DISPLAYNAME = "AdvPrint Pro Service"
@@ -808,6 +817,8 @@ def _find_sumatra_inner():
         os.path.join(os.path.dirname(_HUB_DIR), "tools", "SumatraPDF.exe"),
         os.path.join(_HUB_DIR, "tools", "SumatraPDF.exe"),
         os.path.join(la, "SumatraPDF", "SumatraPDF.exe"),   # per-user install
+        # v2.6.5: newer SumatraPDF installers also use %LOCALAPPDATA%\Programs
+        os.path.join(la, "Programs", "SumatraPDF", "SumatraPDF.exe"),
         os.path.join(os.path.expanduser("~"), "AppData", "Local",
                      "SumatraPDF", "SumatraPDF.exe"),
         os.path.join(pf, "SumatraPDF", "SumatraPDF.exe"),   # per-machine
@@ -1126,6 +1137,10 @@ def build_health_snapshot():
         "jobs_today": st.get("jobs_today", 0),
         "file_dir": default_file_dir(),
         "token_set": bool(CFG["token"]),
+        # v2.6.5: last 4 characters only - enough for the user to SEE that
+        # the hub token matches the one pasted in the extension Options
+        # (the 401 / auth.failed family), never enough to guess or reuse.
+        "token_hint": (CFG["token"][-4:] if CFG["token"] else ""),
         "default_token_warning": DEFAULT_TOKEN_WARNING,
         "token_header_only": bool(CFG.get("token_header_only")),
         "autostart": autostart_enabled(),

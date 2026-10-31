@@ -158,12 +158,12 @@ async function updateCheck() {
   let manifestVer = chrome.runtime.getManifest ?
     chrome.runtime.getManifest().version : "2.6.2";   // v2.6.2: never hardcoded
   try {
-    const r = await fetch("https://api.github.com/repos/bitdreamit/PrintHub-Pro/releases/latest",
+    const r = await fetch("https://api.github.com/repos/bitdreamit/AdvPrint-Pro/releases/latest",
       { headers: { "Accept": "application/vnd.github+json" } });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const d = await r.json();
     const tag = String(d.tag_name || "").replace(/^v/i, "");
-    const url = d.html_url || "https://github.com/bitdreamit/PrintHub-Pro/releases/latest";
+    const url = d.html_url || "https://github.com/bitdreamit/AdvPrint-Pro/releases/latest";
     const num = (s) => (s.match(/\d+/g) || []).slice(0, 3).map(Number);
     const [a = [0, 0, 0], b = [0, 0, 0]] = [num(tag), num(manifestVer)];
     const newer = a.some((v, i) => v > (b[i] || 0));
@@ -445,11 +445,14 @@ async function loadAll() {
 }
 
 async function saveAll() {
+  // v2.6.5: an empty token field keeps the STORED token - the legacy
+  // default is never silently re-written by saving with a cleared field.
+  const tok = $("token").value.trim();
   const r = await send({
     type: "saveCfg",
     patch: {
       hubUrl: $("hubUrl").value.trim() || "http://127.0.0.1:9235",
-      token: $("token").value.trim() || "PrintHub-2024",
+      ...(tok ? { token: tok } : {}),
       enabled: $("enabled").checked,
       queueMode: $("queueMode").checked,
       debugMode: $("debugMode").checked,   // v2.3: background also syncs
@@ -471,6 +474,16 @@ async function saveAll() {
 }
 
 /* ---------- hub test ---------- */
+/* v2.6.5: header status pill - same states as the connection line,
+ * visible from every tab so the hub state is never a mystery. */
+function setPill(state, text) {
+  const pill = $("hubPill"), dot = $("pillDot"), txt = $("pillTxt");
+  if (!pill || !dot || !txt) return;          // older markup - ignore
+  pill.classList.remove("online", "warn", "offline");
+  if (state) pill.classList.add(state);
+  txt.textContent = text;
+}
+
 async function testHub(verbose = true) {
   const prev = await send({ type: "getCfg" });
   if (prev.ok) {
@@ -485,20 +498,24 @@ async function testHub(verbose = true) {
       "CONNECTED - v" + r.version + " - " +
       ((r.printers_count) || "") + (r.default_printer ? " default: " + r.default_printer : "");
     $("hubState").style.color = "#16a34a";
+    setPill("online", "hub online");
   } else if (r.reason === "auth" || r.reason === "locked") {
     // v2.6.4: the hub ANSWERED - it is running, the token is the problem.
     $("hubState").textContent =
       "HUB RUNNING - token problem: " + (r.error || r.reason) +
       " - click Detect token";
     $("hubState").style.color = "#d97706";
+    setPill("warn", "token problem");
   } else if (r.reason === "slow") {
     // v2.6.4: the hub is listening but /health has not answered yet.
     $("hubState").textContent =
       "HUB STARTING - it is listening but not answering yet, try again in a few seconds";
     $("hubState").style.color = "#d97706";
+    setPill("warn", "starting…");
   } else {
     $("hubState").textContent = "OFFLINE - start the hub first";
     $("hubState").style.color = "#dc2626";
+    setPill("offline", "hub offline");
   }
   if (r.ok) await loadPrinters();
   if (verbose) await loadAll();

@@ -1,6 +1,63 @@
 # Changelog - AdvPrint Pro (Advanced Printer)
 by Bit Dream IT - Innovative Healthcare Solutions
 
+## v2.6.5 - BASELINE RESTORE (FULL v2.6.4 FEATURE SET) + SERVICE & SUMATRA FIXES + EXTENSION UI REFRESH (2026-10-31)
+
+### Why this release exists
+- An intermediate build had accidentally started from the old **1.5.0**
+  tree instead of the real 2.6.4 source, so it shipped with FEWER
+  features (missing tray icon, missing TUI menu items, reduced
+  dashboard/extension). Users correctly refused that update.
+- **v2.6.5 is built directly from the v2.6.4 tree - every feature is
+  kept 1:1, nothing was reduced.** Verified against the published
+  v2.6.4 source tag: TUI menu [0-13] (start/stop/status, test page,
+  service install/remove, auto-run, update check, history, uninstall,
+  LIVE TEST, dashboard, Diagnose & fix), tray icon module + auto-start,
+  all endpoints (/health /audit /debug /diagnostics /dashboard
+  /token/current /config /jobs ...), all six extension tabs (Queue /
+  History / Settings / Debug / LAN / About) with the full Hub settings
+  (advanced) block, master switch, queue mode, retry-offline, alarms,
+  managed policy, LAN sharing, ESC/POS + ZPL, profiles, scheduler -
+  all present.
+
+### Fixed
+- **Missing `import glob`** (same bug family as the v2.6.4 winreg
+  fix): the SumatraPDF folder scans and the ALL-USERS profile scan
+  (`C:\Users\*\AppData\Local\SumatraPDF\SumatraPDF.exe`) raised
+  NameError that `find_sumatra()` swallowed as "not found". Service-mode
+  PDF printing lost its last-resort detection. The scan now really runs.
+- **SumatraPDF per-user detection widened**: new candidate
+  `%LOCALAPPDATA%\Programs\SumatraPDF\SumatraPDF.exe` (newest
+  installers) on top of the existing per-user / per-machine / registry
+  / PATH / all-users scans. Still zero hardcoded user names.
+- **Windows service can no longer hang in START_PENDING**: the service
+  now imports + binds synchronously with SCM checkpoints every 2 s and
+  reports RUNNING only after a real bind. Port busy (the normal
+  Startup copy already owns 9235) or any error => clean STOPPED with
+  the reason in hub.log instead of an eternal "Starting".
+- **GitHub URLs corrected** to `github.com/bitdreamit/AdvPrint-Pro`
+  (hub update check, extension manifest homepage, Options update
+  check + releases link, docs).
+
+### Improved
+- **/health now carries `token_hint`** (last 4 characters of the
+  active token) so a token mismatch between hub and extension can be
+  VERIFIED in seconds - no more silent 401 / auth.failed loops.
+- **Extension Options UI refresh**: live hub status pill in the header
+  (online / token problem / starting / offline), hover states on the
+  tab bar, and saving with an EMPTY token field now keeps the stored
+  token instead of quietly writing the legacy default.
+- **Tool menu [13] Diagnose & fix unblocks more**: the install folder
+  PLUS per-user locations (legacy `%LOCALAPPDATA%\AdvPrintPro`,
+  per-user SumatraPDF folders) - a blocked per-user exe can no longer
+  hold print jobs in "queued" silently. Step [1/5] also prints the
+  detected SumatraPDF path up front.
+
+### Removed
+- Stale prebuilt binaries (2.6.4 Setup exe + deb) from the package;
+  build fresh ones from `installer/setup.nsi` (NSIS 3) so every
+  release ships binaries that match its own version exactly.
+
 ## v2.6.4 - WINREG FIX + NEVER-EMPTY-RESPONSE + TOKEN AUTO-REPAIR (2026-10-31)
 
 ### Fixed: /health stuck on "starting": true and /debug + /diagnostics
@@ -262,7 +319,7 @@ by Bit Dream IT - Innovative Healthcare Solutions
 - **Feature regression in 2.4.0/2.4.1** — those builds were assembled from a
   stale 1.5.0 tree (dev-machine reset) and silently dropped the v2.0–v2.3
   feature set. v2.5.0 is built on the REAL 2.3.0 source (recovered from
-  github.com/bitdreamit/PrintHub-Pro) and re-unites everything: LAN sharing
+  github.com/bitdreamit/AdvPrint-Pro) and re-unites everything: LAN sharing
   (`share_lan` 0.0.0.0 bind + `/peers` + peer forwarding), ESC/POS + ZPL raw
   printing (cut/drawer/barcode/QR, `escpos_codepage`, Bangla auto-routed via
   headless Chrome), scheduled prints (`run_at` + promotion), printer groups,
