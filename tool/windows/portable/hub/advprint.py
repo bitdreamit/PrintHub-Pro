@@ -67,8 +67,9 @@ _HUB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HUB_DIR not in sys.path:
     sys.path.insert(0, _HUB_DIR)
 
-VERSION = "2.6.2"
-VERSION_NAME = "v2.6.2 (extension + tray fix release)"
+
+VERSION = "2.6.3"
+VERSION_NAME = "v2.6.3 (instant health + tray ctypes fix + owner-lockout fix release)"
 FULL_BRAND = ("AdvPrint Pro (Advanced Printer) by "
               "Bit Dream IT - Innovative Healthcare Solutions")
 BRANDING = ("AdvPrint Pro (Advanced Printer) - Version %s - by "
@@ -84,6 +85,27 @@ SERVICE_DISPLAYNAME = "AdvPrint Pro Service"
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 HIDE = 0x08000000 if IS_WIN else 0          # no console window flash on Windows
+
+class HubServer(ThreadingHTTPServer):
+    # v2.6.3 SINGLE-INSTANCE GUARANTEE. The stock ThreadingHTTPServer sets
+    # allow_reuse_address = 1; on Windows SO_REUSEADDR lets a SECOND hub
+    # process silently bind the SAME port (two hubs fighting over one
+    # socket - the "running but not answering" chaos in hub.log with two
+    # BOOT lines 47 s apart). POSIX SO_REUSEADDR is safe there (it can
+    # never double-bind a live listener, only beats TIME_WAIT), so it is
+    # kept for quick restarts on Linux/macOS; on Windows we bind
+    # exclusively, so a second instance always gets a clean EADDRINUSE
+    # and exits with a clear message.
+    allow_reuse_address = not IS_WIN
+
+    def server_bind(self):
+        if IS_WIN:
+            try:
+                self.socket.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            except OSError:
+                pass
+        super().server_bind()
 MAX_BODY = 40 * 1024 * 1024                 # 40 MB hard cap on request body
 MAX_PDF = 25 * 1024 * 1024                  # 25 MB cap for downloaded pdf_url
 HISTORY_DEFAULT = 100                       # Ultraprint-style: last 100 jobs
@@ -747,6 +769,11 @@ def find_sumatra():
     roots = [
         CFG.get("sumatra_path"),                     # Settings override wins
         _env("SUMATRA"),
+        # v2.6.3: the Setup exe bundles a portable SumatraPDF.exe in the
+        # install tree (<install>\tools\SumatraPDF.exe) - PDF printing
+        # works with zero user setup, no separate download.
+        os.path.join(os.path.dirname(_HUB_DIR), "tools", "SumatraPDF.exe"),
+        os.path.join(_HUB_DIR, "tools", "SumatraPDF.exe"),
         os.path.join(la, "SumatraPDF", "SumatraPDF.exe"),   # per-user install
         os.path.join(os.path.expanduser("~"), "AppData", "Local",
                      "SumatraPDF", "SumatraPDF.exe"),
@@ -835,7 +862,7 @@ def list_printers():
         if IS_WIN:
             ps = "Get-CimInstance Win32_Printer | Select-Object -ExpandProperty Name"
             out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                                 capture_output=True, text=True, timeout=20,
+                                 capture_output=True, text=True, timeout=10,
                                  creationflags=HIDE)
             names = [l.strip() for l in (out.stdout or "").splitlines() if l.strip()]
             return names
@@ -861,7 +888,7 @@ def default_printer():
             ps = ("(Get-CimInstance Win32_Printer | Where-Object Default)"
                   ".Name")
             out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                                 capture_output=True, text=True, timeout=20,
+                                 capture_output=True, text=True, timeout=10,
                                  creationflags=HIDE)
             name = (out.stdout or "").strip()
             return name or None
@@ -887,7 +914,7 @@ def _printer_status_windows():
           "\"{0}|{1}|{2}|{3}\" -f $_.Name,$_.PrinterStatus,"
           "$_.DetectedErrorState,[int]([bool]$_.WorkOffline) }")
     out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                         capture_output=True, text=True, timeout=20,
+                         capture_output=True, text=True, timeout=8,
                          creationflags=HIDE)
     res = {}
     for line in (out.stdout or "").splitlines():
@@ -931,17 +958,200 @@ def _printer_status_unix():
 
 def printers_status(force=False):
     """{printer_name: 'ready'|'offline'|'paper-out'|'error'|'unknown'}."""
-    if not force and time.time() - _PS_CACHE["t"] < 20 and _PS_CACHE["v"]:
+    # v2.6.3: the freshness check no longer requires a NON-EMPTY cache -
+    # an empty (failed) scan is stamped too, so one broken scan costs at
+    # most one PowerShell run per interval instead of one per request.
+    if not force and time.time() - _PS_CACHE["t"] < 20:
         return _PS_CACHE["v"]
     try:
         res = _printer_status_windows() if IS_WIN else _printer_status_unix()
     except Exception as e:
         log("[WARN] printer status check failed: %s" % e)
         res = {}
+    # v2.6.3: stamp the cache EVEN when the scan came back empty or
+    # failed. The old code only stamped on success, so a slow or
+    # AV-blocked PowerShell re-ran on EVERY caller - /health could hang
+    # for its full timeout again and again while the hub looked
+    # "listening but dead". One failed scan now costs at most one retry
+    # per interval, never a request-path hang (see the *_cached wrappers).
+    _PS_CACHE["t"] = time.time()
     if res:
-        _PS_CACHE["t"] = time.time()
         _PS_CACHE["v"] = res
     return res
+
+
+# ------------------------------------------------------------
+# v2.6.3: NON-BLOCKING CACHE LAYER FOR ALL HTTP/HEALTH PATHS
+# ------------------------------------------------------------
+# The v2.6.2 incident: hub.log said "listening on http://127.0.0.1:9235"
+# but the console tool reported "did not answer within 20 seconds" and
+# the extension showed OFFLINE, while the desktop tool (TCP-only check)
+# said RUNNING. Root cause: /health ran up to THREE PowerShell/WMI scans
+# on the request path (default_printer + printers_status + list), each
+# with a 20 s timeout - a cold WMI or an AV-slowed powershell.exe made
+# every probe outlive its client timeout. Everything below serves stale
+# data instantly and refreshes in the background instead.
+_SWR_LOCK = threading.Lock()
+_SWR_BUSY = {}
+
+
+def _swr_refresh(key, fn):
+    """Run fn() once in a daemon thread (single-flight per key)."""
+    with _SWR_LOCK:
+        if _SWR_BUSY.get(key):
+            return
+        _SWR_BUSY[key] = True
+
+    def _bg():
+        try:
+            fn()
+        except Exception:
+            pass
+        finally:
+            with _SWR_LOCK:
+                _SWR_BUSY[key] = False
+
+    threading.Thread(target=_bg, daemon=True,
+                     name="advprint-refresh-" + key).start()
+
+
+_LP_CACHE = {"t": 0.0, "v": []}      # printer NAMES
+_DP_CACHE = {"t": 0.0, "v": None}    # default printer name
+
+
+def _lp_refresh():
+    _LP_CACHE["t"] = time.time()
+    _LP_CACHE["v"] = list_printers()
+
+
+def _dp_refresh():
+    _DP_CACHE["t"] = time.time()
+    _DP_CACHE["v"] = default_printer()
+
+
+def list_printers_cached(max_age=60.0):
+    """Instant read of the printer-name cache; refreshes in background."""
+    if not _LP_CACHE["v"] or time.time() - _LP_CACHE["t"] > max_age:
+        _swr_refresh("printers-list", _lp_refresh)
+    return list(_LP_CACHE["v"])
+
+
+def default_printer_cached(max_age=60.0):
+    """Instant read of the default-printer cache; refreshes in background."""
+    if _DP_CACHE["v"] is None or time.time() - _DP_CACHE["t"] > max_age:
+        _swr_refresh("default-printer", _dp_refresh)
+    return _DP_CACHE["v"]
+
+
+def printers_status_cached(max_age=20.0):
+    """Instant read of the printer-status cache; refreshes in background.
+    NEVER spawns PowerShell/WMI on the calling thread."""
+    if time.time() - _PS_CACHE["t"] > max_age:
+        _swr_refresh("printers-status",
+                     lambda: printers_status(force=True))
+    return dict(_PS_CACHE["v"])
+
+
+# ------------------------------------------------------------
+# v2.6.3: /health SNAPSHOT - instant answers, zero blocking
+# ------------------------------------------------------------
+# Built every 3 s by a background thread (and once at boot). The HTTP
+# route only hands out the finished dict, so /health answers in
+# microseconds even while WMI/PowerShell is slow or blocked.
+_HEALTH_SNAP = {"t": 0.0, "data": {}}
+_HEALTH_LOCK = threading.Lock()
+_HEALTH_THREAD = [None]
+
+
+def build_health_snapshot():
+    """Compute the /health body off the request path."""
+    have_db = False
+    try:
+        have_db = os.path.isfile(db_path())
+    except Exception:
+        pass
+    st = db_stats() if have_db else {}
+    ps = printers_status_cached()
+    try:
+        ready = sum(1 for v in ps.values() if v == "ready")
+    except Exception:
+        ready = 0
+    try:
+        paused = not RESUME_EVENT.is_set()
+    except Exception:
+        paused = False
+    snap = {
+        "ok": True, "app": APP_NAME, "version": VERSION,
+        "branding": BRANDING,
+        "os": "windows" if IS_WIN else ("macos" if IS_MAC else "linux"),
+        "default_printer": default_printer_cached(),
+        "sumatra_found": (find_sumatra() is not None) if IS_WIN else None,
+        "browser_found": find_browser() is not None,
+        "paused": paused,
+        "pending": db_count_pending() if have_db else 0,
+        "held": db_count_held() if have_db else 0,
+        "jobs_today": st.get("jobs_today", 0),
+        "file_dir": default_file_dir(),
+        "token_set": bool(CFG["token"]),
+        "default_token_warning": DEFAULT_TOKEN_WARNING,
+        "token_header_only": bool(CFG.get("token_header_only")),
+        "autostart": autostart_enabled(),
+        "service": service_state(),
+        "queue_bypass": True,
+        "hold_offline": bool(CFG.get("hold_offline", True)),
+        "worker_alive": bool(_WORKER_THREAD[0]
+                             and _WORKER_THREAD[0].is_alive()),
+        "debug": bool(CFG.get("debug")),
+        "instant_auto_queue": bool(
+            CFG.get("instant_auto_queue", True)),
+        "share_lan": bool(CFG.get("share_lan")),
+        "lan_active": bool(BOUND_LAN),
+        "lan_url": ("http://%s:%d" % (lan_ip(), CFG["port"]))
+                   if CFG.get("share_lan") else None,
+        "success_rate": st.get("success_rate") if st else None,
+        "printers_ready": ready,
+        "audit": bool(CFG.get("audit_enabled", True)),
+        "loopback_lock_exempt": True,
+        "v2": True,
+    }
+    with _HEALTH_LOCK:
+        _HEALTH_SNAP["t"] = time.time()
+        _HEALTH_SNAP["data"] = snap
+    return snap
+
+
+def health_snapshot():
+    """Instant read for the /health route. Falls back to a one-shot
+    synchronous build (cheap: cached printer data only) when the
+    refresher has not filled the snapshot yet."""
+    with _HEALTH_LOCK:
+        snap = _HEALTH_SNAP["data"]
+    if snap:
+        return dict(snap)
+    try:
+        return dict(build_health_snapshot())
+    except Exception:
+        return {"ok": True, "app": APP_NAME, "version": VERSION,
+                "branding": BRANDING, "starting": True, "v2": True}
+
+
+def start_health_refresher():
+    """Background thread keeping the /health snapshot warm (every 3 s)."""
+    if _HEALTH_THREAD[0] and _HEALTH_THREAD[0].is_alive():
+        return
+
+    def _loop():
+        while True:
+            try:
+                build_health_snapshot()
+            except Exception:
+                pass
+            time.sleep(3.0)
+
+    t = threading.Thread(target=_loop, daemon=True,
+                         name="advprint-health")
+    _HEALTH_THREAD[0] = t
+    t.start()
 
 def printer_ready(name=""):
     """'ready' | 'offline' | 'paper-out' | 'error' | 'unknown'.
@@ -2742,7 +2952,14 @@ class Handler(BaseHTTPRequestHandler):
         POST stays header-strict)."""
         ip = self._client_ip()
         loopback = self._is_loopback()
-        exempt = loopback and CFG.get("lockout_exempt_loopback", True)
+        # v2.6.3: loopback is UNCONDITIONALLY exempt from lockout. The old
+        # config knob (lockout_exempt_loopback) could be OFF - then one
+        # stale browser token locked the OWNER's own dashboard, tray and
+        # extension out of their own PC for minutes (the pasted
+        # "this IP is locked for another 124s" error ON 127.0.0.1).
+        # The owner's PC can never lock itself out again; the config key
+        # is still accepted for compatibility but is ignored here.
+        exempt = loopback
         now = time.time()
         lock = _AUTH_FAILS.get(ip)
         if lock and lock.get("until", 0) > now:
@@ -2752,8 +2969,7 @@ class Handler(BaseHTTPRequestHandler):
                              " for another %ds" % left)
             _AUTH_FAILS.pop(ip, None)   # owner IP: never stay locked
         strict = bool(CFG.get("token_header_only")) and not allow_query
-        given = (self.headers.get("X-AdvPrint-Token")
-                 or self.headers.get("X-PrintHub-Token") or "")
+        given = self.headers.get("X-AdvPrint-Token") or ""
         if not strict:
             given = given or str(qtoken or "") or str((body or {}).get("token") or "")
         if given and hmac.compare_digest(str(given), str(CFG["token"])):
@@ -2791,8 +3007,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not rec.get("warned"):
                     rec["warned"] = True
                     log("[AUTH] %d wrong tokens from loopback %s - NOT"
-                        " locked (lockout_exempt_loopback=true; use the"
-                        " tray menu or '%s' to fix)"
+                        " locked (the hub PC is always exempt since"
+                        " v2.6.3; use the tray menu or '%s' to fix)"
                         % (limit, ip, cli_cmd("token")))
             else:
                 mins = int(CFG.get("lockout_minutes", 5))
@@ -2837,45 +3053,17 @@ class Handler(BaseHTTPRequestHandler):
         # Mutating calls (POST) still require the header in header-only
         # mode, so the extension/API hardening is not weakened.
 
-        if route == "/health":                        # open: browser pre-check
-            dp = default_printer()
-            st = db_stats() if os.path.isfile(db_path()) else {}
-            ready = sum(1 for v in printers_status().values()
-                        if v == "ready")
-            return self._send(200, {
-                "ok": True, "app": APP_NAME, "version": VERSION,
-                "branding": BRANDING,
-                "os": "windows" if IS_WIN else ("macos" if IS_MAC else "linux"),
-                "default_printer": dp,
-                "sumatra_found": (find_sumatra() is not None) if IS_WIN else None,
-                "browser_found": find_browser() is not None,
-                "paused": not RESUME_EVENT.is_set(),
-                "pending": db_count_pending() if os.path.isfile(db_path()) else 0,
-                "held": db_count_held() if os.path.isfile(db_path()) else 0,
-                "jobs_today": st.get("jobs_today", 0),
-                "file_dir": default_file_dir(),
-                "token_set": bool(CFG["token"]),
-                "default_token_warning": DEFAULT_TOKEN_WARNING,
-                "token_header_only": bool(CFG.get("token_header_only")),
-                "autostart": autostart_enabled(),
-                "service": service_state(),
-                "queue_bypass": True,
-                "hold_offline": bool(CFG.get("hold_offline", True)),
-                "worker_alive": bool(_WORKER_THREAD[0]
-                                     and _WORKER_THREAD[0].is_alive()),
-                "debug": bool(CFG.get("debug")),
-                "instant_auto_queue": bool(
-                    CFG.get("instant_auto_queue", True)),
-                "share_lan": bool(CFG.get("share_lan")),
-                "lan_active": bool(BOUND_LAN),
-                "lan_url": ("http://%s:%d" % (lan_ip(), CFG["port"]))
-                           if CFG.get("share_lan") else None,
-                "held": st.get("by_status", {}).get("held", 0) if st else 0,
-                "success_rate": st.get("success_rate") if st else None,
-                "printers_ready": ready,
-                "audit": bool(CFG.get("audit_enabled", True)),
-                "v2": True,
-            })
+        if route == "/health":                        # open: INSTANT snapshot
+            # v2.6.3: serves the precomputed snapshot (refreshed every 3 s
+            # by the background refresher). The old code ran up to THREE
+            # PowerShell/WMI scans on this route (default_printer +
+            # printers_status + list), each with a 20 s timeout - the
+            # first probe after boot could block longer than every client
+            # (console tool polls 20 s, extension popup even less), so
+            # the hub looked "listening but not answering" and the
+            # extension showed OFFLINE. /health never blocks on anything
+            # now - even a cold or AV-slowed WMI cannot touch it.
+            return self._send(200, health_snapshot())
 
         # /token/current - v2.6 ONE-CLICK TOKEN FIX. Loopback ONLY: the
         # owner's own PC can always recover the dashboard (a stale
@@ -3003,11 +3191,11 @@ class Handler(BaseHTTPRequestHandler):
                               "/livetest (POST)", "/peers"],
             })
         if route == "/printers":
-            dp = default_printer()
-            st = printers_status()
+            dp = default_printer_cached()
+            st = printers_status_cached()
             groups = CFG.get("printer_groups") or {}
             items = []
-            for n in list_printers():
+            for n in list_printers_cached():
                 items.append({"name": n, "is_default": n == dp,
                               "status": st.get(n, "unknown"),
                               "is_group": False})
@@ -3047,10 +3235,11 @@ class Handler(BaseHTTPRequestHandler):
                                     "jobs": db_list(limit, status=status)})
         if route == "/stats":
             st = db_stats()
+            _psn = printers_status_cached()
             st.update({
                 "ok": True, "version": VERSION, "paused": not RESUME_EVENT.is_set(),
-                "printers": printers_status(),
-                "printers_ready": sum(1 for v in printers_status().values()
+                "printers": _psn,
+                "printers_ready": sum(1 for v in _psn.values()
                                       if v == "ready"),
                 "default_token_warning": DEFAULT_TOKEN_WARNING,
                 "service": service_state(),
@@ -3400,6 +3589,13 @@ class Handler(BaseHTTPRequestHandler):
                 db_audit("queue.cleared", ip=ip, site=site, details="%d jobs" % n)
                 log("[QUEUE] cleared %d pending job(s)" % n)
                 return self._send(200, {"ok": True, "canceled": n})
+            # v2.6.3: pause/resume must show in /health instantly (the
+            # snapshot refreshes every 3 s in the background - rebuild it
+            # now so the popup/dashboard never reads a stale pause flag).
+            try:
+                build_health_snapshot()
+            except Exception:
+                pass
             return self._send(200, {"ok": True,
                                     "paused": not RESUME_EVENT.is_set()})
 
@@ -3421,6 +3617,11 @@ class Handler(BaseHTTPRequestHandler):
             db_audit("token.rotated", ip=ip, site=site,
                      details="token changed via API")
             log("[TOKEN] rotated via API - new token saved to config.json")
+            # v2.6.3: token state must show in /health instantly
+            try:
+                build_health_snapshot()
+            except Exception:
+                pass
             return self._send(200, {"ok": True, "token": newtok,
                                     "hint": "save this token now - enter it"
                                             " in the extension Options page"})
@@ -3468,6 +3669,14 @@ class Handler(BaseHTTPRequestHandler):
                 db_audit("config.changed", ip=ip, site=site,
                          details=", ".join(changed))
                 log("[CONFIG] updated: %s" % ", ".join(changed))
+                # v2.6.3: config changes must be visible in /health
+                # IMMEDIATELY (the snapshot refreshes every 3 s in the
+                # background - rebuild it now so no client ever reads a
+                # stale setting back).
+                try:
+                    build_health_snapshot()
+                except Exception:
+                    pass
             return self._send(200, {"ok": True, "changed": changed,
                                     "config": redacted_config()})
 
@@ -3989,8 +4198,8 @@ def build_diagnostics():
         "paused": not RESUME_EVENT.is_set(),
         "db": st,
         "printers": [{"name": n, "status": s} for n, s in
-                     printers_status().items()],
-        "default_printer": default_printer(),
+                     printers_status_cached().items()],
+        "default_printer": default_printer_cached(),
         "sumatra_found": (find_sumatra() is not None) if IS_WIN else None,
         "browser_found": find_browser() is not None,
         "service": service_state(),
@@ -4021,7 +4230,7 @@ def _debug_problems():
             "message": "the queue is PAUSED - queued jobs wait and nothing"
                        " prints",
             "fix": "press Resume (popup / dashboard) or POST /queue/resume"})
-    st = printers_status()
+    st = printers_status_cached()
     if not st:
         probs.append({
             "level": "error", "check": "printers",
@@ -4122,8 +4331,8 @@ def build_debug_report():
                   "held": db_count_held() if db_ok else 0,
                   "current": cur},
         "printers": [{"name": n, "status": s}
-                     for n, s in printers_status().items()],
-        "default_printer": default_printer(),
+                     for n, s in printers_status_cached().items()],
+        "default_printer": default_printer_cached(),
         "sumatra_found": (find_sumatra() is not None) if IS_WIN else None,
         "sumatra_path": (SUMATRA_LAST["found"]
                          or CFG.get("sumatra_path") or ""),
@@ -5179,6 +5388,7 @@ def cmd_serve():
     try:
         db_init()
         start_worker()
+        start_health_refresher()
     except Exception:
         import traceback
         log("[BOOT] FATAL: startup failed before opening the port:")
@@ -5193,8 +5403,23 @@ def cmd_serve():
     addr = (host, CFG["port"])
     global BOUND_LAN
     BOUND_LAN = (host == "0.0.0.0")
+    # v2.6.3 single-instance pre-check: when OUR hub already answers on
+    # the port, this second start exits cleanly BEFORE touching the
+    # socket (previously the second instance could double-bind).
     try:
-        httpd = ThreadingHTTPServer(addr, Handler)
+        with urllib.request.urlopen(
+                "http://127.0.0.1:%d/health" % CFG["port"], timeout=2) as r:
+            pre = json.loads(r.read().decode("utf-8", "replace"))
+        if pre.get("app") == APP_NAME:
+            log("[BOOT] AdvPrint Pro v%s is ALREADY running on port %d -"
+                " this second start exits (single-instance guard)."
+                % (pre.get("version", "?"), CFG["port"]))
+            time.sleep(0.8)
+            return
+    except Exception:
+        pass
+    try:
+        httpd = HubServer(addr, Handler)
     except OSError as e:
         # second instance guard: hub already running? do not scare the user
         log("FATAL: cannot bind %s:%d (%s)" % (CFG["host"], CFG["port"], e))
@@ -5203,6 +5428,12 @@ def cmd_serve():
         time.sleep(1.2)
         return
     httpd.daemon_threads = True
+    # v2.6.3: warm the health snapshot BEFORE the first request (cheap:
+    # cached printer data only - no PowerShell on this path).
+    try:
+        build_health_snapshot()
+    except Exception:
+        pass
     print(BANNER)
     log("%s" % BRANDING)
     log("AdvPrint Pro v%s listening on http://%s:%d" % (VERSION, CFG["host"], CFG["port"]))

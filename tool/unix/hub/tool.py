@@ -104,8 +104,13 @@ def _report_start_failure():
     print("")
     print("  --- start-up diagnosis ------------------------------------")
     if _port_listening():
-        print("  Port %d      : SOMETHING is listening but it is not the"
-              " hub (or the token blocked /health)." % ph.CFG["port"])
+        if hub_running():
+            print("  Port %d      : the hub IS running and healthy." % ph.CFG["port"])
+        else:
+            print("  Port %d      : SOMETHING is listening but /health did"
+                  " not answer yet - either the hub is still warming up"
+                  " (try menu [1] again) or another program holds the"
+                  " port." % ph.CFG["port"])
     else:
         print("  Port %d      : nothing is listening - the hub process is"
               " not serving." % ph.CFG["port"])
@@ -181,9 +186,15 @@ def start_hub():
             print("Could not start the hub: %s" % e)
             return False
     print("Starting AdvPrint Pro ...")
-    # v2.6.1: poll up to 20 s (first start can be slow while the AV scans
-    # the fresh python runtime). Print a small progress beat.
-    for i in range(40):
+    # v2.6.3: poll up to 30 s and TELL THE DIFFERENCE between "nothing is
+    # listening" and "the hub is up but /health is still warming". The
+    # v2.6.2 report showed the hub listening (hub.log) while this tool
+    # gave up after 20 s because /health ran slow PowerShell scans on the
+    # request path - that is fixed hub-side; the extra headroom and the
+    # explicit "port is up" beat make any remaining slow case visible
+    # instead of a bare failure.
+    warmed = False
+    for i in range(60):
         time.sleep(0.5)
         if hub_running():
             ok, info = _health()
@@ -192,10 +203,14 @@ def start_hub():
             print("Tray icon 'AdvPrint Pro' should now sit next to the clock"
                   " (may hide under the ^ arrow).")
             return True
-        if i in (9, 19, 29):
+        if not warmed and _port_listening():
+            warmed = True
+            print("  ... port is up - the hub process is starting, waiting"
+                  " for its health endpoint (up to 30 s)")
+        if i in (9, 19, 29, 39, 49):
             print("  ... still waiting (%d s) - first start can be slow"
                   % ((i + 1) // 2))
-    print("The hub did not answer within 20 seconds.")
+    print("The hub did not answer within 30 seconds.")
     _report_start_failure()
     return False
 

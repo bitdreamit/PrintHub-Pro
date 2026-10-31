@@ -1,6 +1,72 @@
 # Changelog - AdvPrint Pro (Advanced Printer)
 by Bit Dream IT - Innovative Healthcare Solutions
 
+## v2.6.3 - INSTANT HEALTH + TRAY 64-BIT FIX + OWNER-LOCKOUT FIX RELEASE (2026-10-31)
+
+### Fixed: "hub did not answer within 20 seconds" while hub.log said "listening"
+(the exact user report this release fixes - hub.log showed
+`AdvPrint Pro v2.6.2 listening on http://127.0.0.1:9235` but the console
+tool gave up after 20 s and the extension showed OFFLINE)
+- **Root cause**: `/health` ran up to THREE PowerShell/WMI scans on the
+  request path (default printer + printer status + printer list, each
+  with a 20 s timeout). A cold WMI or an AV-slowed powershell.exe made
+  every probe outlive every client timeout - the desktop tool's TCP-only
+  check said RUNNING while /health never answered.
+- **Instant /health snapshot**: a background thread precomputes the whole
+  health body every 3 s; the HTTP route only hands out the finished dict.
+  No PowerShell/WMI call can ever block /health again. Printer name /
+  status / default caches refresh stale-while-revalidate in the
+  background; a failed scan is stamped so it cannot re-run on every
+  request. The snapshot is warmed BEFORE the hub prints "listening".
+
+### Fixed: tray never appeared - `ArgumentError('argument 11: OverflowError')`
+- hub.log showed `[TRAY] tray unavailable: ArgumentError('argument 11:
+  OverflowError: int too long to convert')` on every 64-bit machine:
+  the ctypes bindings had no prototypes, so the real 64-bit HMODULE of
+  GetModuleHandleW was truncated, sign-extended into a bogus value and
+  CreateWindowExW argument 11 (hInstance) failed to convert.
+- Every win32 function in the tray module now has exact
+  argtypes/restypes and the module handle is captured once as a true
+  64-bit value. The tray icon with the self-drawn dark menu really
+  shows on 64-bit Windows now.
+
+### Fixed: the owner's own PC could be locked out ("this IP is locked for another 124s" ON 127.0.0.1)
+- The loopback exemption was a config option that could be OFF; one
+  stale browser token then locked the owner's own dashboard, tray and
+  extension out for minutes.
+- Loopback is now UNCONDITIONALLY exempt (hard-coded in the hub).
+  Remote IPs keep the full 10-wrong-tokens -> 5 min lockout. The
+  Settings toggle is fixed ON everywhere.
+
+### Fixed: two hub instances could share one port (two BOOT lines in hub.log)
+- ThreadingHTTPServer defaults to SO_REUSEADDR, which on Windows lets a
+  SECOND hub process silently bind the SAME port (two BOOT lines 47 s
+  apart in hub.log, one socket, undefined owner).
+- The hub now binds exclusively on Windows (SO_EXCLUSIVEADDRUSE) and
+  pre-checks /health before binding: a second start exits cleanly with
+  "ALREADY running - single-instance guard" in hub.log.
+
+### Installer v2.6.3
+- PER-MACHINE install to %ProgramFiles%\AdvPrintPro with REAL admin
+  rights: the setup requests administrator in its manifest, so Windows
+  shows the UAC prompt by itself ("installation permission" is set
+  correctly, automatically). Upgrades remove the old per-user copy and
+  the old Start-Menu entries automatically.
+- SumatraPDF: when the PDF print engine is missing, the installer now
+  auto-installs it via winget (silent) - no more "SumatraPDF: n/a".
+
+### Also
+- Tray icon redrawn: deep brand blue + white printer + green ready LED,
+  clearly visible on light AND dark taskbars (the old light-periwinkle
+  icon washed out on white taskbars).
+- The console tool now waits up to 30 s and prints "port is up - the hub
+  process is starting, waiting for its health endpoint" instead of a
+  bare failure.
+- The extension popup and Options page distinguish OFFLINE / HUB
+  STARTING / HUB RUNNING - token problem (never a wrong "OFFLINE").
+- The extension polls /health with an 8 s AbortController timeout.
+- Removed the legacy `printhub.py` shim file (branding: one name only).
+
 ## v2.6.2 - EXTENSION AUTO-HEAL + TRAY MENU FIX RELEASE (2026-10-31)
 
 ### Fixed: extension said "OFFLINE" while the desktop tool showed "running"

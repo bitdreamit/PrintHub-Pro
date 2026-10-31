@@ -177,6 +177,109 @@ _WNDPROC = ctypes.WINFUNCTYPE(
     ctypes.c_size_t, ctypes.c_ssize_t)
 
 
+# ---- v2.6.3: EXPLICIT PROTOTYPES (fixes the 64-bit tray crash) --------
+# hub.log on 64-bit Windows showed:
+#   [TRAY] tray unavailable: ArgumentError('argument 11: OverflowError:
+#          int too long to convert')
+# Root cause: kernel32.GetModuleHandleW had no restype declared, so
+# ctypes truncated the real 64-bit HMODULE to a 32-bit signed int; the
+# WNDCLASSW.hInstance field (c_void_p) sign-extended it back into a huge
+# bogus value (~1.8e19); passing that field to CreateWindowExW - whose
+# argument 11 IS hInstance - then failed ctypes' default 32-bit
+# conversion. Net effect: the tray icon NEVER appeared on 64-bit
+# machines. Every function that touches a HANDLE / pointer now has exact
+# argtypes + restypes, so 64-bit values survive every call untouched.
+_void_p  = ctypes.c_void_p
+_u32     = ctypes.c_uint32
+_i32     = ctypes.c_int32
+_ssize   = ctypes.c_ssize_t
+_size    = ctypes.c_size_t
+_wstr    = ctypes.c_wchar_p
+_P       = ctypes.POINTER
+
+def _setprot(dll, name, restype=None, *argtypes):
+    try:
+        fn = getattr(dll, name)
+    except AttributeError:
+        return
+    if restype is not None:
+        fn.restype = restype
+    if argtypes:
+        fn.argtypes = list(argtypes)
+
+# kernel32
+_setprot(kernel32, "GetModuleHandleW", _void_p, _wstr)
+# user32 - window / class management
+_setprot(user32, "RegisterClassW", ctypes.c_ushort, _P(WNDCLASSW))
+_setprot(user32, "CreateWindowExW", _void_p,
+         _u32, _wstr, _wstr, _u32, _i32, _i32, _i32, _i32,
+         _void_p, _void_p, _void_p, _void_p)
+_setprot(user32, "DefWindowProcW", _ssize, _void_p, _u32, _size, _ssize)
+_setprot(user32, "DestroyWindow", wintypes.BOOL, _void_p)
+_setprot(user32, "ShowWindow", wintypes.BOOL, _void_p, _i32)
+_setprot(user32, "SetForegroundWindow", wintypes.BOOL, _void_p)
+_setprot(user32, "SetCapture", _void_p, _void_p)
+_setprot(user32, "ReleaseCapture", wintypes.BOOL)
+_setprot(user32, "GetMessageW", _ssize, _P(MSG), _void_p, _u32, _u32)
+_setprot(user32, "TranslateMessage", wintypes.BOOL, _P(MSG))
+_setprot(user32, "DispatchMessageW", _ssize, _P(MSG))
+_setprot(user32, "PostMessageW", wintypes.BOOL,
+         _void_p, _u32, _size, _ssize)
+_setprot(user32, "PostQuitMessage", None, _i32)
+_setprot(user32, "InvalidateRect", wintypes.BOOL, _void_p, _P(RECT),
+         wintypes.BOOL)
+_setprot(user32, "GetClientRect", wintypes.BOOL, _void_p, _P(RECT))
+_setprot(user32, "GetWindowRect", wintypes.BOOL, _void_p, _P(RECT))
+_setprot(user32, "GetCursorPos", wintypes.BOOL, _P(POINT))
+_setprot(user32, "SystemParametersInfoW", wintypes.BOOL,
+         _u32, _u32, _void_p, _u32)
+_setprot(user32, "LoadCursorW", _void_p, _void_p, _void_p)
+_setprot(user32, "LoadIconW", _void_p, _void_p, _void_p)
+_setprot(user32, "LoadImageW", _void_p,
+         _void_p, _wstr, _u32, _i32, _i32, _u32)
+# user32 - painting
+_setprot(user32, "GetDC", _void_p, _void_p)
+_setprot(user32, "ReleaseDC", _i32, _void_p, _void_p)
+_setprot(user32, "BeginPaint", _void_p, _void_p, _P(PAINTSTRUCT))
+_setprot(user32, "EndPaint", wintypes.BOOL, _void_p, _P(PAINTSTRUCT))
+_setprot(user32, "FillRect", _i32, _void_p, _P(RECT), _void_p)
+_setprot(user32, "DrawTextW", _i32, _void_p, _wstr, _i32, _P(RECT), _u32)
+# user32 - classic fallback menu
+_setprot(user32, "CreatePopupMenu", _void_p)
+_setprot(user32, "AppendMenuW", wintypes.BOOL,
+         _void_p, _u32, _size, _wstr)
+_setprot(user32, "TrackPopupMenu", wintypes.BOOL,
+         _void_p, _u32, _i32, _i32, _i32, _void_p, _void_p)
+_setprot(user32, "DestroyMenu", wintypes.BOOL, _void_p)
+# gdi32
+_setprot(gdi32, "GetDeviceCaps", _i32, _void_p, _i32)
+_setprot(gdi32, "GetTextExtentPoint32W", wintypes.BOOL,
+         _void_p, _wstr, _i32, _P(SIZE))
+_setprot(gdi32, "SelectObject", _void_p, _void_p, _void_p)
+_setprot(gdi32, "CreateFontW", _void_p,
+         _i32, _i32, _i32, _i32, _i32, _u32, _u32, _u32, _u32,
+         _u32, _u32, _u32, _u32, _wstr)
+_setprot(gdi32, "CreateSolidBrush", _void_p, _u32)
+_setprot(gdi32, "CreatePen", _void_p, _i32, _i32, _u32)
+_setprot(gdi32, "DeleteObject", wintypes.BOOL, _void_p)
+_setprot(gdi32, "MoveToEx", wintypes.BOOL,
+         _void_p, _i32, _i32, _P(POINT))
+_setprot(gdi32, "LineTo", wintypes.BOOL, _void_p, _i32, _i32)
+_setprot(gdi32, "SetBkMode", _i32, _void_p, _i32)
+_setprot(gdi32, "SetTextColor", _u32, _void_p, _u32)
+# shell32
+_setprot(shell32, "Shell_NotifyIconW", wintypes.BOOL,
+         _u32, _P(NOTIFYICONDATAW))
+# dwmapi
+if dwmapi is not None:
+    _setprot(dwmapi, "DwmSetWindowAttribute", _ssize,
+             _void_p, _u32, _void_p, _u32)
+
+# module handle is now a REAL unsigned 64-bit value (was silently
+# truncated before v2.6.3 - the direct cause of the tray crash)
+_HINSTANCE = kernel32.GetModuleHandleW(None)
+
+
 # v2.6.2: the menu window class is registered ONCE per process with a
 # MODULE-LEVEL trampoline that must never be garbage-collected (a
 # per-instance trampoline would dangle after the first menu closes and
@@ -252,7 +355,7 @@ class _MenuWindow(object):
         wc = WNDCLASSW()
         wc.style = CS_VREDRAW | CS_HREDRAW | CS_DROPSHADOW
         wc.lpfnWndProc = _MENU_PROC_REF      # module-level, never GC'd
-        wc.hInstance = kernel32.GetModuleHandleW(None)
+        wc.hInstance = _HINSTANCE            # real 64-bit HMODULE (v2.6.3)
         wc.lpszClassName = self.CLASSNAME
         wc.hCursor = user32.LoadCursorW(None, 32512)   # IDC_ARROW
         if not user32.RegisterClassW(ctypes.byref(wc)) \
@@ -318,7 +421,7 @@ class _MenuWindow(object):
             0x00000080 | 0x00000008,          # WS_EX_TOOLWINDOW | TOPMOST
             self.CLASSNAME, APP + " menu", 0x80000000,   # WS_POPUP
             int(x), int(y), self._width, self._height,
-            None, None, kernel32.GetModuleHandleW(None), None)
+            None, None, _HINSTANCE, None)
         if not self.hwnd:
             raise ctypes.WinError(kernel32.GetLastError())
         # Win11: rounded corners (ignored on Win10, fail-safe everywhere)
@@ -561,7 +664,7 @@ class Tray(object):
         self.wc = WNDCLASSW()
         self.wc.style = CS_VREDRAW | CS_HREDRAW
         self.wc.lpfnWndProc = _WNDPROC(self._wndproc)   # keep a reference!
-        self.wc.hInstance = kernel32.GetModuleHandleW(None)
+        self.wc.hInstance = _HINSTANCE                  # real 64-bit HMODULE
         self.wc.lpszClassName = "AdvPrintProTrayWnd"
         self.wc.hIcon = self._load_icon()
         if not user32.RegisterClassW(ctypes.byref(self.wc)) \

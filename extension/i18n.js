@@ -1,4 +1,4 @@
-/* AdvPrint Pro v2.6.2 - UI language: English + Bangla (বাংলা).
+/* AdvPrint Pro v2.6.3 - UI language: English + Bangla (বাংলা).
  * Shared by popup + options. The language comes from:
  *   1. chrome.storage.local.lang ("en" | "bn"), set in Options
  *   2. fallback: the browser UI language (auto-detect)
@@ -18,6 +18,8 @@
       popTokenBad: "The hub REJECTED your stored token - click Fix token (or update it in Options)",
       popTokenLocked: "Hub is rate-limiting this IP - retries paused, will resume automatically",
       popStatAuth: "Hub running - token mismatch (one click to fix)",
+      popStatSlow: "Hub starting - wait a moment, then reopen",
+      popStatSlowHint: "The hub process is up but its health check has not answered yet - the first start can be slow.",
       popFixTokenBtn: "Fix token",
       popFixTokenWorking: "Asking the hub for the current token...",
       popFixTokenOk: "Token fixed automatically - connected to the hub",
@@ -63,7 +65,7 @@
       optTypeGlob: "Glob (* wildcard)",
       optTypeRegex: "Regex",
       // about / branding
-      brandLine: "Version 2.6.2 - AdvPrint Pro (Advanced Printer) by Bit Dream IT - Innovative Healthcare Solutions - MIT license - 100% local - no cloud, no tracking."
+      brandLine: "Version 2.6.3 - AdvPrint Pro (Advanced Printer) by Bit Dream IT - Innovative Healthcare Solutions - MIT license - 100% local - no cloud, no tracking."
     },
     bn: {
       appName: "AdvPrint Pro",
@@ -74,6 +76,8 @@
       popTokenBad: "হাব আপনার সংরক্ষিত টোকেন প্রত্যাখ্যান করেছে - Fix token চাপুন (বা Options থেকে টোকেন দিন)",
       popTokenLocked: "হাব এই IP সাময়িকভাবে সীমিত করেছে - রিট্রি বিরতিতে আছে, স্বয়ংক্রিয়ভাবে পুনরায় শুরু হবে",
       popStatAuth: "হাব চালু আছে - টোকেন মিলছে না (এক ক্লিকে ঠিক হবে)",
+      popStatSlow: "হাব চালু হচ্ছে - একটু অপেক্ষা করে আবার খুলুন",
+      popStatSlowHint: "হাব প্রসেস চালু আছে কিন্তু হেলথ চেক এখনো উত্তর দেয়নি - প্রথম শুরু ধীর হতে পারে।",
       popFixTokenBtn: "টোকেন ঠিক করুন",
       popFixTokenWorking: "হাব থেকে বর্তমান টোকেন আনা হচ্ছে...",
       popFixTokenOk: "টোকেন স্বয়ংক্রিয়ভাবে ঠিক হয়েছে - হাবের সাথে সংযোগ হয়েছে",
@@ -117,7 +121,7 @@
       optRulesType: "ধরন",
       optTypeGlob: "Glob (* ওয়াইল্ডকার্ড)",
       optTypeRegex: "Regex",
-      brandLine: "সংস্করণ 2.6.2 - AdvPrint Pro (Advanced Printer) by Bit Dream IT - Innovative Healthcare Solutions - MIT লাইসেন্স - ১০০% লোকাল - কোনো ক্লাউড নেই, কোনো ট্র্যাকিং নেই।"
+      brandLine: "সংস্করণ 2.6.3 - AdvPrint Pro (Advanced Printer) by Bit Dream IT - Innovative Healthcare Solutions - MIT লাইসেন্স - ১০০% লোকাল - কোনো ক্লাউড নেই, কোনো ট্র্যাকিং নেই।"
     }
   };
 

@@ -1,40 +1,49 @@
 ; ============================================================
 ;  AdvPrint Pro (Advanced Printer) - Windows one-time installer
 ;  by Bit Dream IT - Innovative Healthcare Solutions
-;  v2.6.2 - built with NSIS 3.11 on Linux
+;  v2.6.3 - built with NSIS 3.11 on Linux
 ; ------------------------------------------------------------
-;  - per-user install to %LOCALAPPDATA%\AdvPrintPro (no admin
-;    needed, no UAC, works on locked-down enterprise PCs)
+;  - PER-MACHINE install to %ProgramFiles%\AdvPrintPro with
+;    REAL administrator rights (v2.6.3): the exe requests admin
+;    via its manifest, so Windows shows the UAC prompt by itself
+;    ("installation permission" is set correctly, automatically).
+;    Users without admin: use the portable FULL zip instead
+;    (docs, chapter "Portable install").
 ;  - COMPLETE payload: hub + desktop tool + tray + service +
-;    extension + docs + FULL bundled Python 3.11.9 runtime
-;    (the v2.5.3 download was incomplete - that is why Windows
-;    said "cannot access"; this setup can never do that again)
+;    extension + docs + SumatraPDF (PDF print engine, bundled)
+;    + FULL bundled Python 3.11.9 runtime (the v2.5.3 download
+;    was incomplete - that is why Windows said "cannot access";
+;    this setup can never do that again)
 ;  - runtime ships AdvPrintPro.exe (= pythonw.exe renamed):
 ;    Task Manager shows "AdvPrintPro", never "python"
 ;  - auto-run = NORMAL STARTUP APP (visible in Task Manager >
 ;    Startup apps; old PrintHub Pro auto-run/task is removed)
 ;  - optional: run as a REAL Windows service (headless, services.msc)
-;  - cleans up pre-2.6 "PrintHub Pro" installs on upgrade
+;  - cleans up pre-2.6.3 installs on upgrade (per-user
+;    %LOCALAPPDATA%\AdvPrintPro copy AND the old "PrintHub Pro")
 ;  - real uninstaller with Add/Remove Programs entry
-;  Silent install:  AdvPrint-Pro-Setup-2.6.2.exe /S
+;  Silent install:  AdvPrint-Pro-Setup-2.6.3.exe /S
 ; ============================================================
 
 Unicode true
 Name "AdvPrint Pro (Advanced Printer)"
-OutFile "/home/z/my-project/build/AdvPrint/installer/AdvPrint-Pro-Setup-2.6.2.exe"
-InstallDir "$LOCALAPPDATA\AdvPrintPro"
-InstallDirRegKey HKCU "Software\AdvPrintPro" "InstallDir"
-RequestExecutionLevel user
+OutFile "/home/z/my-project/build/AdvPrint/installer/AdvPrint-Pro-Setup-2.6.3.exe"
+InstallDir "$PROGRAMFILES64\AdvPrintPro"
+InstallDirRegKey HKLM "Software\AdvPrintPro" "InstallDir"
+; v2.6.3: full admin rights - the Windows UAC prompt appears by itself
+; when the setup starts (requestedExecutionLevel requireAdministrator).
+; Nothing is installed "half-permissioned" any more.
+RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 SetDatablockOptimize on
 ShowInstDetails show
 ShowUnInstDetails show
 ManifestDPIAware true
 
-VIProductVersion "2.6.2.0"
+VIProductVersion "2.6.3.0"
 VIAddVersionKey ProductName "AdvPrint Pro (Advanced Printer)"
-VIAddVersionKey FileVersion "2.6.2"
-VIAddVersionKey ProductVersion "2.6.2"
+VIAddVersionKey FileVersion "2.6.3"
+VIAddVersionKey ProductVersion "2.6.3"
 VIAddVersionKey CompanyName "Bit Dream IT - Innovative Healthcare Solutions"
 VIAddVersionKey LegalCopyright "MIT License"
 VIAddVersionKey FileDescription "AdvPrint Pro - silent printing for any web page, PDF or application (setup)"
@@ -61,7 +70,7 @@ VIAddVersionKey FileDescription "AdvPrint Pro - silent printing for any web page
 
 ; ---------------- section descriptions ----------------
 Function LaunchHub
-  ReadRegStr $R0 HKCU "Software\AdvPrintPro" "PythonW"
+  ReadRegStr $R0 HKLM "Software\AdvPrintPro" "PythonW"
   ${If} $R0 != ""
     Exec '"$R0" "$INSTDIR\hub\advprint.py" serve'
     DetailPrint "Hub starting on http://127.0.0.1:9235 (tray icon: AdvPrint Pro)"
@@ -139,10 +148,12 @@ Found:
 FunctionEnd
 
 ; ------------------------------------------------------------
-; remove pre-2.6 "PrintHub Pro" leftovers (upgrade safety)
+; remove ALL older installs (upgrade safety):
+;   - pre-2.6 "PrintHub Pro" leftovers
+;   - pre-2.6.3 PER-USER copy in %LOCALAPPDATA%\AdvPrintPro
 ; ------------------------------------------------------------
-Function RemoveLegacyPrintHub
-  DetailPrint "Removing old PrintHub Pro auto-run (pre-2.6)..."
+Function RemoveLegacyInstalls
+  DetailPrint "Removing older AdvPrint Pro / legacy auto-runs..."
   Delete "$SMSTARTUP\PrintHub Pro.lnk"
   nsExec::Exec 'schtasks /Delete /TN "$\"PrintHub Pro$\"" /F'
   nsExec::Exec 'net stop AdvPrintHub'
@@ -151,13 +162,22 @@ Function RemoveLegacyPrintHub
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintHubPro"
   DeleteRegKey HKCU "Software\PrintHubPro"
   RMDir "$SMPROGRAMS\PrintHub Pro"
+  ; pre-2.6.3 per-user install (this setup is per-machine now)
+  ReadRegStr $R7 HKCU "Software\AdvPrintPro" "InstallDir"
+  ${If} $R7 != ""
+    ${AndIf} $R7 != "$INSTDIR"
+    DetailPrint "Removing the old per-user copy: $R7"
+    RMDir /r "$R7"
+  ${EndIf}
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro"
+  DeleteRegKey HKCU "Software\AdvPrintPro"
 FunctionEnd
 
 ; ================= sections =================
 Section "AdvPrint Pro hub (required)" SEC_MAIN
   SectionIn RO
-  SetShellVarContext current
-  Call RemoveLegacyPrintHub
+  SetShellVarContext all
+  Call RemoveLegacyInstalls
 
   DetailPrint "Stopping any hub already running on port 9235..."
   nsExec::Exec 'powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 9235 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $$_ -Force -ErrorAction SilentlyContinue }"'
@@ -165,7 +185,6 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
   DetailPrint "Copying program files..."
   SetOutPath "$INSTDIR\hub"
   File "/home/z/my-project/build/AdvPrint/installer/stage/hub/advprint.py"
-  File "/home/z/my-project/build/AdvPrint/installer/stage/hub/printhub.py"
   File "/home/z/my-project/build/AdvPrint/installer/stage/hub/tool.py"
   File "/home/z/my-project/build/AdvPrint/installer/stage/hub/tray_windows.py"
   File "/home/z/my-project/build/AdvPrint/installer/stage/hub/service_main.py"
@@ -186,6 +205,7 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
   File "/oname=README.md" "/home/z/my-project/build/AdvPrint/installer/stage/README.md"
   File "/oname=LICENSE" "/home/z/my-project/build/AdvPrint/installer/LICENSE"
   File "/oname=advprint.ico" "/home/z/my-project/build/AdvPrint/installer/installer.ico"
+  ;;SUMATRA_LINE;;
 
   DetailPrint "Installing the bundled Python 3.11.9 runtime (standalone - no system Python needed)..."
   SetOutPath "$INSTDIR\runtime"
@@ -193,16 +213,27 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
 
   DetailPrint "Resolving the bundled launcher..."
   Call FindPythonW
-  WriteRegStr HKCU "Software\AdvPrintPro" "InstallDir" "$INSTDIR"
-  WriteRegStr HKCU "Software\AdvPrintPro" "PythonW" "$R0"
+  WriteRegStr HKLM "Software\AdvPrintPro" "InstallDir" "$INSTDIR"
+  WriteRegStr HKLM "Software\AdvPrintPro" "PythonW" "$R0"
 
-  ; ---- SumatraPDF info (not fatal) ----
-  ${If} ${FileExists} "$PROGRAMFILES\SumatraPDF\SumatraPDF.exe"
-    DetailPrint "SumatraPDF found (silent PDF printing ready)."
+  ; ---- SumatraPDF info (bundled copy already installed above) ----
+  ${If} ${FileExists} "$INSTDIR\tools\SumatraPDF.exe"
+    DetailPrint "SumatraPDF installed (bundled - silent PDF printing ready)."
+  ${ElseIf} ${FileExists} "$PROGRAMFILES\SumatraPDF\SumatraPDF.exe"
+    DetailPrint "SumatraPDF found on this PC (silent PDF printing ready)."
   ${ElseIf} ${FileExists} "$LOCALAPPDATA\SumatraPDF\SumatraPDF.exe"
-    DetailPrint "SumatraPDF found (silent PDF printing ready)."
+    DetailPrint "SumatraPDF found on this PC (silent PDF printing ready)."
   ${Else}
-    DetailPrint "SumatraPDF not found yet - install it later (guide: chapter Print engines) or run install-windows.bat which can winget-install it."
+    DetailPrint "SumatraPDF not found - auto-installing it via winget (silent, needs internet)..."
+    nsExec::ExecToLog 'winget install --id=SumatraPDF.SumatraPDF -e --silent --accept-package-agreements --accept-source-agreements'
+    Pop $R8
+    ${If} ${FileExists} "$PROGRAMFILES\SumatraPDF\SumatraPDF.exe"
+      DetailPrint "SumatraPDF installed via winget - silent PDF printing ready."
+    ${ElseIf} ${FileExists} "$LOCALAPPDATA\SumatraPDF\SumatraPDF.exe"
+      DetailPrint "SumatraPDF installed via winget - silent PDF printing ready."
+    ${Else}
+      DetailPrint "SumatraPDF could not be auto-installed (offline?). PDF printing needs it: run $INSTDIR\install\install-windows.bat later or download it from sumatrapdfreader.org (guide: chapter Print engines)."
+    ${EndIf}
   ${EndIf}
 
   ; ---- auto-run as a normal STARTUP APP (visible + controllable) ----
@@ -218,10 +249,10 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
   ${Else}
     DetailPrint "No usable pythonw.exe (bundled runtime missing + no system Python)."
     MessageBox MB_ICONEXCLAMATION|MB_OK \
-      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download AdvPrint-Pro-Setup-2.6.2.exe (the file may be damaged in transit) and run it again."
+      "Setup could not prepare the bundled Python runtime and found no system Python.$\n$\nPlease re-download AdvPrint-Pro-Setup-2.6.3.exe (the file may be damaged in transit) and run it again."
   ${EndIf}
 
-  ; ---- shortcuts + uninstaller ----
+  ; ---- shortcuts + uninstaller (Start Menu: all users) ----
   DetailPrint "Creating shortcuts..."
   CreateDirectory "$SMPROGRAMS\AdvPrint Pro"
   ${If} $R0 != ""
@@ -234,19 +265,19 @@ Section "AdvPrint Pro hub (required)" SEC_MAIN
     "$INSTDIR\docs\AdvPrint-Pro-Full-Guide.html"
   CreateShortcut "$SMPROGRAMS\AdvPrint Pro\Uninstall AdvPrint Pro.lnk" "$INSTDIR\uninstall.exe"
   WriteUninstaller "$INSTDIR\uninstall.exe"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "DisplayName" "AdvPrint Pro (Advanced Printer) by Bit Dream IT"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
-    "DisplayVersion" "2.6.2"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
+    "DisplayVersion" "2.6.3"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "Publisher" "Bit Dream IT - Innovative Healthcare Solutions"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "DisplayIcon" "$INSTDIR\advprint.ico"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "UninstallString" "$INSTDIR\uninstall.exe"
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "NoModify" 1
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro" \
     "NoRepair" 1
 SectionEnd
 
@@ -280,7 +311,7 @@ Section "Install browser extension files" SEC_EXT
   DetailPrint "Extension ready: chrome://extensions > Developer mode > Load unpacked > $INSTDIR\extension"
 SectionEnd
 
-LangString DescMain    ${LANG_ENGLISH} "The AdvPrint Pro hub, bundled Python 3.11 runtime, tray icon, auto-run at logon, desktop tool and full documentation. Required."
+LangString DescMain    ${LANG_ENGLISH} "The AdvPrint Pro hub, bundled Python 3.11 runtime, bundled SumatraPDF, tray icon, auto-run at logon, desktop tool and full documentation. Required."
 LangString DescService ${LANG_ENGLISH} "Run the hub headless as a real Windows service (services.msc). For servers / shared PCs. The normal auto-run already covers desktop use."
 LangString DescExt     ${LANG_ENGLISH} "Browser extension files installed to $INSTDIR\extension - load once via chrome://extensions > Load unpacked."
 
@@ -293,8 +324,8 @@ LangString DescExt     ${LANG_ENGLISH} "Browser extension files installed to $IN
 
 ; ================= uninstaller =================
 Section "Uninstall"
-  SetShellVarContext current
   DetailPrint "Stopping the hub and the service..."
+  SetShellVarContext all
   nsExec::Exec 'net stop AdvPrint'
   nsExec::Exec 'sc delete AdvPrint'
   nsExec::Exec 'powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 9235 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $$_ -Force -ErrorAction SilentlyContinue }"'
@@ -304,6 +335,9 @@ Section "Uninstall"
   nsExec::Exec 'schtasks /Delete /TN "$\"PrintHub Pro$\"" /F'
   Delete "$SMPROGRAMS\AdvPrint Pro\*.lnk"
   RMDir "$SMPROGRAMS\AdvPrint Pro"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro"
+  DeleteRegKey HKLM "Software\AdvPrintPro"
+  ; also clean a pre-2.6.3 per-user install if one is still around
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AdvPrintPro"
   DeleteRegKey HKCU "Software\AdvPrintPro"
   RMDir /r "$INSTDIR"

@@ -1,6 +1,39 @@
-AdvPrint Pro (Advanced Printer) v2.6.2 - START HERE
+AdvPrint Pro (Advanced Printer) v2.6.3 - START HERE
 ====================================================
 by Bit Dream IT - Innovative Healthcare Solutions
+
+WHAT'S NEW IN 2.6.3 (INSTANT HEALTH + TRAY 64-BIT + LOCKOUT FIX)
+  1. "HUB DID NOT ANSWER WITHIN 20 SECONDS" - FIXED FOR REAL.
+     Cause: the hub's /health check ran slow Windows printer scans
+     (PowerShell/WMI) on the request path, so the hub could listen
+     on port 9235 while no probe ever got an answer in time
+     (hub.log said "listening", the tool said "not answering",
+     the extension said OFFLINE). /health is now an instant,
+     precomputed snapshot - no slow scan can ever block it again.
+  2. TRAY ICON NOW REALLY APPEARS ON 64-BIT WINDOWS. The log line
+       [TRAY] tray unavailable: ArgumentError('argument 11:
+       OverflowError: int too long to convert')
+     was a 64-bit ctypes bug (truncated module handle). All win32
+     calls now carry exact prototypes - icon, dark menu, tooltip
+     and auto-run check all work.
+  3. YOUR OWN PC CAN NEVER LOCK YOU OUT ANY MORE. The dashboard
+     error "too many failed tokens - this IP is locked for another
+     124s" could hit 127.0.0.1 itself when the exemption was off.
+     Loopback is now unconditionally exempt, hard-coded.
+  4. NO MORE DOUBLE HUB. Two hub processes could share port 9235
+     (two BOOT lines in hub.log). The port is now bound
+     exclusively; a second start exits with a clear log line.
+  5. INSTALLER NOW ASKS FOR ADMIN LIKE A REAL DESKTOP APP: the
+     setup installs per-machine into Program Files and Windows
+     shows the UAC prompt automatically. Upgrades clean up the
+     old per-user copy. If SumatraPDF (the PDF print engine) is
+     missing, the installer installs it silently via winget.
+  6. NEW TRAY ICON: deep brand blue with a white printer and a
+     green ready dot - visible on light AND dark taskbars.
+  7. THE CONSOLE TOOL AND THE EXTENSION TELL THE TRUTH: the tool
+     waits up to 30 s and says when the port is already up; the
+     extension shows OFFLINE / HUB STARTING / TOKEN PROBLEM as
+     three different states.
 
 WHAT'S NEW IN 2.6.2 (EXTENSION + TRAY FIX RELEASE)
   1. EXTENSION "OFFLINE" WHILE THE DESKTOP TOOL SHOWS "RUNNING" -

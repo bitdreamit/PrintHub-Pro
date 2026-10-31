@@ -1029,14 +1029,38 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           // (token mismatch - hub is RUNNING). Before this, any 401
           // landed here as a generic error and the popup showed a
           // misleading "OFFLINE - start the hub first".
+          // v2.6.3: third state "slow" - the hub is LISTENING but
+          // /health did not answer within 8 s (still starting). The
+          // v2.6.3 hub serves /health from an instant snapshot, so this
+          // should be rare - but the popup must never hang or lie.
           try {
-            reply(await hubFetch("/health"));
+            const cfgS = await loadCfg();
+            const baseS = (cfgS.hubUrl || DEFAULTS.hubUrl)
+              .replace(/\/+$/, "");
+            const ctl = new AbortController();
+            const timer = setTimeout(() => ctl.abort(), 8000);
+            let hres, hdata;
+            try {
+              hres = await fetch(baseS + "/health",
+                                 { cache: "no-store",
+                                   signal: ctl.signal });
+              hdata = await hres.json();
+            } finally {
+              clearTimeout(timer);
+            }
+            reply(hdata && hdata.ok ? hdata
+                  : { ok: false, reason: "offline",
+                      error: "HTTP " + hres.status });
           } catch (e) {
+            const slow = e && (e.name === "AbortError");
             reply({ ok: false,
-                    reason: e && e.locked ? "locked"
+                    reason: slow ? "slow"
+                          : e && e.locked ? "locked"
                           : e && e.auth ? "auth"
                           : "offline",
-                    error: (e && e.message) || String(e) });
+                    error: slow ? "hub is listening but /health did not " +
+                                  "answer within 8 s - still starting"
+                                : (e && e.message) || String(e) });
           }
           break;
         case "retryInfo": {

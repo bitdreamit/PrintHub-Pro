@@ -27,7 +27,7 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.6.2"
+    assert d["version"] == "2.6.3"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
@@ -70,10 +70,14 @@ def test_wrong_token_get_gives_json_for_api_clients(hub):
     assert code == 401 and d["ok"] is False and "error" in d
 
 
-def test_wrong_token_counts_and_lockout(hub, cfg_reset):
-    # v2.0.1: loopback is exempt by default -> disable the exemption to
-    # exercise the remote-IP lock path (tests always come from 127.0.0.1)
-    advprint.CFG["lockout_exempt_loopback"] = False
+def test_wrong_token_counts_and_lockout(hub, cfg_reset, monkeypatch):
+    # v2.6.3: loopback can NEVER lock (hard-coded). The lock path only
+    # applies to remote IPs now - so simulate one (tests come from
+    # 127.0.0.1, which the hub always exempts).
+    monkeypatch.setattr(advprint.Handler, "_client_ip",
+                        lambda self: "203.0.113.77")
+    monkeypatch.setattr(advprint.Handler, "_is_loopback",
+                        lambda self: False)
     advprint._AUTH_FAILS.clear()
     codes = []
     for i in range(advprint.CFG["max_auth_failures"]):
@@ -499,13 +503,13 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert advprint.VERSION == "2.6.2"
+    assert advprint.VERSION == "2.6.3"
     # repo/package layout: tool/windows/portable/hub -> root/extension
     root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(advprint.__file__)))))
     ext = os.path.join(root, "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.6.2"
+        assert json.load(f)["version"] == "2.6.3"
 
 
 def test_log_rotation(tmp_path):
@@ -712,7 +716,7 @@ def test_v22_docs_page_served(hub):
     body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
             else d if isinstance(d, str) else json.dumps(d))
     assert "LAN sharing" in body and "POST /print" in body
-    assert "2.6.2" in body
+    assert "2.6.3" in body
 
 
 def test_v22_docs_wrong_token_json(hub):
@@ -725,7 +729,7 @@ def test_v22_dashboard_has_lan_card_and_docs(hub):
     assert 'id="lanBody"' in html and "LAN sharing" in html
     assert "/docs" in html and "shiftJob" in html
     assert 'id="dbgBody"' in html and "toggleDebug" in html
-    assert "2.6.2" in html
+    assert "2.6.3" in html
 
 
 def test_v22_health_lan_active(hub):
@@ -1012,7 +1016,7 @@ def test_v26_token_current_loopback_only(hub):
     code, d = hub.get("/token/current")
     assert code == 200 and d["ok"] is True
     assert d["token"] == hub.token
-    assert d["app"] == "AdvPrint Pro" and d["version"] == "2.6.2"
+    assert d["app"] == "AdvPrint Pro" and d["version"] == "2.6.3"
 
 
 def test_v26_token_current_rejects_remote(hub):
@@ -1084,8 +1088,8 @@ def test_v261_tray_module_ships_and_parses():
 
 
 def test_v261_version_single_source():
-    assert advprint.VERSION == "2.6.2"
-    assert advprint.VERSION_NAME.startswith("v2.6.2")
+    assert advprint.VERSION == "2.6.3"
+    assert advprint.VERSION_NAME.startswith("v2.6.3")
 
 
 def test_v261_cli_cmd_full_path():
@@ -1097,7 +1101,7 @@ def test_v261_cli_cmd_full_path():
 def test_v261_dashboard_live_tool_version():
     """The live debug tool must show the REAL version (was stuck v2.5)."""
     html = advprint.dashboard_html(query="?token=x")
-    assert "(v2.6.2)" in html
+    assert "(v2.6.3)" in html
     assert "(v2.5)" not in html
     assert "Hub is OFFLINE" in html          # offline-friendly buttons
 
@@ -1121,7 +1125,7 @@ def test_v261_tool_has_diagnose_menu():
     assert "Unblock-File" in src                     # MOTW repair
     assert "[13] Diagnose & fix" in src
     assert "Choose [0-13]" in src
-    assert "The hub did not answer within 20 seconds" in src
+    assert "The hub did not answer within 30 seconds" in src
 
 
 def test_v261_tool_manual_command_uses_full_path():
@@ -1171,7 +1175,7 @@ def test_v262_regular_endpoints_keep_cors(hub):
     endpoint is locked down."""
     import urllib.request
     code, d = hub.get("/health", token=None)
-    assert code == 200 and d["ok"] is True and d["version"] == "2.6.2"
+    assert code == 200 and d["ok"] is True and d["version"] == "2.6.3"
     with urllib.request.urlopen(urllib.request.Request(
             hub.base + "/health"), timeout=10) as resp:
         acao = resp.headers.get("Access-Control-Allow-Origin")
@@ -1185,8 +1189,9 @@ def test_v262_extension_background_autoheal():
     src = open(p, encoding="utf-8").read()
     assert "function autoHealToken" in src
     assert "/token/current" in src
-    assert 'reason: e && e.locked ? "locked"' in src
+    assert 'e && e.locked ? "locked"' in src
     assert 'e && e.auth ? "auth"' in src
+    assert 'slow ? "slow"' in src          # v2.6.3 third state
 
 
 def test_v262_popup_token_fix_button():
@@ -1227,3 +1232,120 @@ def test_v262_tray_selfdrawn_menu():
     assert "_show_menu_native" in src
     assert "CS_DROPSHADOW" in src
     assert "SPI_GETWORKAREA" in src
+
+
+# ============ v2.6.3: instant /health + tray ctypes + owner lockout ========
+
+def test_v263_health_is_instant(hub):
+    """THE v2.6.2 incident: hub.log said "listening" but /health never
+    answered in time because it ran PowerShell/WMI scans on the request
+    path. /health must answer FAST even when the printer scan hangs."""
+    def _slow_scan():
+        time.sleep(5)
+        return {}
+
+    old_win = advprint._printer_status_windows
+    old_nix = advprint._printer_status_unix
+    advprint._printer_status_windows = _slow_scan
+    advprint._printer_status_unix = _slow_scan
+    advprint._PS_CACHE["t"] = 0.0          # force stale + empty
+    advprint._PS_CACHE["v"] = {}
+    try:
+        t0 = time.time()
+        code, d = hub.get("/health", token=None)
+        dt = time.time() - t0
+        assert code == 200 and d["ok"] is True
+        assert dt < 2.0, "/health took %.1fs - a blocking scan is back" % dt
+        assert d["version"] == "2.6.3"
+    finally:
+        advprint._printer_status_windows = old_win
+        advprint._printer_status_unix = old_nix
+
+
+def test_v263_loopback_lockout_unconditional(hub):
+    """v2.6.2 real-world report: 127.0.0.1 itself got LOCKED ("this IP is
+    locked for another 124s") when lockout_exempt_loopback was off. The
+    owner's own IP must now be exempt NO MATTER WHAT the config says."""
+    old = advprint.CFG.get("lockout_exempt_loopback")
+    advprint.CFG["lockout_exempt_loopback"] = False   # the dangerous state
+    try:
+        for _ in range(15):                # far beyond max_auth_failures=10
+            code, d = hub.get("/jobs", token="definitely-wrong-token")
+            assert code == 401, "loopback got HTTP %s" % code
+            assert "locked" not in str(d.get("error", ""))
+    finally:
+        if old is None:
+            advprint.CFG.pop("lockout_exempt_loopback", None)
+        else:
+            advprint.CFG["lockout_exempt_loopback"] = old
+        advprint._AUTH_FAILS.pop("127.0.0.1", None)
+
+
+def test_v263_health_snapshot_flags(hub):
+    code, d = hub.get("/health", token=None)
+    assert code == 200
+    assert d.get("loopback_lock_exempt") is True
+
+
+def test_v263_single_instance_guards():
+    """A second hub start must never silently share the port (the
+    v2.6.2 log had two BOOT lines 47 s apart on one socket)."""
+    assert advprint.HubServer.allow_reuse_address == (not advprint.IS_WIN)
+    src = open(os.path.join(os.path.dirname(advprint.__file__),
+                            "advprint.py"), encoding="utf-8").read()
+    assert "SO_EXCLUSIVEADDRUSE" in src          # Windows exclusive bind
+    assert "single-instance pre-check" in src    # /health check before bind
+    assert "is ALREADY running on port" in src   # clear second-start log
+
+
+def test_v263_tray_prototypes_64bit():
+    """The "argument 11: OverflowError" fix: every win32 call carries
+    exact ctypes prototypes; no untyped GetModuleHandleW call remains."""
+    src = open(os.path.join(os.path.dirname(advprint.__file__),
+                            "tray_windows.py"), encoding="utf-8").read()
+    import ast
+    ast.parse(src)
+    assert "_HINSTANCE" in src
+    assert '_setprot(user32, "CreateWindowExW"' in src
+    assert "_setprot(kernel32, \"GetModuleHandleW\"" in src
+    assert "wc.hInstance = kernel32.GetModuleHandleW(None)" not in src
+    assert "kernel32.GetModuleHandleW(None), None)" not in src  # untyped CreateWindowExW arg
+
+
+def test_v263_printers_cache_stamped_on_failure(monkeypatch):
+    """A failed/empty printer scan must stamp the cache so it cannot
+    re-run on every request (the v2.6.2 hang amplifier)."""
+    calls = {"n": 0}
+
+    def _fail():
+        calls["n"] += 1
+        raise RuntimeError("AV blocked powershell")
+
+    monkeypatch.setattr(advprint, "_printer_status_windows", _fail)
+    monkeypatch.setattr(advprint, "_printer_status_unix", _fail)
+    advprint._PS_CACHE["t"] = 0.0
+    advprint._PS_CACHE["v"] = {}
+    for _ in range(5):
+        advprint.printers_status()
+    assert calls["n"] == 1            # stamped even on failure -> no storm
+
+
+def test_v263_printhub_shim_removed():
+    root = _repo_root()
+    for sub in ("windows", "unix"):
+        p = os.path.join(root, "tool", sub, "portable" if sub == "windows"
+                         else "", "hub", "printhub.py")
+        assert not os.path.isfile(p), p
+
+
+def test_v263_extension_three_states():
+    root = _repo_root()
+    bg = open(os.path.join(root, "extension", "background.js"),
+              encoding="utf-8").read()
+    assert '"slow"' in bg and "AbortController" in bg
+    pop = open(os.path.join(root, "extension", "popup.js"),
+               encoding="utf-8").read()
+    assert "popStatSlow" in pop
+    opt = open(os.path.join(root, "extension", "options.js"),
+               encoding="utf-8").read()
+    assert "HUB STARTING" in opt and "HUB RUNNING" in opt
