@@ -100,8 +100,22 @@
     );
   }
 
+  /* v2.6.2 SINGLE VERSION SOURCE: the version comes from the DOM
+   * attribute stamped by the ISOLATED-world relay (which reads the
+   * real manifest). The string below is only a last-resort fallback. */
+  var _apVerFallback = "2.6.2";
+  function _apVersion() {
+    try {
+      var v = document.documentElement &&
+              document.documentElement.getAttribute("data-advprint-ver");
+      return v || _apVerFallback;
+    } catch (_) {
+      return _apVerFallback;
+    }
+  }
+
   window.advprint = {
-    version: "2.6.1",
+    get version() { return _apVersion(); },
     status: () => call({ fn: "status" }),
     printers: () => call({ fn: "printers" }),
     history: (limit) => call({ fn: "history", limit: limit || 20 }),

@@ -1,6 +1,29 @@
-AdvPrint Pro (Advanced Printer) v2.6.1 - START HERE
+AdvPrint Pro (Advanced Printer) v2.6.2 - START HERE
 ====================================================
 by Bit Dream IT - Innovative Healthcare Solutions
+
+WHAT'S NEW IN 2.6.2 (EXTENSION + TRAY FIX RELEASE)
+  1. EXTENSION "OFFLINE" WHILE THE DESKTOP TOOL SHOWS "RUNNING" -
+     FIXED FOR GOOD. Cause: the extension kept an OLD hub token in
+     its storage (the hub had a different one), the hub answered
+     401, and the popup mislabeled that as "OFFLINE - start the hub
+     first". Now:
+       - the extension AUTO-HEALS: on the first 401 it silently
+         asks the RUNNING hub (same PC) for the current token,
+         stores it and retries - you do nothing.
+       - the popup now says "Hub running - token mismatch" instead
+         of the wrong "offline", and the token banner has a
+         one-click "Fix token" button as a manual backup.
+  2. TRAY MENU TEXT INVISIBLE (WHITE ON WHITE) - FIXED. On PCs with
+     shell replacements / custom themes the native menu inherited
+     shell colors and showed white text on a white box. The menu is
+     now drawn by AdvPrint itself: dark navy, white text, blue
+     hover, green checks - identical on every PC and every theme.
+  3. SECURITY: the token-pairing endpoint (/token/current) can no
+     longer be read by web pages (CORS locked); only the extension
+     and programs on the hub PC can use it.
+  4. The extension version you see anywhere (page API, popup,
+     options) now always equals the manifest version - one source.
 
 WHAT'S NEW IN 2.6.1 (HUB START + TRAY FIX RELEASE)
   1. "HUB OFFLINE" IS NOW SELF-DIAGNOSING AND SELF-HEALING:

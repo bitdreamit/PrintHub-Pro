@@ -27,7 +27,7 @@ from conftest import wait_until  # noqa: E402
 def test_health_open_no_token(hub):
     code, d = hub.get("/health", token=None)
     assert code == 200 and d["ok"] is True
-    assert d["version"] == "2.6.1"
+    assert d["version"] == "2.6.2"
     assert d["v2"] is True
     assert "100% local" in d["branding"]
 
@@ -499,13 +499,13 @@ def test_v1_database_migration(tmp_path):
 
 
 def test_version_anchors():
-    assert advprint.VERSION == "2.6.1"
+    assert advprint.VERSION == "2.6.2"
     # repo/package layout: tool/windows/portable/hub -> root/extension
     root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(advprint.__file__)))))
     ext = os.path.join(root, "extension", "manifest.json")
     with open(ext) as f:
-        assert json.load(f)["version"] == "2.6.1"
+        assert json.load(f)["version"] == "2.6.2"
 
 
 def test_log_rotation(tmp_path):
@@ -712,7 +712,7 @@ def test_v22_docs_page_served(hub):
     body = (d.decode("utf-8", "replace") if isinstance(d, bytes)
             else d if isinstance(d, str) else json.dumps(d))
     assert "LAN sharing" in body and "POST /print" in body
-    assert "2.6.1" in body
+    assert "2.6.2" in body
 
 
 def test_v22_docs_wrong_token_json(hub):
@@ -725,7 +725,7 @@ def test_v22_dashboard_has_lan_card_and_docs(hub):
     assert 'id="lanBody"' in html and "LAN sharing" in html
     assert "/docs" in html and "shiftJob" in html
     assert 'id="dbgBody"' in html and "toggleDebug" in html
-    assert "2.6.1" in html
+    assert "2.6.2" in html
 
 
 def test_v22_health_lan_active(hub):
@@ -1012,7 +1012,7 @@ def test_v26_token_current_loopback_only(hub):
     code, d = hub.get("/token/current")
     assert code == 200 and d["ok"] is True
     assert d["token"] == hub.token
-    assert d["app"] == "AdvPrint Pro" and d["version"] == "2.6.1"
+    assert d["app"] == "AdvPrint Pro" and d["version"] == "2.6.2"
 
 
 def test_v26_token_current_rejects_remote(hub):
@@ -1059,7 +1059,7 @@ def test_v26_legacy_header_accepted(hub):
 
 
 # ============================================================
-# v2.6.1 - hub start + tray fix release
+# v2.6.2 - extension auto-heal + tray menu fix release
 # ============================================================
 
 def test_v261_hub_dir_on_sys_path():
@@ -1084,8 +1084,8 @@ def test_v261_tray_module_ships_and_parses():
 
 
 def test_v261_version_single_source():
-    assert advprint.VERSION == "2.6.1"
-    assert advprint.VERSION_NAME.startswith("v2.6.1")
+    assert advprint.VERSION == "2.6.2"
+    assert advprint.VERSION_NAME.startswith("v2.6.2")
 
 
 def test_v261_cli_cmd_full_path():
@@ -1097,7 +1097,7 @@ def test_v261_cli_cmd_full_path():
 def test_v261_dashboard_live_tool_version():
     """The live debug tool must show the REAL version (was stuck v2.5)."""
     html = advprint.dashboard_html(query="?token=x")
-    assert "(v2.6.1)" in html
+    assert "(v2.6.2)" in html
     assert "(v2.5)" not in html
     assert "Hub is OFFLINE" in html          # offline-friendly buttons
 
@@ -1133,3 +1133,97 @@ def test_v261_tool_manual_command_uses_full_path():
     cmd = m._manual_command()
     assert "advprint.py" in cmd and " serve" in cmd
     assert os.sep in cmd                     # absolute, works from any cwd
+
+
+# ============ v2.6.2: extension auto-heal + self-drawn tray menu ===========
+
+def _repo_root():
+    # tool/windows/portable/hub/advprint.py -> repo root is 4 dirname ups
+    here = os.path.dirname(os.path.abspath(advprint.__file__))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(here))))
+
+
+def test_v262_token_current_cors_locked(hub):
+    """/token/current must NEVER answer with a permissive CORS header.
+    v2.6.2: Access-Control-Allow-Origin is always "null" - a web page
+    cannot read the token; the extension does not need CORS (it uses
+    host_permissions). Before this fix the default config answered
+    ACAO:* here, so ANY website could silently read the hub token."""
+    import urllib.request
+    import urllib.error
+    r = urllib.request.Request(hub.base + "/token/current")
+    try:
+        with urllib.request.urlopen(r, timeout=10) as resp:
+            code = resp.getcode()
+            acao = resp.headers.get("Access-Control-Allow-Origin")
+            body = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        code = e.code
+        acao = e.headers.get("Access-Control-Allow-Origin")
+        body = json.loads(e.read().decode("utf-8"))
+    assert code == 200 and body["ok"] is True
+    assert body["token"] == hub.token
+    assert acao == "null", "token endpoint must be CORS-locked (got %r)" % acao
+
+
+def test_v262_regular_endpoints_keep_cors(hub):
+    """/health keeps its normal CORS behavior - only the token
+    endpoint is locked down."""
+    import urllib.request
+    code, d = hub.get("/health", token=None)
+    assert code == 200 and d["ok"] is True and d["version"] == "2.6.2"
+    with urllib.request.urlopen(urllib.request.Request(
+            hub.base + "/health"), timeout=10) as resp:
+        acao = resp.headers.get("Access-Control-Allow-Origin")
+    assert acao == "*", "ordinary endpoints keep the old CORS behavior"
+
+
+def test_v262_extension_background_autoheal():
+    """background.js must self-heal a 401 via /token/current and reply
+    a structured hubStatus (auth vs offline) instead of a bare throw."""
+    p = os.path.join(_repo_root(), "extension", "background.js")
+    src = open(p, encoding="utf-8").read()
+    assert "function autoHealToken" in src
+    assert "/token/current" in src
+    assert 'reason: e && e.locked ? "locked"' in src
+    assert 'e && e.auth ? "auth"' in src
+
+
+def test_v262_popup_token_fix_button():
+    """The popup shows the honest 'token mismatch' state and offers a
+    one-click fix; plain OFFLINE is reserved for real network loss."""
+    root = _repo_root()
+    src = open(os.path.join(root, "extension", "popup.js"),
+               encoding="utf-8").read()
+    assert 'st.reason === "auth"' in src
+    assert "popStatAuth" in src
+    assert '$("bFixToken")' in src
+    hsrc = open(os.path.join(root, "extension", "popup.html"),
+                encoding="utf-8").read()
+    assert 'id="bFixToken"' in hsrc
+
+
+def test_v262_extension_single_version_source():
+    """api.js must read the manifest-stamped version (no hardcoded
+    drifting copy); the relay stamps it into the DOM."""
+    root = _repo_root()
+    src = open(os.path.join(root, "extension", "content", "api.js"),
+               encoding="utf-8").read()
+    assert "get version()" in src
+    rsrc = open(os.path.join(root, "extension", "content", "relay.js"),
+                encoding="utf-8").read()
+    assert "data-advprint-ver" in rsrc
+
+
+def test_v262_tray_selfdrawn_menu():
+    """The tray menu must be self-drawn (theme-proof) with the native
+    menu kept strictly as fallback."""
+    p = os.path.join(os.path.dirname(advprint.__file__), "tray_windows.py")
+    src = open(p, encoding="utf-8").read()
+    import ast
+    ast.parse(src)
+    assert "class _MenuWindow" in src
+    assert "COL_BG" in src and "COL_TEXT" in src and "COL_CHECK" in src
+    assert "_show_menu_native" in src
+    assert "CS_DROPSHADOW" in src
+    assert "SPI_GETWORKAREA" in src

@@ -1,6 +1,58 @@
 # Changelog - AdvPrint Pro (Advanced Printer)
 by Bit Dream IT - Innovative Healthcare Solutions
 
+## v2.6.2 - EXTENSION AUTO-HEAL + TRAY MENU FIX RELEASE (2026-10-31)
+
+### Fixed: extension said "OFFLINE" while the desktop tool showed "running"
+(the exact user report this release fixes)
+- **Root cause found in real user data**: the hub audit log was full of
+  `auth.failed "wrong token"` entries arriving every minute from the
+  extension. The extension stores the hub token in its own storage;
+  after an update / token rotation the stored token no longer matched
+  the hub's config token, so every call answered HTTP 401 - and the
+  popup MISLABELED that as "OFFLINE - start the hub first", while the
+  desktop tool (which reads the token from config.json) correctly
+  showed "running on 127.0.0.1:9235".
+- **Token auto-heal (zero user action)**: the moment the hub rejects
+  the token (401), the extension now asks the RUNNING hub for its
+  current token via GET /token/current (loopback-only pairing),
+  stores it and retries the original call transparently. A stale
+  token can never again make the extension look offline. Rate-limited
+  to one attempt per 30 s.
+- **Honest status line**: the popup now distinguishes "Hub offline"
+  (really not reachable) from "Hub running - token mismatch". The
+  token banner gained a one-click **Fix token** button that runs the
+  same pairing on demand (works even when the auto attempt is inside
+  its rate-limit window).
+
+### Fixed: tray menu text invisible (white on white)
+- On PCs with third-party shell replacements / custom themes
+  (ExplorerPatcher, StartAllBack, dark-theme tools) the native Win32
+  tray menu inherited shell colors and rendered **white text on a
+  white background** - the menu looked like an empty white box.
+- The tray menu is now a **self-drawn topmost popup window**: dark
+  navy background, white text, blue hover highlight, green
+  checkmarks, rounded corners on Windows 11, DPI-aware. It paints
+  identically on every machine regardless of theme or shell tools.
+- If the self-drawn menu ever fails to open, the hub falls back to
+  the classic native menu (previous behavior) - fail-safe as always.
+
+### Security hardening
+- `/token/current` (the loopback pairing endpoint) previously answered
+  with `Access-Control-Allow-Origin: *` on the default config - any
+  website could silently READ the hub token out of it. It now always
+  answers with `Access-Control-Allow-Origin: "null"`: browsers block
+  web pages, the extension keeps working through its host
+  permissions, LAN hubs never served it at all (loopback-only).
+
+### Single version source (extension)
+- `window.advprint.version` (MAIN world) now reads the REAL manifest
+  version stamped into the DOM by the relay content script - no more
+  hardcoded version copies drifting apart inside the extension.
+- The Options update check reads `chrome.runtime.getManifest()`
+  directly; the popup header, options header and About line all show
+  2.6.2 from one release-wide bump.
+
 ## v2.6.1 - HUB START + TRAY FIX RELEASE (2026-10-31)
 
 ### Fixed: "hub always offline" on Windows (the big one)

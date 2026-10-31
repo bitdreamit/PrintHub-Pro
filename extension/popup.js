@@ -49,6 +49,25 @@ $("bTokenHelp").addEventListener("click", () => {
   chrome.tabs.create({ url: "options.html#settings" });
 });
 
+/* v2.6.2: ONE-CLICK token fix straight from the popup. The hub keeps
+ * refusing our stored token (401) - ask it for the current token via
+ * /token/current (loopback only) and retry. No Options visit needed. */
+$("bFixToken").addEventListener("click", async () => {
+  const b = $("bFixToken");
+  b.disabled = true;
+  msg(AdvPrintI18n.t("popFixTokenWorking"), "info");
+  const r = await send({ type: "tokenDetect" });
+  b.disabled = false;
+  if (r && r.ok) {
+    msg(AdvPrintI18n.t("popFixTokenOk"), "info");
+    await chrome.storage.local.remove("authProblem");
+    refresh();
+  } else {
+    msg(AdvPrintI18n.t("popFixTokenFail") +
+        "  [" + ((r && r.error) || "?") + "]", "err");
+  }
+});
+
 /* ---------- master switches (Enable / Queue Mode) ---------- */
 function renderEnabledState(off) {
   document.body.classList.toggle("off", off);
@@ -117,6 +136,19 @@ async function refresh() {
       const fl = await send({ type: "flushRetries" });
       if (fl.ok && fl.sent) msg(fl.sent + " parked job(s) delivered", "info");
     }
+  } else if (st.reason === "auth") {
+    /* v2.6.2: the hub ANSWERED but rejected the stored token - it is
+     * RUNNING (the desktop tool shows the same hub as running). Never
+     * say "offline" here; show the token banner with the one-click
+     * fix instead. Background auto-heal has already tried once; this
+     * state only appears when that could not succeed (LAN hub etc.). */
+    $("dot").classList.remove("on");
+    $("stat").textContent = AdvPrintI18n.t("popStatAuth");
+    $("connect").textContent = "";
+    $("qstate").textContent = "-";
+    $("qpend").textContent = "";
+    showOffline(false);
+    showTokenWarning(true, "token");
   } else {
     $("dot").classList.remove("on");
     $("stat").textContent = "Hub offline";

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ============================================================
-#  AdvPrint Pro v2.5.0  -  Print from any web page to any printer
+#  AdvPrint Pro v2.6.2  -  Print from any web page to any printer
 #  by Bit Dream IT  -  MIT licensed, 100% local & open source
 #  AdvPrint Pro - Version 2.3.0 - by Bit Dream IT - MIT license
 #  100% local - no cloud, no tracking.
@@ -67,8 +67,8 @@ _HUB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HUB_DIR not in sys.path:
     sys.path.insert(0, _HUB_DIR)
 
-VERSION = "2.6.1"
-VERSION_NAME = "v2.6.1 (hub fix release)"
+VERSION = "2.6.2"
+VERSION_NAME = "v2.6.2 (extension + tray fix release)"
 FULL_BRAND = ("AdvPrint Pro (Advanced Printer) by "
               "Bit Dream IT - Innovative Healthcare Solutions")
 BRANDING = ("AdvPrint Pro (Advanced Printer) - Version %s - by "
@@ -2658,6 +2658,26 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def _send_local(self, code, obj):
+        """v2.6.2: like _send() but CORS-LOCKED for token-bearing replies.
+        Access-Control-Allow-Origin is always "null" here, so a WEB PAGE
+        from anywhere can never read the answer (its fetch is blocked by
+        the browser). The browser extension does not need CORS at all -
+        it has host_permissions for the hub address - so the extension
+        keeps working while the token stays invisible to websites."""
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        for k, v in CORS_HEADERS:
+            self.send_header(k, v)
+        self.send_header("Access-Control-Allow-Origin", "null")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def _send_file(self, path, download_name, ctype="application/pdf"):
         try:
             with open(path, "rb") as f:
@@ -2861,14 +2881,19 @@ class Handler(BaseHTTPRequestHandler):
         # owner's own PC can always recover the dashboard (a stale
         # bookmark must never require reading config files). Remote IPs
         # always get 403 - the token never leaves the hub PC.
+        # v2.6.2: answered with _send_local (Access-Control-Allow-Origin
+        # is always "null") - before this, _cors() could answer
+        # ACAO:* on the default config and ANY website could read the
+        # token out of this endpoint. Extension keeps working (it uses
+        # host_permissions, not CORS); websites are blocked again.
         if route == "/token/current":
             if not self._is_loopback():
-                return self._send(403, {
+                return self._send_local(403, {
                     "ok": False,
                     "error": "loopback only - run this on the hub PC"})
-            return self._send(200, {"ok": True, "token": CFG["token"],
-                                    "app": APP_NAME,
-                                    "version": VERSION})
+            return self._send_local(200, {"ok": True, "token": CFG["token"],
+                                          "app": APP_NAME,
+                                          "version": VERSION})
 
         # /dashboard - browser page with its own early auth so browser
         # users always get the HTML error page (v2.0.2: /audit, /stats

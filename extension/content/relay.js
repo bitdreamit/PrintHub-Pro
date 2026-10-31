@@ -18,6 +18,24 @@
   var hookOn = true;
   var failFallback = "tab";   // "tab" = open URL in new tab, "none" = stay silent
 
+  /* v2.6.2 SINGLE VERSION SOURCE: the MAIN-world api.js cannot read
+   * chrome.runtime (MAIN world has no extension APIs), so the relay
+   * (ISOLATED world) stamps the REAL manifest version into the DOM.
+   * window.advprint.version then reads this attribute - the version
+   * shown on every page always equals the manifest version, with no
+   * hardcoded copy to drift out of sync. */
+  function stampVersion() {
+    try {
+      var el = document.documentElement;
+      if (el && !el.hasAttribute("data-advprint-ver")) {
+        el.setAttribute("data-advprint-ver",
+                        chrome.runtime.getManifest().version);
+      }
+    } catch (_) {}
+  }
+  stampVersion();
+  document.addEventListener("readystatechange", stampVersion);
+
   function applyState() {
     // tell the MAIN-world hook + api what to do
     window.postMessage({ __advprint: true, kind: "state", hookOn: hookOn,

@@ -192,6 +192,49 @@ async function updateRetryBadge() {
 /* ---------------- hub client ---------------- */
 class HubError extends Error {}
 
+/* ---------------- v2.6.2: token auto-heal ----------------
+ * THE #1 REASON THE EXTENSION SAID "OFFLINE" WHILE THE DESKTOP TOOL
+ * SHOWED "RUNNING": the extension keeps the hub token in its storage.
+ * After an update / token rotation the stored token no longer matches
+ * the hub's config token -> every call answers 401 -> the popup showed
+ * a misleading "OFFLINE - start the hub first".
+ * Fix: the moment the hub rejects the token, ask the HUB ITSELF for
+ * its current token via GET /token/current (loopback only, CORS-locked
+ * since v2.6.2 - web pages can never read it). Store it and retry the
+ * original call transparently. Rate-limited to one attempt per 30 s
+ * so a broken setup can never hammer the hub. */
+const HEAL = { last: 0, inflight: null };
+
+function autoHealToken() {
+  if (Date.now() - HEAL.last < 30000) return Promise.resolve(false);
+  if (HEAL.inflight) return HEAL.inflight;
+  HEAL.last = Date.now();
+  HEAL.inflight = (async () => {
+    try {
+      const cfg = await loadCfg();
+      const base = (cfg.hubUrl || DEFAULTS.hubUrl).replace(/\/+$/, "");
+      const r = await fetch(base + "/token/current", { cache: "no-store" });
+      if (!r.ok) return false;
+      const d = await r.json();
+      if (d && d.ok && d.token) {
+        await chrome.storage.local.set({ token: d.token });
+        invalidateCfg();
+        await setAuthProblem(false);
+        reportDebug("info",
+                    "token auto-synced from the running hub (loopback " +
+                    "pairing) - connection restored without user action");
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;              // hub unreachable / LAN hub - give up quietly
+    } finally {
+      HEAL.inflight = null;
+    }
+  })();
+  return HEAL.inflight;
+}
+
 async function hubFetch(path, opts = {}) {
   const cfg = await loadCfg();
   const base = (cfg.hubUrl || DEFAULTS.hubUrl).replace(/\/+$/, "");
@@ -212,6 +255,18 @@ async function hubFetch(path, opts = {}) {
     err.status = res.status;
     err.auth = res.status === 401;
     err.locked = res.status === 429;
+    // v2.6.2: token rejected -> try the automatic fix FIRST. When the
+    // hub runs on this same PC it hands out its current token at
+    // /token/current (loopback only); the original call is then
+    // retried transparently, so a stale token can never again show
+    // the extension as "offline" while the desktop tool is running.
+    if (res.status === 401 && !path.startsWith("/token/current")) {
+      reportDebug("warn",
+                  "hub rejected the stored token (401) - auto token " +
+                  "sync starts (" + base + ")",
+                  "extension " + chrome.runtime.getManifest().version);
+      if (await autoHealToken()) return hubFetch(path, opts);
+    }
     // v2.3: report the failure to /debug while Debug mode is on (skip
     // /debug/report itself so reporting can never recurse into itself)
     if (!path.startsWith("/debug/report") && !DBG_SENDING) {
@@ -969,7 +1024,20 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           break;
         }
         case "hubStatus":
-          reply(await hubFetch("/health"));
+          // v2.6.2: structured failure - the popup must be able to tell
+          // "hub not reachable" (real offline) from "hub answered 401"
+          // (token mismatch - hub is RUNNING). Before this, any 401
+          // landed here as a generic error and the popup showed a
+          // misleading "OFFLINE - start the hub first".
+          try {
+            reply(await hubFetch("/health"));
+          } catch (e) {
+            reply({ ok: false,
+                    reason: e && e.locked ? "locked"
+                          : e && e.auth ? "auth"
+                          : "offline",
+                    error: (e && e.message) || String(e) });
+          }
           break;
         case "retryInfo": {
           const q = await retryQueueInfo();
